@@ -1,3 +1,4 @@
+import { capabilities } from './authCapabilities';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../App';
@@ -22,6 +23,7 @@ function mockApi(handler?: (path: string, init?: RequestInit) => Response | Prom
     const path = String(input);
     const custom = handler?.(path, init);
     if (custom) return custom;
+    if (path === '/portal/v1/auth/capabilities') return Response.json(capabilities);
     if (path === '/portal/v1/account/profile') return Response.json(profile);
     if (path === '/portal/v1/organizations/') return Response.json(organizations);
     return Response.json([]);

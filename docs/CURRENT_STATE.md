@@ -1,12 +1,12 @@
 # PeerOnQ current state
 
-## Current source contract — 2026-09-27
+## Current source contract — 2026-09-28
 
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.72`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9072`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.73`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9073`. A source
   version does not establish that a matching signed package has been built or published.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.
@@ -26,6 +26,31 @@ production approval or a fresh execution of the historical tests farther down th
 - Runtime, release-license, physical-device and performance gates remain evidence-bound. See
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
+
+## Customer portal completion candidate - 2026-09-28
+
+- Source 0.9.73 adds auth capabilities, verification resend, authenticated password change,
+  server-driven registration/password/MFA UX and single-flight session refresh.
+- Customer MFA defaults off while stored enrollment/recovery/organization requirements remain
+  preserved. Admin MFA, native device identity, protocols and accountless LAN are unchanged.
+- Installer upgrades preserve valid registration modes and accept explicit registration/MFA flags.
+  Public Open registration requires verified email and configured SMTP outside development.
+- Real local HTTPS/FileSink acceptance passed email/password/session, tenant/RBAC/policy,
+  stored MFA policy transitions and actual rate-limit/lockout checks. This is not public SMTP proof.
+- Self-service device claim remains blocked on a native short-lived ownership-proof exchange;
+  no device-ID-only or raw-service-token UI was added.
+- Live production email acceptance remains BLOCKED without approved mailbox/SMTP access.
+  A local release candidate does not establish installation on the production host.
+
+Candidate validation: Portal 58/58, Cloud.Infrastructure 56/56, public website 86/86;
+114 real local HTTPS/FileSink requests passed. Full requested solution test execution had
+885 passes, 4 failures and 5 skips; isolated Media retains two input-latency failures and one
+live-TURN skip, while isolated Transport passes 7/7. Native/protocol code was not changed to
+hide those results. Full build passed with no warnings/errors. Local :5555 serves and verifies
+the matching 0.9.73 unsigned-public-pilot x64/ARM64 pair. The full server candidate is
+`dist/server/peeronq-server-0.9.73.run`, SHA-256
+`997841e6da699170e080c5949e19c59491c8050edfdfa29efce2a4031c28db1d`.
+It has not been installed on the production host; live email and release-signing gates remain open.
 
 ## Operator deployment evidence — 2026-09-27
 

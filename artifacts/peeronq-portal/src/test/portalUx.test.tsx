@@ -1,3 +1,4 @@
+import { capabilities } from './authCapabilities';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -16,6 +17,7 @@ function mockApi(custom?: (path: string, init?: RequestInit) => Response | Promi
     const path = String(input);
     const response = custom?.(path, init);
     if (response) return response;
+    if (path === '/portal/v1/auth/capabilities') return Response.json(capabilities);
     if (path === '/portal/v1/account/profile') return Response.json(profile);
     if (path === '/portal/v1/organizations/') return Response.json(organizations);
     if (path.endsWith('/policy')) return Response.json({ ...policy, organizationId: path.includes('org-b') ? 'org-b' : 'org-a' });

@@ -41,6 +41,8 @@ Bootstrap options:
   --admin-allowed-cidr CIDR (default: the server LAN IP's /24)
   --region REGION       (default: az-1)
   --admin-email EMAIL   (default: admin@peeronq.com)
+  --customer-registration-mode Closed|InvitationOnly|Open (preserves existing mode on upgrade)
+  --enable-customer-mfa | --disable-customer-mfa (default: disabled; Admin MFA unchanged)
   --customer-smtp-host HOST (optional; enables customer email delivery)
   --customer-smtp-port PORT (default: 587 when SMTP is enabled)
   --platform-upgrade-keyring PATH
@@ -55,7 +57,7 @@ Optional customer email options:
   --customer-smtp-port PORT
                         Enable SMTP during bootstrap or fill missing SMTP settings
                         during an upgrade. Existing non-empty values are not replaced.
-                        Without these options, customer mail stays disabled safely.
+                        Without these options, existing customer mail policy is preserved.
 
 TLS import options:
   --tls-cert PATH --tls-key PATH
@@ -293,15 +295,35 @@ ensure_turn_external_ip_configuration() {
   esac
 }
 
+ensure_customer_policy_configuration() {
+  customer_registration_mode=$(read_environment_value PEERONQ_CUSTOMER_REGISTRATION_MODE 2>/dev/null || true)
+  if environment_has_key PEERONQ_CUSTOMER_REGISTRATION_MODE && [ -z "$customer_registration_mode" ]; then fail "PEERONQ_CUSTOMER_REGISTRATION_MODE must not be empty"; fi
+  case "$customer_registration_mode" in Closed|InvitationOnly|Open|'') ;; *) fail "PEERONQ_CUSTOMER_REGISTRATION_MODE must be Closed, InvitationOnly, or Open" ;; esac
+  if [ -n "${CUSTOMER_REGISTRATION_MODE:-}" ]; then customer_registration_mode=$CUSTOMER_REGISTRATION_MODE; fi
+  customer_registration_mode=${customer_registration_mode:-Closed}
+  case "$customer_registration_mode" in Closed|InvitationOnly|Open) ;; *) fail "--customer-registration-mode must be Closed, InvitationOnly, or Open" ;; esac
+  customer_mfa_enabled=$(read_environment_value PEERONQ_CUSTOMER_MFA_ENABLED 2>/dev/null || true)
+  case "$customer_mfa_enabled" in true|false|'') ;; *) fail "PEERONQ_CUSTOMER_MFA_ENABLED must be true or false" ;; esac
+  if [ -n "${CUSTOMER_MFA_ENABLED:-}" ]; then customer_mfa_enabled=$CUSTOMER_MFA_ENABLED; fi
+  case "${customer_mfa_enabled:-false}" in true|false) ;; *) fail "customer MFA value must be true or false" ;; esac
+}
+
+commit_customer_policy_configuration() {
+  set_environment_value PEERONQ_CUSTOMER_REGISTRATION_MODE "$customer_registration_mode"
+  set_environment_value PEERONQ_CUSTOMER_MFA_ENABLED "${customer_mfa_enabled:-false}"
+}
+
 ensure_customer_mail_configuration() {
+  ensure_customer_policy_configuration
   if [ "${CUSTOMER_MAIL_DISABLE_REQUESTED:-false}" = "true" ]; then
+    [ "$customer_registration_mode" = Closed ] || fail "Disabling customer mail requires explicit Closed registration; existing registration mode was preserved"
     set_environment_value PEERONQ_CUSTOMER_MAIL_PROVIDER Disabled
-    set_environment_value PEERONQ_CUSTOMER_REGISTRATION_MODE Closed
     set_environment_value PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION false
     set_environment_value PEERONQ_CUSTOMER_SMTP_HOST ""
     set_environment_value PEERONQ_CUSTOMER_SMTP_PORT 587
     set_environment_value PEERONQ_CUSTOMER_SMTP_USERNAME ""
     set_environment_value PEERONQ_CUSTOMER_SMTP_PASSWORD ""
+    commit_customer_policy_configuration
     return 0
   fi
 
@@ -321,7 +343,6 @@ ensure_customer_mail_configuration() {
   if [ "${CUSTOMER_SMTP_HOST_PROVIDED:-false}" = "true" ]; then
     customer_mail_provider=Smtp
     set_environment_value PEERONQ_CUSTOMER_MAIL_PROVIDER "$customer_mail_provider"
-    set_environment_value PEERONQ_CUSTOMER_REGISTRATION_MODE Closed
     set_environment_value PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION true
   elif [ -z "$customer_mail_provider" ]; then
     if [ -n "$customer_smtp_host" ]; then customer_mail_provider=Smtp; else customer_mail_provider=Disabled; fi
@@ -333,13 +354,14 @@ ensure_customer_mail_configuration() {
       [ "${CUSTOMER_SMTP_PORT_PROVIDED:-false}" = "false" ] \
         || fail "--customer-smtp-port requires --customer-smtp-host when customer mail is disabled"
       set_environment_value PEERONQ_CUSTOMER_MAIL_PROVIDER Disabled
-      set_environment_value PEERONQ_CUSTOMER_REGISTRATION_MODE Closed
+      [ "$customer_registration_mode" = Closed ] || fail "Customer registration requires SMTP; configure SMTP or explicitly select Closed"
       set_environment_value PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION false
       append_environment_values \
         PEERONQ_CUSTOMER_SMTP_HOST "" \
         PEERONQ_CUSTOMER_SMTP_PORT 587 \
         PEERONQ_CUSTOMER_SMTP_USERNAME "" \
         PEERONQ_CUSTOMER_SMTP_PASSWORD ""
+      commit_customer_policy_configuration
       return 0
       ;;
     [Ss][Mm][Tt][Pp])
@@ -374,6 +396,10 @@ ensure_customer_mail_configuration() {
     PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION true \
     PEERONQ_CUSTOMER_SMTP_USERNAME "" \
     PEERONQ_CUSTOMER_SMTP_PASSWORD ""
+  customer_verify=$(read_environment_value PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION)
+  case "$customer_verify" in true|false) ;; *) fail "PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION must be true or false" ;; esac
+  [ "$customer_registration_mode" = Closed ] || [ "$customer_verify" = true ] || fail "Public registration requires email verification"
+  commit_customer_policy_configuration
 }
 
 ensure_environment_schema() {
@@ -1479,6 +1505,8 @@ CUSTOMER_SMTP_PORT=587
 CUSTOMER_SMTP_HOST_PROVIDED=false
 CUSTOMER_SMTP_PORT_PROVIDED=false
 CUSTOMER_MAIL_DISABLE_REQUESTED=false
+CUSTOMER_REGISTRATION_MODE=""
+CUSTOMER_MFA_ENABLED=""
 ACME_EMAIL=""
 SPACESHIP_CREDENTIALS_SOURCE=""
 TLS_CERT_SOURCE=""
@@ -1556,6 +1584,14 @@ while [ "$#" -gt 0 ]; do
       CUSTOMER_SMTP_PORT_PROVIDED=true
       shift 2
       ;;
+    --customer-registration-mode)
+      [ "$#" -ge 2 ] || fail "--customer-registration-mode requires a value"
+      case "$2" in Closed|InvitationOnly|Open) ;; *) fail "--customer-registration-mode must be Closed, InvitationOnly, or Open" ;; esac
+      CUSTOMER_REGISTRATION_MODE=$2
+      shift 2
+      ;;
+    --enable-customer-mfa) CUSTOMER_MFA_ENABLED=true; shift ;;
+    --disable-customer-mfa) CUSTOMER_MFA_ENABLED=false; shift ;;
     --disable-customer-mail)
       CUSTOMER_MAIL_DISABLE_REQUESTED=true
       shift
@@ -1650,7 +1686,8 @@ fi
 if [ "$MODE" != "install" ] \
   && { [ "$CUSTOMER_SMTP_HOST_PROVIDED" = "true" ] \
     || [ "$CUSTOMER_SMTP_PORT_PROVIDED" = "true" ] \
-    || [ "$CUSTOMER_MAIL_DISABLE_REQUESTED" = "true" ]; }; then
+    || [ "$CUSTOMER_MAIL_DISABLE_REQUESTED" = "true" ] \
+    || [ -n "$CUSTOMER_REGISTRATION_MODE" ] || [ -n "$CUSTOMER_MFA_ENABLED" ]; }; then
   fail "customer mail migration options are valid only during an install or upgrade"
 fi
 if [ "$CUSTOMER_SMTP_PORT_PROVIDED" = "true" ] && [ "$CUSTOMER_SMTP_HOST_PROVIDED" = "false" ]; then
@@ -1762,6 +1799,8 @@ if [ "$BOOTSTRAP" = "true" ]; then
   [ -f "$bootstrap_script" ] || fail "production bootstrap script is missing"
   set -- --env-file "$ENV_FILE" --base-domain "$BASE_DOMAIN" --public-ip "$PUBLIC_IP" \
     --region "$REGION" --admin-email "$ADMIN_EMAIL"
+  [ -z "$CUSTOMER_REGISTRATION_MODE" ] || set -- "$@" --customer-registration-mode "$CUSTOMER_REGISTRATION_MODE"
+  case "$CUSTOMER_MFA_ENABLED" in true) set -- "$@" --enable-customer-mfa ;; false) set -- "$@" --disable-customer-mfa ;; esac
   if [ -n "$CUSTOMER_SMTP_HOST" ]; then
     set -- "$@" --customer-smtp-host "$CUSTOMER_SMTP_HOST" --customer-smtp-port "$CUSTOMER_SMTP_PORT"
   fi

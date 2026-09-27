@@ -1,97 +1,109 @@
-# PeerOnQ server and clients 0.9.72 - release candidate
+# PeerOnQ server and clients 0.9.73 - release candidate
 
-Status: NOT APPROVED FOR PRODUCTION. This candidate has no detached server GPG signature and
-contains an unsigned public-pilot Windows client. Physical-device/WAN performance is unverified.
-A checksum establishes byte integrity, not authenticity or production readiness.
+Status: NOT APPROVED FOR PRODUCTION. This candidate contains unsigned public-pilot Windows
+clients and has no detached server GPG signature. A checksum proves byte integrity, not authenticity.
+Production SMTP delivery, physical-device/WAN performance and release-signing gates remain open.
 
-## Package contents
+## Package contents and version truth
 
 | Surface | Version / status |
 | --- | --- |
-| Full server upgrade | 0.9.72; Linux x86_64 deployment bundle |
-| Embedded Windows x64 client | 0.9.72; unsigned public pilot |
-| Matching Windows ARM64 client | 0.9.72; separate local website MSI, not embedded in the server |
-| Linux / Android / Apple clients | Source previews; no newly published packages |
+| Full Linux x86_64 server upgrade | 0.9.73 |
+| Embedded Windows x64 MSI | 0.9.73; unsigned public pilot |
+| Matching Windows ARM64 MSI | 0.9.73; separate local website package |
+| Linux / Android / Apple | Matching source version only; no newly published packages |
 
-This cumulative patch includes 0.9.71's portal navigation fix and a separate native fix for stale
-latency measurements repeatedly degrading a quiet desktop. Install it directly over the retained
-0.9.70 release; no intermediate 0.9.71 installation is needed. This candidate has not been deployed
-to that server. Older immutable artifacts retain their original bytes.
-
-## Server, public website and customer portal
-
-- Staging/production explicitly build public Portal and Sign in links as `https://portal.peeronq.com`,
-  without a development port. The inherited download URL is corrected in the same build contract.
-- Adds a regression that renders the actual Compose inheritance/override model. It rejects the
-  original `:8443` bug, tests omitted/8443/443 bind settings, verifies private port boundaries and
-  preserves the explicit localhost development port. GitHub Quality runs it before ingress tests.
-- The real customer portal and authentication/API implementation are retained. Same-origin
-  `/portal/v1/*`, host-only secure cookies, CSRF, registration modes and rate limits are unchanged.
-  Admin identity stays separate; Admin, Grafana and Prometheus remain operator-only.
-- Retains the Node 24.21.0 build fix and 0.9.70 installer header-parsing fix, including no-store,
-  full download hashes, frozen dependencies, strict engines, package-age and TLS validation.
-
-## Client changes: long-session quality recovery
-
-- Frame/render latency percentiles previously kept the last 120 samples indefinitely. Periodic
-  feedback could therefore repeatedly report one old delay as current pressure, lowering a quiet
-  desktop to the minimum quality rung. Sparse input samples could also keep earlier input spikes.
-- Each latency sample now expires after five seconds, still bounded to 120 samples. Old samples
-  expire individually even when a few fresh frames or clicks arrive. Session totals/dimensions stay
-  intact; real fresh congestion and the existing healthy-network recovery requirements are retained.
-- Update both endpoint clients to 0.9.72. A server-only installation cannot replace their running
-  media code. Protocols, encryption, permissions and accountless LAN use are unchanged.
-- Windows x64/ARM64 and server share the canonical version. Android/Apple source codes advance to
-  9072; non-Windows publication gates remain separate. No new non-Windows binary is published.
-- Clients remain unsigned public pilots; Verified Updates remains unconfigured. Installing the server
-  updates its offered download, not clients already installed on devices.
+Directory.Build.props remains the canonical server/client version source. Android/Apple source
+codes advance to 9073. Native behavior/protocols are unchanged in this patch; clients retain the
+0.9.72 stale-latency expiry fix and accountless LAN behavior. Server installation updates offered
+downloads; it does not replace already installed clients. Earlier immutable artifacts are unchanged.
 
 Windows x64 MSI SHA-256:
-`7353746e062a1dd116128ae40594ca02097fdeb3d0d96d01ebdd4bc60aede3d0`
+`fac3f3efe2940992d5b26eede0b8803ef53fbfd7270440922a78e5a9c1bdfc50`
 
-Matching Windows ARM64 MSI SHA-256:
-`1680c5ff92ce99b9115975d0a35e4bd2410bc858745443c90bb2c7d4b3affb3e`
+Windows ARM64 MSI SHA-256:
+`7adf8d55caaad541c168f6f58c1eefada180f709a9f6385ff9ff2cd37119a88b`
 
-## Validation and remaining gates
+## Customer account portal
 
-- Three new reproductions failed before the media fix: stale quiet-desktop latency, sparse-sample
-  recovery and a simulated session stuck at quality rung 4. The corrected full Media suite passed
-  143 tests; one existing live-TURN test was skipped because that external fixture was unavailable.
-  The additional sustained-delay case confirms fresh slow frames still lower quality.
-- The merged Compose regression reproduced the old portal port bug and passed with the correction.
-- Linux bootstrap/Compose contracts and Nginx ingress checks passed in the production-pinned image:
-  trusted local TLS, public portal and same-origin API, private operator surfaces, read-only
-  Prometheus, denied public metrics and rejected unknown hosts. These are local fixture tests.
-- All 21 deployment tests, 12 customer security tests, 86 public-site tests, 47 portal tests,
-  both frontend typechecks, portal build, workflow formatting, native UI and version guards passed.
-- Fresh 0.9.72 x64/ARM64 builds, MSI ProductVersion and extracted-payload checks passed. The local
-  website restarted and selected the matching unsigned-public-pilot pair; both full HTTP downloads
-  returned 200 with matching checksums. Both app assemblies report 0.9.72.0.
-- The preceding portal commit's GitHub Quality run passed ingress, web images/workspace and secret
-  checks, but failed two existing input-latency tests at 36.9/37.1 ms against the unchanged 35 ms
-  gate. Local Media passed as recorded above; remote CI and physical performance remain separate gates.
-- Direct live HTTPS returned portal 200 and anonymous account profile 401 with valid TLS. Real-account
-  login and browser interaction were not tested: no browser connection was available. Frontend tests
-  use mocked API responses; they do not establish successful production account authentication.
-- Full solution and separate Transport suites were not repeated for this change. No production
-  installation of this candidate, database migration, device installation or physical 4K/latency
-  validation was performed. Do not infer zero latency or fixed image quality on an impaired link.
-- Production approval still requires resolving release gates and approved client/server signatures.
-  Do not bypass Admin signature validation or relabel pilot artifacts as production-signed.
+- Reuses the real customer API, database, identity, password hashing, cookie/CSRF and mail services.
+- Adds anonymous, rate-limited, no-store auth capabilities: registration mode, email recovery,
+  customer MFA availability and canonical password rules. The UI follows actual server policy.
+- Adds generic verification resend, a per-account cooldown, previous-token invalidation and audit.
+  Invalid/expired/used verification links fail. SMTP failures expose no provider or credential data.
+- Adds authenticated password change: current password + CSRF + policy/rate limits, retained current
+  sign-in session, revoked other sessions/reset links, metadata-only audit. Password reset and
+  refresh replay keep their existing revocation semantics.
+- Customer MFA is off by default. Stored secrets/recovery codes and organization requirements are
+  preserved; unavailable MFA actions reject. Organization policy exposes effective requirements
+  while retaining the stored value for re-enable. Internal Admin MFA is unchanged.
+- Registration/reset/change-password share visible password rules, confirmation and show/hide.
+  Security remains useful with MFA off; overview, account/organization devices and separate sign-in
+  versus remote-session history remain real existing API screens. Expired access cookies use one
+  refresh attempt shared by concurrent requests; failed refresh returns to sign-in.
+- No self-service device claim UI: native enrollment does not expose a safe, user-consumable,
+  short-lived ownership proof. The existing device access token must not be pasted into a portal.
 
-## Operator action
+## Installer and production configuration
 
-Copy the new `.run` file to `/home/peeronq`, verify the published checksum, then use its existing
-`--env-file /etc/peeronq/peeronq.env --dry-run`, install and `--status` commands. Reuse the existing
-configuration and operator CIDR; do not bootstrap again or open public 8443. The installer rebuilds
-the website with corrected URLs. Open `https://portal.peeronq.com` and verify a real account sign-in.
-Registration still follows the configured Closed/InvitationOnly/Open and mail requirements.
+- Adds --customer-registration-mode Closed|InvitationOnly|Open and customer MFA enable/disable flags.
+  Upgrades preserve valid modes and reject unknown/empty values. Missing mode defaults Closed;
+  missing customer MFA defaults false. Disabling mail cannot silently close an open installation.
+- Open/InvitationOnly outside Development/Testing require verified email and real SMTP. Production
+  FileSink remains forbidden. SMTP TLS remains enabled. An approved sender can be supplied through
+  PEERONQ_CUSTOMER_MAIL_FROM_ADDRESS (default: peeronq@<public web host>).
+- Portal/email links remain https://portal.peeronq.com with same-origin /portal/v1/* and host-only
+  __Host- cookies. Public website cookies, broad CORS and native customer authentication are absent.
+- Admin/Grafana/Prometheus CIDRs, private application/database/cache/telemetry ports, unknown-host
+  rejection, TLS validation, HTTPS headers and Admin MFA remain unchanged.
+- Retains production portless links, pinned Node build images, installer download/header checks,
+  frozen dependencies, package-age protection and all prior cumulative fixes.
 
-DNS requirement: `portal.peeronq.com` must resolve to the existing public HTTPS ingress; its TLS
-certificate must cover that host. Source changes do not modify DNS, NAT or the live server.
+Before selecting Open, use sudoedit /etc/peeronq/peeronq.env to configure real operator values:
+
+```dotenv
+PEERONQ_CUSTOMER_REGISTRATION_MODE=Open
+PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION=true
+PEERONQ_CUSTOMER_MFA_ENABLED=false
+PEERONQ_CUSTOMER_MAIL_PROVIDER=Smtp
+PEERONQ_CUSTOMER_SMTP_HOST=<real-host>
+PEERONQ_CUSTOMER_SMTP_PORT=587
+PEERONQ_CUSTOMER_SMTP_USERNAME=<operator-value>
+PEERONQ_CUSTOMER_SMTP_PASSWORD=<operator-secret>
+PEERONQ_CUSTOMER_MAIL_FROM_ADDRESS=<approved-sender>
+```
+
+Keep the file root-protected. No SMTP account is provisioned by the installer. No real SMTP value
+or test mailbox was supplied for this task, so LIVE EMAIL TEST = BLOCKED.
+
+## Validation and limits
+
+Validation evidence and exact commands are recorded in AI_CHANGELOG.md and docs/CURRENT_STATE.md.
+Local FileSink/HTTPS tests are not live SMTP proof. Existing media input-latency gates still fail in
+isolated execution; no thresholds or native code were changed to hide those failures. No physical
+Windows/ARM64, 4K/WAN session, production installation, or browser visual acceptance is claimed.
+
+## Operator install command
+
+Copy peeronq-server-0.9.73.run into /home/peeronq and verify the exact published SHA-256. If the
+sidecar was copied, use sha256sum -c peeronq-server-0.9.73.run.sha256; otherwise use the handoff hash.
+After configuring actual SMTP, run each command only if the preceding one succeeds:
+
+```bash
+cd /home/peeronq
+chmod 700 peeronq-server-0.9.73.run
+sudo ./peeronq-server-0.9.73.run --env-file /etc/peeronq/peeronq.env --customer-registration-mode Open --disable-customer-mfa --dry-run
+sudo ./peeronq-server-0.9.73.run --env-file /etc/peeronq/peeronq.env --customer-registration-mode Open --disable-customer-mfa
+sudo ./peeronq-server-0.9.73.run --status --env-file /etc/peeronq/peeronq.env
+```
+
+DNS operator requirement: portal.peeronq.com must resolve to the production HTTPS ingress with
+valid TLS and reachable TCP 443. Do not expose port 8443 publicly. Source code does not change DNS.
+Then perform real approved-mailbox registration, verification, login, overview, logout and reset
+acceptance. Do not call this candidate a completed production deployment before those checks.
 
 ## Rollback
 
-Use the existing retained, verified server release through the approved rollback process. Preserve
-all data volumes and backups; database migrations remain forward-only. The installer retains its
-rollback behavior if publication checks fail. Server rollback does not downgrade installed clients.
+Use the retained verified server release through --rollback --env-file /etc/peeronq/peeronq.env.
+Restore prior protected registration/MFA/mail settings separately when reverting policy. Preserve
+all data volumes and forward migrations. Server rollback does not downgrade installed clients.

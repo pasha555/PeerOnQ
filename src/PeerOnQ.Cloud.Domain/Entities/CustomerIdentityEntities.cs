@@ -71,6 +71,13 @@ public sealed class CustomerAccount
         ConcurrencyVersion++;
     }
 
+    // Serialize token issuance/refresh with password and other account security changes.
+    public void RecordSecurityTokenActivity()
+    {
+        EnsureMutable();
+        ConcurrencyVersion++;
+    }
+
     public void RecordFailedLogin(DateTimeOffset now, int threshold, TimeSpan lockDuration)
     {
         EnsureMutable();
@@ -194,6 +201,7 @@ public sealed class CustomerAccountToken
     public DateTimeOffset ExpiresAtUtc { get; private set; }
     public DateTimeOffset? UsedAtUtc { get; private set; }
     public bool CanConsume(byte[] presentedHash, DateTimeOffset now) => UsedAtUtc is null && now < ExpiresAtUtc && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(TokenHash, presentedHash);
+    public void Invalidate(DateTimeOffset now) => UsedAtUtc ??= now;
     public void Consume(byte[] presentedHash, DateTimeOffset now)
     {
         if (!CanConsume(presentedHash, now)) throw new InvalidOperationException("The account token is invalid, expired, or already used.");

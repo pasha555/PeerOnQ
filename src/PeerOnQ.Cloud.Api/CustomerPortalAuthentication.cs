@@ -145,6 +145,7 @@ public static class CustomerPortalAuthentication
 
 public sealed class CustomerPasswordService
 {
+    public static CustomerPasswordRules Rules { get; } = new(12, 128, true, true, true);
     private readonly PasswordHasher<CustomerAccount> _hasher = new(Options.Create(new PasswordHasherOptions
     {
         CompatibilityMode = PasswordHasherCompatibilityMode.IdentityV3,
@@ -162,7 +163,7 @@ public sealed class CustomerPasswordService
 
     public static void ValidatePassword(string password)
     {
-        if (password is null || password.Length < 12 || password.Length > 128 ||
+        if (password is null || password.Length < Rules.MinLength || password.Length > Rules.MaxLength ||
             !password.Any(char.IsUpper) || !password.Any(char.IsLower) || !password.Any(char.IsDigit))
             throw new ArgumentException("Password must contain 12 to 128 characters with upper-case, lower-case, and numeric characters.", nameof(password));
     }

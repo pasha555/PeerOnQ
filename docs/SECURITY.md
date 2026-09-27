@@ -161,6 +161,34 @@ Threats covered by affected tests and live API evidence include cross-tenant rea
 self-role escalation, invitation guessing/replay/expiry/revocation, disabled accounts/sessions,
 refresh replay, CSRF, owner-transfer/deletion guards, policy bypass, and shared rate-limit keys.
 
+### Customer email/password policy (0.9.73)
+
+Customer MFA is temporarily disabled by default through `PeerOnQ:CustomerPortal:EnableMfa`
+(`PEERONQ_CUSTOMER_MFA_ENABLED=false`). Email/password login still requires email verification when
+configured. This is a customer-only policy; internal Admin MFA is unchanged. Stored encrypted MFA
+secrets/recovery codes are retained. MFA setup/confirm/disable reject with `customer_mfa_disabled`.
+Organization `mfaRequired` reads/evaluations return the effective disabled requirement; other policy
+edits preserve the stored value and enabling an impossible requirement is rejected. Re-enabling
+customer MFA restores that stored requirement.
+
+Capabilities publish only policy/password rules. Non-development Open/InvitationOnly registration
+requires verified email. Resend/reset requests are generic, IP-limited and bounded per account to
+one message/minute; new issuance invalidates prior active tokens. SMTP failures do not expose
+provider details or claim delivery. Production FileSink is rejected; missing required mail fails
+startup. Credentials are never surfaced to the browser or placed in commands.
+
+Authenticated password change requires CSRF, the current password and canonical password policy.
+It retains the current sign-in session, revokes others and outstanding reset links, and audits only
+metadata. Token issuance/refresh advances account concurrency so simultaneous password/security
+mutations cannot silently commit stale refreshes. Refresh replay revokes the entire family. Failed
+refresh returns the portal to sign-in; credentials never enter browser storage.
+
+Self-service device claim is not exposed: the existing endpoint requires a device access token held
+privately by native CloudPlatform enrollment. The missing native step is an explicit user-approved,
+short-lived, single-use, account/organization-bound claim exchange without revealing that service
+token. A PeerOnQ ID alone proves no ownership. Account login is never remote-control consent and
+remains unnecessary for accountless LAN use.
+
 ## Known security gates
 
 Controlled beta is not broad-production approval. The managed Bouncy Castle ML-KEM/ML-DSA APIs are

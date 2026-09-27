@@ -36,6 +36,7 @@ services:
       PeerOnQ__SignalingAttestation__Issuer: ${PEERONQ_SIGNALING_ATTESTATION_ISSUER:?set PEERONQ_SIGNALING_ATTESTATION_ISSUER}
       PeerOnQ__SignalingAttestation__Audience: ${PEERONQ_SIGNALING_ATTESTATION_AUDIENCE:-peeronq-signaling}
       PeerOnQ__SignalingAttestation__PrivateKeyFile: /run/secrets/peeronq_signaling_attestation_private_key
+      PeerOnQ__CustomerPortal__EnableMfa: ${PEERONQ_CUSTOMER_MFA_ENABLED:-false}
       PeerOnQ__CustomerPortal__RegistrationMode: ${PEERONQ_CUSTOMER_REGISTRATION_MODE:-Closed}
       PeerOnQ__CustomerPortal__RequireEmailVerification: ${PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION:-false}
       PeerOnQ__CustomerPortal__JwtIssuer: https://${PEERONQ_API_HOST:?set PEERONQ_API_HOST}
@@ -43,6 +44,7 @@ services:
       PeerOnQ__CustomerPortal__JwtSigningKey: ${PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY:?set PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY}
       PeerOnQ__CustomerPortal__PortalBaseUrl: https://${PEERONQ_PORTAL_HOST:?set PEERONQ_PORTAL_HOST}
       PeerOnQ__CustomerPortal__Mail__Provider: ${PEERONQ_CUSTOMER_MAIL_PROVIDER:-Disabled}
+      PeerOnQ__CustomerPortal__Mail__FromAddress: ${PEERONQ_CUSTOMER_MAIL_FROM_ADDRESS:-peeronq@${PEERONQ_WEB_HOST:?set PEERONQ_WEB_HOST}}
       PeerOnQ__CustomerPortal__Mail__SmtpHost: ${PEERONQ_CUSTOMER_SMTP_HOST:-}
       PeerOnQ__CustomerPortal__Mail__SmtpPort: ${PEERONQ_CUSTOMER_SMTP_PORT:-587}
       PeerOnQ__CustomerPortal__Mail__SmtpUseTls: "true"

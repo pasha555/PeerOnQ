@@ -25,8 +25,18 @@ public sealed class CustomerAccountService(
         .CreateProtector("PeerOnQ.CustomerPortal.MfaSetup.v1")
         .ToTimeLimitedDataProtector();
 
+    public CustomerAuthCapabilities GetCapabilities() => new(
+        options.Value.RegistrationMode.ToString(),
+        options.Value.RegistrationMode != CustomerRegistrationMode.Closed,
+        options.Value.RequireEmailVerification,
+        mail.IsEnabled,
+        options.Value.EnableMfa,
+        CustomerPasswordService.Rules);
+
     public async Task<RegistrationResult> RegisterAsync(RegisterCustomerRequest request, CancellationToken cancellationToken)
     {
+        if (options.Value.RegistrationMode == CustomerRegistrationMode.Closed)
+            throw Problem(StatusCodes.Status403Forbidden, "registration_disabled", "Account registration is not available.");
         if (options.Value.RequireEmailVerification) mail.EnsureEnabled();
         var now = DateTimeOffset.UtcNow;
         var email = CustomerAccount.NormalizeEmail(request.Email);
@@ -42,10 +52,10 @@ public sealed class CustomerAccountService(
             invitation = await db.OrganizationInvitations.SingleOrDefaultAsync(value => value.TokenHash.SequenceEqual(invitationHash), cancellationToken);
         }
 
-        if (options.Value.RegistrationMode == CustomerRegistrationMode.Closed ||
-            (options.Value.RegistrationMode == CustomerRegistrationMode.InvitationOnly && invitation is null))
+        if (options.Value.RegistrationMode == CustomerRegistrationMode.InvitationOnly && invitation is null)
             throw Problem(StatusCodes.Status403Forbidden, "registration_disabled", "Account registration is not available.");
-        if (invitation is not null && !invitation.CanAccept(email, invitationHash!, now))
+        if ((!string.IsNullOrWhiteSpace(request.InvitationToken) && invitation is null) ||
+            (invitation is not null && !invitation.CanAccept(email, invitationHash!, now)))
             throw Problem(StatusCodes.Status400BadRequest, "invitation_invalid", "The invitation is invalid, expired, revoked, already used, or belongs to another account.");
 
         var account = new CustomerAccount(Guid.NewGuid(), email, request.DisplayName, "pending-password-hash", now);
@@ -121,7 +131,7 @@ public sealed class CustomerAccountService(
             throw InvalidCredentials();
         }
         if (!account.IsLoginAllowed(now, options.Value.RequireEmailVerification)) throw InvalidCredentials();
-        if (account.MfaEnabled && !await VerifyMfaOrRecoveryAsync(account, request.MfaCode, now, cancellationToken))
+        if (options.Value.EnableMfa && account.MfaEnabled && !await VerifyMfaOrRecoveryAsync(account, request.MfaCode, now, cancellationToken))
             throw Problem(StatusCodes.Status401Unauthorized, "mfa_required", "A valid MFA or recovery code is required.");
 
         account.RecordSuccessfulLogin(now);
@@ -150,6 +160,7 @@ public sealed class CustomerAccountService(
 
         var account = await db.CustomerAccounts.SingleAsync(value => value.Id == session.AccountId, cancellationToken);
         if (!account.IsLoginAllowed(now, options.Value.RequireEmailVerification)) throw InvalidRefresh();
+        account.RecordSecurityTokenActivity();
         var replacement = CreateSession(account, session.FamilyId, userAgent, now);
         session.Revoke(now, replacement.SessionId);
         AddEvent(account.Id, null, "account.session_refreshed", AuditResult.Succeeded);
@@ -185,20 +196,68 @@ public sealed class CustomerAccountService(
     }
 
     public async Task RequestPasswordResetAsync(string email, CancellationToken cancellationToken)
+        => await SendAccountTokenAsync(email, CustomerTokenPurpose.PasswordReset, cancellationToken);
+
+    public async Task ResendVerificationAsync(string email, CancellationToken cancellationToken)
+        => await SendAccountTokenAsync(email, CustomerTokenPurpose.EmailVerification, cancellationToken);
+
+    private async Task SendAccountTokenAsync(string email, CustomerTokenPurpose purpose, CancellationToken cancellationToken)
     {
         mail.EnsureEnabled();
         CustomerAccount? account;
         try { account = await db.CustomerAccounts.SingleOrDefaultAsync(value => value.Email == CustomerAccount.NormalizeEmail(email), cancellationToken); }
         catch (ArgumentException) { account = null; }
         if (account is null || account.Status != CustomerAccountStatus.Active) return;
+        if (purpose == CustomerTokenPurpose.EmailVerification && account.EmailVerified) return;
         var now = DateTimeOffset.UtcNow;
+        var previous = await db.CustomerAccountTokens.Where(value => value.AccountId == account.Id &&
+            value.Purpose == purpose && value.UsedAtUtc == null && value.ExpiresAtUtc > now).ToListAsync(cancellationToken);
+        if (previous.Any(value => value.CreatedAtUtc > now.AddMinutes(-1))) return;
+        foreach (var token in previous) token.Invalidate(now);
+        account.RecordSecurityTokenActivity();
         var rawToken = CustomerTokenService.IssueOpaqueToken();
-        db.CustomerAccountTokens.Add(new CustomerAccountToken(Guid.NewGuid(), account.Id, CustomerTokenPurpose.PasswordReset,
+        db.CustomerAccountTokens.Add(new CustomerAccountToken(Guid.NewGuid(), account.Id, purpose,
             CustomerTokenService.HashOpaqueToken(rawToken), now, now.AddMinutes(options.Value.EmailTokenMinutes)));
-        AddEvent(account.Id, null, "account.password_reset_requested", AuditResult.Succeeded);
+        var verification = purpose == CustomerTokenPurpose.EmailVerification;
+        AddEvent(account.Id, null, verification ? "account.verification_requested" : "account.password_reset_requested", AuditResult.Succeeded);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { db.ChangeTracker.Clear(); return; }
+        var path = verification ? "verify-email" : "reset-password";
+        var link = $"{options.Value.PortalBaseUrl.TrimEnd('/')}/{path}?token={Uri.EscapeDataString(rawToken)}";
+        try
+        {
+            await mail.SendAsync(account.Email, verification ? "Verify your PeerOnQ account" : "Reset your PeerOnQ password",
+                $"{(verification ? "Verify your account" : "Reset your password")}: {link}", cancellationToken);
+        }
+        catch (ApiProblemException exception) when (exception.ErrorCode == "customer_mail_unavailable")
+        {
+            // Delivery failures must not distinguish known accounts from unknown addresses.
+            AddEvent(account.Id, null, "account.mail_delivery_failed", AuditResult.Failed);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    public async Task ChangePasswordAsync(Guid accountId, Guid currentSessionId, ChangeCustomerPasswordRequest request, CancellationToken cancellationToken)
+    {
+        var account = await RequireActiveAccountAsync(accountId, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        if (!account.IsLoginAllowed(now, options.Value.RequireEmailVerification) ||
+            passwords.Verify(account, request.CurrentPassword) == PasswordVerificationResult.Failed)
+        {
+            account.RecordFailedLogin(now, 8, TimeSpan.FromMinutes(15));
+            AddEvent(account.Id, null, "account.password_change_failed", AuditResult.Failed);
+            await db.SaveChangesAsync(cancellationToken);
+            throw Problem(StatusCodes.Status400BadRequest, "password_change_rejected", "The current password could not be verified.");
+        }
+        account.ChangePasswordHash(passwords.Hash(account, request.NewPassword));
+        var sessions = await db.CustomerSessions.Where(value => value.AccountId == accountId &&
+            value.Id != currentSessionId && value.RevokedAtUtc == null).ToListAsync(cancellationToken);
+        foreach (var session in sessions) session.Revoke(now);
+        var resets = await db.CustomerAccountTokens.Where(value => value.AccountId == accountId &&
+            value.Purpose == CustomerTokenPurpose.PasswordReset && value.UsedAtUtc == null).ToListAsync(cancellationToken);
+        foreach (var reset in resets) reset.Invalidate(now);
+        AddEvent(accountId, null, "account.password_changed", AuditResult.Succeeded);
         await db.SaveChangesAsync(cancellationToken);
-        var link = $"{options.Value.PortalBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(rawToken)}";
-        await mail.SendAsync(account.Email, "Reset your PeerOnQ password", $"Reset your password: {link}", cancellationToken);
     }
 
     public async Task ResetPasswordAsync(string rawToken, string newPassword, CancellationToken cancellationToken)
@@ -221,6 +280,7 @@ public sealed class CustomerAccountService(
 
     public async Task<MfaSetupResult> BeginMfaSetupAsync(Guid accountId, CancellationToken cancellationToken)
     {
+        RequireMfaAvailable();
         var account = await RequireActiveAccountAsync(accountId, cancellationToken);
         var secret = RandomNumberGenerator.GetBytes(20);
         var base32 = CustomerTotp.ToBase32(secret);
@@ -232,6 +292,7 @@ public sealed class CustomerAccountService(
 
     public async Task<IReadOnlyList<string>> ConfirmMfaAsync(Guid accountId, string protectedSetup, string code, CancellationToken cancellationToken)
     {
+        RequireMfaAvailable();
         var account = await RequireActiveAccountAsync(accountId, cancellationToken);
         byte[] secret;
         try { secret = Convert.FromBase64String(_mfaSetupProtector.Unprotect(protectedSetup, out _)); }
@@ -251,6 +312,7 @@ public sealed class CustomerAccountService(
 
     public async Task DisableMfaAsync(Guid accountId, string password, string code, CancellationToken cancellationToken)
     {
+        RequireMfaAvailable();
         var account = await RequireActiveAccountAsync(accountId, cancellationToken);
         if (passwords.Verify(account, password) == PasswordVerificationResult.Failed ||
             !await VerifyMfaOrRecoveryAsync(account, code, DateTimeOffset.UtcNow, cancellationToken))
@@ -370,6 +432,11 @@ public sealed class CustomerAccountService(
             DateTimeOffset.UtcNow, httpContextAccessor.HttpContext?.TraceIdentifier ?? Guid.NewGuid().ToString("N"), null));
 
     private static byte[] HashRecoveryCode(string code) => SHA256.HashData(Encoding.UTF8.GetBytes(code.Trim().ToUpperInvariant()));
+    private void RequireMfaAvailable()
+    {
+        if (!options.Value.EnableMfa)
+            throw Problem(StatusCodes.Status403Forbidden, "customer_mfa_disabled", "Customer MFA is not available.");
+    }
     private static string NormalizeUserAgent(string? value) => string.IsNullOrWhiteSpace(value) ? "Unknown client" : value.Trim()[..Math.Min(value.Trim().Length, 256)];
     private static ApiProblemException InvalidCredentials() => Problem(StatusCodes.Status401Unauthorized, "invalid_credentials", "The credentials are invalid.");
     private static ApiProblemException InvalidRefresh() => Problem(StatusCodes.Status401Unauthorized, "session_invalid", "The session is invalid or expired.");
@@ -382,6 +449,10 @@ public sealed record VerifyEmailRequest(string Token);
 public sealed record LoginCustomerRequest(string Email, string Password, string? MfaCode);
 public sealed record RefreshCustomerRequest(string? RefreshToken);
 public sealed record PasswordResetRequest(string Email);
+public sealed record ChangeCustomerPasswordRequest(string CurrentPassword, string NewPassword);
+public sealed record CustomerPasswordRules(int MinLength, int MaxLength, bool RequireUppercase, bool RequireLowercase, bool RequireDigit);
+public sealed record CustomerAuthCapabilities(string RegistrationMode, bool RegistrationAvailable,
+    bool RequireEmailVerification, bool PasswordResetAvailable, bool MfaAvailable, CustomerPasswordRules PasswordRules);
 public sealed record PasswordResetCompleteRequest(string Token, string NewPassword);
 public sealed record LoginSessionResult(Guid AccountId, Guid SessionId, string AccessToken, DateTimeOffset AccessExpiresAtUtc, string RefreshToken, DateTimeOffset RefreshExpiresAtUtc);
 public sealed record CustomerProfileResult(Guid Id, string Email, string DisplayName, bool EmailVerified, bool MfaEnabled, DateTimeOffset CreatedAtUtc);

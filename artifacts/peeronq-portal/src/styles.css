@@ -325,3 +325,8 @@ td { overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.password-field { display: grid; gap: 8px; }
+.password-control { display: flex; gap: 8px; }
+.password-control input { flex: 1; min-width: 0; }
+.password-control button { flex-shrink: 0; }

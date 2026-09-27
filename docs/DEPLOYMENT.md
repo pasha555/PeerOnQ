@@ -239,6 +239,62 @@ be on the dedicated persistent volume, backed up and restored with the database;
 invalidates MFA ciphertext and in-flight protected setup material. Protect the production volume
 with host/storage encryption and access limited to Cloud API UID 1654.
 
+For public onboarding in 0.9.73, use `sudoedit /etc/peeronq/peeronq.env` and provide the real,
+operator-approved mail values. Keep this file root-protected; do not paste secrets into commands:
+
+```dotenv
+PEERONQ_CUSTOMER_REGISTRATION_MODE=Open
+PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION=true
+PEERONQ_CUSTOMER_MFA_ENABLED=false
+PEERONQ_CUSTOMER_MAIL_PROVIDER=Smtp
+PEERONQ_CUSTOMER_SMTP_HOST=<real-smtp-host>
+PEERONQ_CUSTOMER_SMTP_PORT=587
+PEERONQ_CUSTOMER_SMTP_USERNAME=<operator-value>
+PEERONQ_CUSTOMER_SMTP_PASSWORD=<operator-secret>
+PEERONQ_CUSTOMER_MAIL_FROM_ADDRESS=<approved-sender-address>
+```
+
+The sender defaults to `peeronq@<PEERONQ_WEB_HOST>`; configure an address the SMTP provider
+allows. Production Compose retains SMTP TLS. Portal/email links use `https://portal.peeronq.com`
+and same-origin `/portal/v1/*`; the public website needs no portal cookies. Admin MFA, operator
+CIDRs, private ports and accountless LAN access are unchanged. Configure SMTP before choosing
+Open/InvitationOnly; there is no production FileSink fallback or guessed mail service.
+
+Installer/bootstrap options: `--customer-registration-mode Closed|InvitationOnly|Open`,
+`--enable-customer-mfa`, `--disable-customer-mfa`. Upgrades preserve each valid existing
+registration mode unless explicitly overridden; unknown/empty configured modes fail. A missing
+mode defaults to Closed. Customer MFA defaults false when missing, preserving valid existing values
+unless explicitly overridden. Disabling mail with Open/InvitationOnly fails unless Closed is
+explicitly selected. Stored customer MFA/recovery/organization policy data is preserved while off.
+
+After copying the exact **0.9.73** bundle into `/home/peeronq`, first verify its release-specific
+SHA-256 sidecar (or the handoff hash if only `.run` was copied), then run in order:
+
+```bash
+cd /home/peeronq
+chmod 700 peeronq-server-0.9.73.run
+sudo ./peeronq-server-0.9.73.run --env-file /etc/peeronq/peeronq.env --customer-registration-mode Open --disable-customer-mfa --dry-run
+sudo ./peeronq-server-0.9.73.run --env-file /etc/peeronq/peeronq.env --customer-registration-mode Open --disable-customer-mfa
+sudo ./peeronq-server-0.9.73.run --status --env-file /etc/peeronq/peeronq.env
+```
+
+Continue only if the preceding command succeeds. This requires configured SMTP; the installer does
+not provision an SMTP account. Checksums prove byte integrity, not authenticity; unsigned-pilot
+release gates remain. Rollback: `--rollback --env-file /etc/peeronq/peeronq.env`; separately restore
+prior registration/MFA/mail settings from the protected backup when reverting policy. Preserve data.
+
+Local acceptance: `scripts/windows/test-phase7-customer-portal.ps1` uses trusted
+`https://localhost:8443` and the portal virtual host. It modifies only the local development stack,
+creates unique test accounts, ages only their tokens for expiry/cooldown tests, cycles registration
+and MFA policies, restores the original MFA value, and tests real rate limits without weakening them.
+It uses Development FileSink, not SMTP. Production verification/reset delivery needs an approved
+mailbox and an actual SMTP test; until executed, record `LIVE EMAIL TEST = BLOCKED`.
+
+DNS operator requirement: `portal.peeronq.com` must resolve to the production HTTPS ingress, with
+valid TLS and reachable TCP 443. Source code does not change DNS. The URL must not contain `:8443`;
+Admin/Grafana/Prometheus remain operator-only.
+
+
 The Admin Releases page accepts only the Authenticode-signed MSI and detached ECDSA manifest produced
 by the offline Phase 5 release scripts. The API verifies the trusted manifest key, exact update origin,
 version/channel/architecture, validity window, size, and MSI SHA-256 before atomically publishing to
@@ -711,8 +767,8 @@ sudo ./peeronq-server-0.6.20.run --disable-customer-mail --dry-run
 sudo ./peeronq-server-0.6.20.run --disable-customer-mail
 ```
 
-The explicit disable option clears the SMTP host, port override, username and password, then enforces
-closed registration with email verification disabled. It cannot be combined with SMTP options.
+The explicit disable option clears the SMTP host, port override, username and password, requires Closed registration (explicitly select it when changing an open installation),
+and disables email verification. It cannot be combined with SMTP options.
 
 Server 0.6.26 also includes the customer Portal SPA in the complete bundle. Its embedded Windows MSI
 publication check streams the payload directly into SHA-256 instead of copying the roughly 76 MiB

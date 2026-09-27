@@ -80,11 +80,14 @@ cookie/header.
 
 | Method | Route | Purpose | Authorization |
 | --- | --- | --- | --- |
+| GET | `/portal/v1/auth/capabilities` | Registration, email recovery, MFA availability and canonical password rules; no secrets | Anonymous; 60/min/IP; no-store |
+| POST | `/portal/v1/auth/verify-email/resend` | Generic verification request; old active links invalidated, one-minute per-account cooldown | Anonymous; 5/10min/IP |
+| POST | `/portal/v1/account/password/change` | Verify current password, keep current sign-in session, revoke others/reset links; audit | Customer session + CSRF + sensitive rate limit |
 | POST | `/portal/v1/auth/register`, `/verify-email`, `/login`, `/refresh` | Account creation, email proof and rotating browser session | Anonymous/rate-limited; refresh cookie + CSRF |
 | POST | `/portal/v1/auth/password-reset/request`, `/complete` | Enumeration-safe reset issue and one-use completion | Anonymous/rate-limited |
 | POST | `/portal/v1/auth/logout` | Revoke current customer session | Customer session + CSRF |
 | GET/PUT | `/portal/v1/account/profile` | Read/update current profile | Customer session; PUT + CSRF |
-| POST/DELETE | `/portal/v1/account/mfa/setup`, `/mfa/confirm`, `/mfa` | Time-limited TOTP setup, recovery codes, verified disable | Customer session + CSRF |
+| POST/DELETE | `/portal/v1/account/mfa/setup`, `/mfa/confirm`, `/mfa` | Time-limited TOTP setup, recovery codes, verified disable; fail closed while customer MFA is disabled | Customer session + CSRF |
 | GET/DELETE | `/portal/v1/account/sessions`, `/sessions/{id}` | List and revoke only the current account's sessions | Customer session + CSRF on delete |
 | GET/DELETE | `/portal/v1/account/trusted-devices`, `/trusted-devices/{id}` | List/revoke expiring account trust records | Customer session + CSRF on delete |
 | POST | `/portal/v1/account/data-requests` | Request account export or guarded deletion | Customer session + CSRF |
@@ -222,7 +225,7 @@ and tenant authorization still apply.
 
 | URL | Page | Purpose | Data source |
 | --- | --- | --- | --- |
-| `/` | `OverviewPage` / unauthenticated `AuthPage` | Sign in, then identity/verification/MFA, active account-session/trust counts, organization count, managed devices and recent remote sessions; independent widget errors/retries | `/portal/v1/auth/*`, `/account/{profile,sessions,trusted-devices}`, `/organizations/`, `/organizations/*/{devices,sessions}` |
+| `/` | `OverviewPage` / unauthenticated `AuthPage` | Capabilities-aware sign in, registration and verification resend; then identity/verification and optional MFA, active account-session/trust counts, organization count, managed devices and recent remote sessions; independent widget errors/retries | `/portal/v1/auth/*`, `/account/{profile,sessions,trusted-devices}`, `/organizations/`, `/organizations/*/{devices,sessions}` |
 | `/profile`, `/account` | `ProfilePage` | Profile editor; `/profile` is canonical navigation, `/account` remains a working compatibility alias | `/portal/v1/account/profile` |
 | `/remote-sessions` | `RemoteSessionsPage` | Organization host-side remote-session metadata, up to 500 recent records | `/portal/v1/organizations/*/sessions` |
 | `/downloads` | `DownloadsPage` | Native app access modes and link to authoritative public downloads | Static; `https://peeronq.com/#download` |
@@ -233,7 +236,7 @@ and tenant authorization still apply.
 | `/invitations`, `/invitations/accept` | invitation pages | Issue/revoke/accept protected invitations | `/portal/v1/organizations/*/invitations*` |
 | `/devices` | `DevicesPage` | Organization-scoped device visibility | `/portal/v1/organizations/*/devices` |
 | `/policy` | `PolicyPage` | Server-enforced connection/security/retention settings | `/portal/v1/organizations/*/policy` |
-| `/security` | `SecurityPage` | MFA, recovery and account controls | `/portal/v1/account/mfa*` |
+| `/security` | `SecurityPage` | Password change and optional MFA, recovery and account controls | `/portal/v1/account/password/change`, `/account/mfa*` |
 | `/audit` | `AuditPage` | Tenant security/audit events | `/portal/v1/organizations/*/audit` |
 | `/privacy` | `PrivacyPage` | Export/delete request controls | `/portal/v1/account/data-requests` |
 

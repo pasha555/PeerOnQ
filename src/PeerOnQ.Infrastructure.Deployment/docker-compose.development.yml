@@ -119,6 +119,7 @@ services:
       ConnectionStrings__Redis: redis:6379,user=peeronq_cloud,password=${PEERONQ_REDIS_CLOUD_PASSWORD:?set PEERONQ_REDIS_CLOUD_PASSWORD},ssl=false,abortConnect=false
       CloudSecurity__PublicDeviceIdHmacKeyBase64: ${PEERONQ_CLOUD_PUBLIC_DEVICE_ID_HMAC_KEY_BASE64:?set PEERONQ_CLOUD_PUBLIC_DEVICE_ID_HMAC_KEY_BASE64}
       AllowedHosts: ${PEERONQ_API_HOST:-api.dev.localhost};${PEERONQ_PORTAL_HOST:-portal.dev.localhost};cloud-api
+      PeerOnQ__CustomerPortal__EnableMfa: ${PEERONQ_CUSTOMER_MFA_ENABLED:-false}
       PeerOnQ__CustomerPortal__RegistrationMode: ${PEERONQ_CUSTOMER_REGISTRATION_MODE:-Open}
       PeerOnQ__CustomerPortal__RequireEmailVerification: ${PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION:-true}
       PeerOnQ__CustomerPortal__JwtIssuer: https://${PEERONQ_API_HOST:-api.dev.localhost}

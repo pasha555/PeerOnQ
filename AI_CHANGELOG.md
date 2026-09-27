@@ -30,6 +30,61 @@ Rollback:
 
 ## Entries
 
+
+## 2026-09-28 - Customer email authentication and personal portal completion (0.9.73)
+
+Task: Complete the existing customer architecture; preserve Admin/native identity boundaries.
+Files changed: CustomerPortalOptions/Authentication/Endpoints, CustomerAccountService,
+CustomerOrganizationService, CustomerMail, CustomerIdentityEntities, CloudApiApp; real Portal
+forms/auth/API client/tests; bootstrap/installer/Compose and acceptance/contract tests; canonical
+version, release notes, deployment/security/current-state and project/route/design maps.
+Reason: Production Closed registration and installer mode resets were inconsistent with public
+onboarding; UI lacked policy discovery, resend/confirmation/password-change and optional-MFA state.
+Changes: Public capabilities, verification resend with old-token invalidation/cooldown, authenticated
+password change/current-session preservation/other-session revocation, single-flight refresh,
+customer-only MFA off with stored enrollment/recovery/policy retained, explicit registration/MFA
+installer flags preserving valid upgrades, approved SMTP sender configuration. Native code/protocols,
+Admin MFA, operator CIDRs, cookies/CSRF and accountless LAN are preserved. Device-claim UI remains
+blocked on a native single-use ownership-proof exchange; no raw device-token or ID-only shortcut.
+Validation:
+- Exact requested `dotnet restore PeerOnQ.slnx` passed. Release solution build with
+  `--no-restore -p:ContinuousIntegrationBuild=true -p:EnableNETAnalyzers=true -p:AnalysisLevel=latest
+  -warnaserror` passed (0 warnings/errors); final affected API/tests rebuilt with analyzers.
+- Exact requested `dotnet test PeerOnQ.slnx --configuration Release --no-restore --nologo` completed:
+  885 passed, 4 failed, 5 skipped across 18 projects. Failures were unchanged real-media/video/input
+  timing and QUIC interactive timing. Isolated Transport: 7/7 passed; isolated Media: 141 passed,
+  2 existing input p95 failures (38.1/35.6 ms against 35 ms), 1 live-TURN skip. No threshold relaxed.
+- Final Cloud.Infrastructure suite: 56/56 (21 CustomerPortalSecurity cases including SMTP failure).
+  The full run also passed Admin 49/49, Cloud.Domain 14/14, Cloud.Application 19/19 and Observability
+  35/35 (including 21 deployment tests). No failing/skipped result is reported as PASS.
+- Node 24 Portal typecheck/build and 58/58 tests; public-site typecheck and 86/86 tests passed.
+  Native UI, Windows/server version guards, merged Compose policy/URL/port matrix, Linux bootstrap
+  upgrade contracts and trusted local Nginx TLS/public/private/unknown-host regressions passed.
+- Current local HTTPS/FileSink harness executed 114 validated HTTP requests: Open/Closed/InvitationOnly,
+  real invitation signup, verification/resend/expiry/replay, password reset/change, active/revoked
+  sessions, CSRF, logout/relogin, profile/org/devices/history, tenant/RBAC/audit, actual lockout/rate
+  limits, MFA enable/restart/disable/re-enable with stored enrollment/recovery/org policy retained.
+- Fresh 0.9.73 x64/ARM64 MSI builds and installer payload checks passed. Preview restart initially
+  rejected system Node 25; restarting with the existing Node 24 toolchain succeeded. Local :5555
+  selects 0.9.73 unsigned-public-pilot; both full HTTP downloads returned 200 and matched SHA256SUMS.
+- Full server bundle built and extracted: 79,258,256 bytes / 683 files; header/payload hash, safe
+  archive paths, exact source/notes, canonical version and embedded x64 hash verified.
+  Production web Docker image built successfully from that exact extracted bundle with portless
+  portal/download HTTPS URLs and its embedded checksum-verified x64 MSI.
+  Server SHA-256: 997841e6da699170e080c5949e19c59491c8050edfdfa29efce2a4031c28db1d.
+  x64: fac3f3efe2940992d5b26eede0b8803ef53fbfd7270440922a78e5a9c1bdfc50.
+  ARM64: 7adf8d55caaad541c168f6f58c1eefada180f709a9f6385ff9ff2cd37119a88b.
+- Repository secret scan and diff whitespace check passed. Live SMTP/approved-mailbox acceptance
+  remains BLOCKED. Browser visual/physical Windows/ARM64/4K/WAN and production installation were not
+  performed; local API/DOM tests are not substitutes for those gates.
+Risk: Customer MFA off is intentional; keep Admin MFA. Existing media timing gates remain red;
+unsigned-pilot/signature and live-email gates mean this is not production approval.
+Operator handoff: Always give the exact versioned server CLI and hash; do not assume a copied
+`.run` has its `.sha256` or `.asc` sidecars. Server/client versions stay unified. Configure real SMTP
+and verification before Open registration; never disable verification or broaden CIDRs to proceed.
+Rollback: Retained server --rollback plus restoration of prior protected policy/mail configuration;
+preserve data volumes/migrations. Server rollback does not downgrade installed clients.
+
 ## 2026-09-27 - Expire stale media pressure for quiet-desktop recovery (0.9.72)
 
 Task:

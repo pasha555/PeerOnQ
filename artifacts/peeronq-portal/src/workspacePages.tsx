@@ -74,7 +74,7 @@ function AccountCount({ title, href, state }: {
 }
 
 export function OverviewPage() {
-  const { profile } = useAuth();
+  const { profile, capabilities } = useAuth();
   const { organizations, selected, loading, error } = useOrganization();
   const devices = useOrganizationResource<Device>('devices');
   const sessions = useOrganizationResource<RemoteSession>('sessions');
@@ -83,7 +83,7 @@ export function OverviewPage() {
   return <Page title="Overview" description={profile ? `Welcome, ${profile.displayName}. Your account and shared workspace in one place.` : 'Your account and shared workspace in one place.'} actions={<Link href="/downloads" className="button primary"><Download size={17} aria-hidden="true" />Get PeerOnQ</Link>}>
     <section className="account-summary panel" aria-label="Account status">
       <div><span className="eyebrow">Your account</span><h2>{profile?.email}</h2><span className={profile?.emailVerified ? 'badge success' : 'badge muted'}>{profile?.emailVerified ? 'Email verified' : 'Email verification pending'}</span><Link href="/profile" className="text-action">Edit profile<ArrowRight size={16} aria-hidden="true" /></Link></div>
-      <div className="security-summary"><ShieldCheck aria-hidden="true" /><div><strong>{profile?.mfaEnabled ? 'MFA enabled' : 'MFA not enabled'}</strong><p>{profile?.mfaEnabled ? 'An additional check protects your sign-in.' : 'Add an authenticator to protect your sign-in.'}</p><Link href="/security" className="text-action">Review security<ArrowRight size={16} aria-hidden="true" /></Link></div></div>
+      <div className="security-summary"><ShieldCheck aria-hidden="true" /><div><strong>{capabilities?.mfaAvailable ? (profile?.mfaEnabled ? 'MFA enabled' : 'MFA not enabled') : 'Account security'}</strong><p>{capabilities?.mfaAvailable ? (profile?.mfaEnabled ? 'An additional check protects your sign-in.' : 'Add an authenticator to protect your sign-in.') : 'Manage your password and review active sign-in sessions.'}</p><Link href="/security" className="text-action">Review security<ArrowRight size={16} aria-hidden="true" /></Link></div></div>
     </section>
     <section className="account-metrics" aria-label="Account overview">
       <AccountCount title="Sign-in sessions" href="/sessions" state={accountSessions} />

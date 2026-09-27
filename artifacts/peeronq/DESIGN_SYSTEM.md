@@ -295,6 +295,7 @@ styles and local brand assets are separate from the public-site CSS and offline 
 | `LoadingState` | `artifacts/peeronq-portal/src/components.tsx` | Accessible `role=status` progress state |
 | `ErrorState` | `artifacts/peeronq-portal/src/components.tsx` | Accessible `role=alert` with optional retry |
 | `EmptyState` | `artifacts/peeronq-portal/src/components.tsx` | Explicit zero-data state; never substitutes fake records |
+| `PasswordField`, `NewPasswordFields` | `artifacts/peeronq-portal/src/passwordFields.tsx` | Labeled show/hide, autocomplete, confirmation and server-provided rules; semantic form/error styles |
 | `Notice` | `artifacts/peeronq-portal/src/components.tsx` | Info/success/danger feedback using semantic tokens |
 | `Brand` | `artifacts/peeronq-portal/src/brand.tsx` | Canonical lockup and explicit Portal surface label |
 | `OverviewPage`, `DevicesPage`, `RemoteSessionsPage` | `artifacts/peeronq-portal/src/workspacePages.tsx` | Organization-scoped account overview, real device data and recorded remote-session history; missing data remains loading/error/empty |

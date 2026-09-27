@@ -77,6 +77,8 @@ try {
     for (const names of [["staging"], ["staging", "production"]]) {
       const model = render(names, port ? { PEERONQ_HTTPS_PORT: port } : {});
       const args = model.services["web-ui"].build.args;
+      assert.equal(model.services["cloud-api"].environment.PeerOnQ__CustomerPortal__EnableMfa, "false");
+      assert.equal(model.services["cloud-api"].environment.PeerOnQ__CustomerPortal__Mail__FromAddress, "peeronq@peeronq.com");
       assert.equal(args.VITE_PEERONQ_ACCOUNT_PORTAL_URL, "https://portal.peeronq.com");
       assert.equal(args.VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL, "https://download.peeronq.com");
       assert.equal(
@@ -111,6 +113,24 @@ try {
           (binding) => binding.target === 443 && binding.published === "443",
         ),
       );
+    }
+  }
+  for (const mode of ["Closed", "InvitationOnly", "Open"]) {
+    for (const enabled of ["false", "true"]) {
+      const model = render(["staging", "production"], {
+        PEERONQ_CUSTOMER_REGISTRATION_MODE: mode,
+        PEERONQ_CUSTOMER_MFA_ENABLED: enabled,
+        PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION: "true",
+        PEERONQ_CUSTOMER_MAIL_PROVIDER: "Smtp",
+        PEERONQ_CUSTOMER_MAIL_FROM_ADDRESS: "support@example.test",
+      });
+      const customer = model.services["cloud-api"].environment;
+      assert.equal(customer.PeerOnQ__CustomerPortal__RegistrationMode, mode);
+      assert.equal(customer.PeerOnQ__CustomerPortal__EnableMfa, enabled);
+      assert.equal(customer.PeerOnQ__CustomerPortal__RequireEmailVerification, "true");
+      assert.equal(customer.PeerOnQ__CustomerPortal__Mail__FromAddress, "support@example.test");
+      assert.equal(customer.PeerOnQ__CustomerPortal__Mail__SmtpUseTls, "true");
+      assert.ok(!Object.keys(model.services["admin-api"].environment).some((key) => key.includes("CustomerPortal")));
     }
   }
   const development = render(["development"], {

@@ -10,8 +10,14 @@ public static class CustomerPortalEndpoints
     {
         var portal = endpoints.MapGroup("/portal/v1");
         var auth = portal.MapGroup("/auth");
+        auth.MapGet("/capabilities", (HttpContext context, CustomerAccountService service) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(service.GetCapabilities());
+        }).AllowAnonymous().RequireRateLimiting("customer-capabilities");
         auth.MapPost("/register", RegisterAsync).AllowAnonymous().RequireRateLimiting("customer-registration");
         auth.MapPost("/verify-email", VerifyEmailAsync).AllowAnonymous().RequireRateLimiting("customer-authentication");
+        auth.MapPost("/verify-email/resend", ResendVerificationAsync).AllowAnonymous().RequireRateLimiting("customer-email");
         auth.MapPost("/login", LoginAsync).AllowAnonymous().RequireRateLimiting("customer-authentication");
         auth.MapPost("/refresh", RefreshAsync).AllowAnonymous().RequireRateLimiting("customer-authentication");
         auth.MapPost("/password-reset/request", RequestPasswordResetAsync).AllowAnonymous().RequireRateLimiting("customer-authentication");
@@ -22,9 +28,10 @@ public static class CustomerPortalEndpoints
         account.MapGet("/profile", async (HttpContext context, CustomerAccountService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.GetProfileAsync(context.User.RequireCustomerAccountId(), cancellationToken)));
         account.MapPut("/profile", UpdateProfileAsync);
-        account.MapPost("/mfa/setup", BeginMfaSetupAsync);
-        account.MapPost("/mfa/confirm", ConfirmMfaAsync);
-        account.MapDelete("/mfa", DisableMfaAsync);
+        account.MapPost("/password/change", ChangePasswordAsync).RequireRateLimiting("customer-sensitive");
+        account.MapPost("/mfa/setup", BeginMfaSetupAsync).RequireRateLimiting("customer-sensitive");
+        account.MapPost("/mfa/confirm", ConfirmMfaAsync).RequireRateLimiting("customer-sensitive");
+        account.MapDelete("/mfa", DisableMfaAsync).RequireRateLimiting("customer-sensitive");
         account.MapGet("/sessions", async (HttpContext context, CustomerAccountService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.GetSessionsAsync(context.User.RequireCustomerAccountId(), cancellationToken)));
         account.MapDelete("/sessions/{sessionId:guid}", RevokeSessionAsync);
@@ -43,6 +50,19 @@ public static class CustomerPortalEndpoints
     private static async Task<IResult> VerifyEmailAsync(VerifyEmailRequest request, CustomerAccountService service, CancellationToken cancellationToken)
     {
         await service.VerifyEmailAsync(request.Token, cancellationToken);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> ResendVerificationAsync(PasswordResetRequest request, CustomerAccountService service, CancellationToken cancellationToken)
+    {
+        await service.ResendVerificationAsync(request.Email, cancellationToken);
+        return Results.Accepted(value: new { message = "Request accepted. Check your inbox; if no message arrives, try again later." });
+    }
+
+    private static async Task<IResult> ChangePasswordAsync(ChangeCustomerPasswordRequest request, HttpContext context, CustomerAccountService service, CancellationToken cancellationToken)
+    {
+        CustomerPortalAuthentication.ValidateCsrf(context);
+        await service.ChangePasswordAsync(context.User.RequireCustomerAccountId(), context.User.RequireCustomerSessionId(), request, cancellationToken);
         return Results.NoContent();
     }
 

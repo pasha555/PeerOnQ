@@ -8,6 +8,7 @@ public sealed class CustomerPortalOptions
     public const string SectionName = "PeerOnQ:CustomerPortal";
     public CustomerRegistrationMode RegistrationMode { get; init; } = CustomerRegistrationMode.Closed;
     public bool RequireEmailVerification { get; init; } = true;
+    public bool EnableMfa { get; init; }
     public string JwtIssuer { get; init; } = "peeronq-cloud";
     public string JwtAudience { get; init; } = "peeronq-customer-portal";
     public string JwtSigningKey { get; init; } = string.Empty;
@@ -37,6 +38,11 @@ public sealed class CustomerPortalOptionsValidator(IHostEnvironment environment)
     public ValidateOptionsResult Validate(string? name, CustomerPortalOptions options)
     {
         var failures = new List<string>();
+        if (!Enum.IsDefined(options.RegistrationMode)) failures.Add("RegistrationMode must be Closed, InvitationOnly, or Open.");
+        if (options.EmailTokenMinutes is < 5 or > 1440) failures.Add("EmailTokenMinutes must be between 5 and 1440.");
+        if (!environment.IsDevelopment() && !environment.IsEnvironment("Testing") &&
+            options.RegistrationMode != CustomerRegistrationMode.Closed && !options.RequireEmailVerification)
+            failures.Add("Public customer registration requires email verification outside Development or Testing.");
         if (options.JwtSigningKey.Length < 48) failures.Add("PeerOnQ:CustomerPortal:JwtSigningKey must contain at least 48 characters.");
         if (options.AccessTokenMinutes is < 1 or > 60) failures.Add("AccessTokenMinutes must be between 1 and 60.");
         if (options.RefreshTokenDays is < 1 or > 90) failures.Add("RefreshTokenDays must be between 1 and 90.");

@@ -97,6 +97,8 @@ public static class CloudApiApp
             options.AddPolicy("customer-registration", context => Fixed(context, 5, TimeSpan.FromMinutes(10)));
             options.AddPolicy("customer-authentication", context => Fixed(context, 10, TimeSpan.FromMinutes(5)));
             options.AddPolicy("customer-sensitive", context => Fixed(context, 30, TimeSpan.FromMinutes(1)));
+            options.AddPolicy("customer-capabilities", context => Fixed(context, 60, TimeSpan.FromMinutes(1)));
+            options.AddPolicy("customer-email", context => Fixed(context, 5, TimeSpan.FromMinutes(10)));
         });
     }
 

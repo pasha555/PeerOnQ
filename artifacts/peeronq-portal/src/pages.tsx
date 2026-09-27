@@ -4,6 +4,7 @@ import { Link } from 'wouter';
 import { api, ApiError, post, put, remove } from './api';
 import { useAuth } from './auth';
 import { AuthFrame } from './brand';
+import { NewPasswordFields, PasswordField, passwordError } from './passwordFields';
 import { ConfirmAction, EmptyState, ErrorState, LoadingState, Notice, Page } from './components';
 import { useOrganization } from './shell';
 import type { Invitation, Member, Organization, Policy, Profile, SecurityEvent, Session, Team, TrustedDevice } from './types';
@@ -11,7 +12,7 @@ import type { Invitation, Member, Organization, Policy, Profile, SecurityEvent, 
 function message(cause: unknown) { return cause instanceof ApiError ? cause.message : 'The request could not be completed.'; }
 function formatDate(value: string | null) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'; }
 
-type AuthMode = 'login' | 'register' | 'forgot';
+type AuthMode = 'login' | 'register' | 'forgot' | 'resend';
 type AuthActions = Pick<ReturnType<typeof useAuth>, 'login' | 'register'>;
 
 async function submitAuthMode(mode: AuthMode, data: FormData, actions: AuthActions): Promise<string | null> {
@@ -26,17 +27,17 @@ async function submitAuthMode(mode: AuthMode, data: FormData, actions: AuthActio
       ? 'Check your inbox to verify your account, then sign in.'
       : 'Account created. You can sign in now.';
   }
-  await post('/auth/password-reset/request', { email: String(data.get('email')) });
-  return 'If the account exists, a reset message was sent.';
+  await post(mode === 'resend' ? '/auth/verify-email/resend' : '/auth/password-reset/request', { email: String(data.get('email')) });
+  return 'Request accepted. If your account is eligible, check your inbox. If no message arrives, try again later.';
 }
 
 function authTitle(mode: AuthMode): string {
-  return { login: 'Sign in', register: 'Create account', forgot: 'Reset password' }[mode];
+  return { login: 'Sign in', register: 'Create account', forgot: 'Reset password', resend: 'Resend verification' }[mode];
 }
 
 function authButtonLabel(mode: AuthMode, busy: boolean): string {
   if (busy) return 'Please wait…';
-  return { login: 'Sign in', register: 'Create account', forgot: 'Send reset message' }[mode];
+  return { login: 'Sign in', register: 'Create account', forgot: 'Send reset message', resend: 'Send verification message' }[mode];
 }
 
 function AuthForm({ mode, mfa, busy, onSubmit }: {
@@ -48,26 +49,28 @@ function AuthForm({ mode, mfa, busy, onSubmit }: {
   return <form ref={form} key={mode} onSubmit={onSubmit} aria-busy={busy}>
     {mode === 'register' ? <label>Display name<input name="displayName" required maxLength={128} autoComplete="name" /></label> : null}
     <label>Email<input name="email" type="email" required maxLength={320} autoComplete="email" /></label>
-    {mode !== 'forgot' ? <label>Password<input name="password" type="password" required minLength={12} maxLength={128}
-      autoComplete={mode === 'login' ? 'current-password' : 'new-password'} aria-describedby={mode === 'register' ? 'password-help' : undefined} /></label> : null}
-    {mode === 'register' ? <p id="password-help" className="field-help">Use 12–128 characters. Registration depends on the service’s registration policy; an invitation may be required.</p> : null}
+    {mode === 'login' ? <PasswordField name="password" label="Password" autoComplete="current-password" /> : null}
+    {mode === 'register' ? <NewPasswordFields label="Password" /> : null}
     {mode === 'login' && mfa ? <label>MFA or recovery code<input name="mfaCode" required autoComplete="one-time-code" autoFocus /></label> : null}
     <button className="button primary full" disabled={busy}>{authButtonLabel(mode, busy)}</button>
   </form>;
 }
 
 function AuthLinks({ mode, busy, onMode }: { mode: AuthMode; busy: boolean; onMode(mode: AuthMode): void }) {
+  const { capabilities } = useAuth();
+  const canRegister = capabilities?.registrationAvailable && (capabilities.registrationMode === 'Open' || Boolean(new URLSearchParams(location.search).get('token')));
   if (mode !== 'login') {
     return <div className="auth-links"><button className="link-button" disabled={busy} onClick={() => onMode('login')}>Back to sign in</button></div>;
   }
   return <div className="auth-links">
-    <button className="link-button" disabled={busy} onClick={() => onMode('register')}>Create account</button>
-    <button className="link-button" disabled={busy} onClick={() => onMode('forgot')}>Forgot password?</button>
+    {canRegister ? <button className="link-button" disabled={busy} onClick={() => onMode('register')}>Create account</button> : <p className="field-help">{capabilities?.registrationMode === 'InvitationOnly' ? 'An invitation is required to create an account. Open the link from your organization.' : 'New account registration is currently closed.'}</p>}
+    {capabilities?.passwordResetAvailable ? <button className="link-button" disabled={busy} onClick={() => onMode('forgot')}>Forgot password?</button> : <p className="field-help">Email recovery is unavailable. Contact your service operator.</p>}
+    {capabilities?.requireEmailVerification && capabilities.passwordResetAvailable ? <button className="link-button" disabled={busy} onClick={() => onMode('resend')}>Resend verification</button> : null}
   </div>;
 }
 
 export function AuthPage() {
-  const { login, register, error: serviceError, reload } = useAuth();
+  const { login, register, error: serviceError, reload, capabilities, capabilitiesError, reloadCapabilities } = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,24 +79,28 @@ export function AuthPage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setBusy(true); setError(null); setNotice(null);
     try {
-      const nextNotice = await submitAuthMode(mode, new FormData(event.currentTarget), { login, register });
+      const data = new FormData(event.currentTarget);
+      if (mode === 'register') { const invalid = passwordError(data, capabilities?.passwordRules); if (invalid) { setError(invalid); return; } }
+      const nextNotice = await submitAuthMode(mode, data, { login, register });
       setNotice(nextNotice);
       if (mode !== 'login') setMode('login');
     } catch (cause) {
-      if (cause instanceof ApiError && cause.code === 'mfa_required') {
+      if (capabilities?.mfaAvailable && cause instanceof ApiError && cause.code === 'mfa_required') {
         setMfa(true); setError('Enter your authenticator or recovery code.');
       } else setError(message(cause));
     } finally { setBusy(false); }
   };
   const changeMode = (next: AuthMode) => { setMode(next); setMfa(false); setError(null); setNotice(null); };
   return <AuthFrame><section className="auth-layout">
-    <div className="auth-intro"><div><span className="eyebrow">Your PeerOnQ workspace</span><h1>A clear view of your devices and access.</h1><p>Manage your account and your organization’s shared resources from one place.</p></div><ul className="auth-benefits"><li><Laptop aria-hidden="true" /><div><strong>Devices & sessions</strong><span>Review managed devices and remote session history.</span></div></li><li><UsersRound aria-hidden="true" /><div><strong>Your organization</strong><span>Keep members, teams and access settings together.</span></div></li><li><ShieldCheck aria-hidden="true" /><div><strong>Account security</strong><span>Manage MFA, sign-in sessions and trusted sign-in devices.</span></div></li></ul><p className="auth-note">Remote connections run in the native app. Local LAN access works without an account.</p></div>
-    <div className="auth-card"><span className="eyebrow">Account portal</span><h2>{authTitle(mode)}</h2><p>{mode === 'login' ? 'Welcome back. Use your PeerOnQ account to continue.' : mode === 'register' ? 'Create your account to manage a shared workspace.' : 'We’ll send a reset link if the account exists.'}</p>
+    <div className="auth-intro"><div><span className="eyebrow">Your PeerOnQ workspace</span><h1>A clear view of your devices and access.</h1><p>Manage your account and your organization’s shared resources from one place.</p></div><ul className="auth-benefits"><li><Laptop aria-hidden="true" /><div><strong>Devices & sessions</strong><span>Review managed devices and remote session history.</span></div></li><li><UsersRound aria-hidden="true" /><div><strong>Your organization</strong><span>Keep members, teams and access settings together.</span></div></li><li><ShieldCheck aria-hidden="true" /><div><strong>Account security</strong><span>Manage your password, sign-in sessions and trusted sign-in devices.</span></div></li></ul><p className="auth-note">Remote connections run in the native app. Local LAN access works without an account.</p></div>
+    <div className="auth-card"><span className="eyebrow">Account portal</span><h2>{authTitle(mode)}</h2><p>{mode === 'login' ? 'Welcome back. Use your PeerOnQ account to continue.' : mode === 'register' ? 'Create your account to manage a shared workspace.' : mode === 'resend' ? 'Request a new verification link. Previous links will expire.' : 'Request an email link to reset your password.'}</p>
       {serviceError ? <Notice tone="danger">{serviceError} <button className="link-button" onClick={() => void reload()}>Retry</button></Notice> : null}
       {notice ? <Notice tone="success">{notice}</Notice> : null}
       {error ? <Notice tone="danger">{error}</Notice> : null}
-      <AuthForm mode={mode} mfa={mfa} busy={busy} onSubmit={(event) => void submit(event)} />
-      <AuthLinks mode={mode} busy={busy} onMode={changeMode} />
+      {capabilitiesError ? <ErrorState message={capabilitiesError} retry={() => void reloadCapabilities()} /> : !capabilities ? <LoadingState label="Loading sign-in options..." /> : <>
+        <AuthForm mode={mode} mfa={mfa && capabilities.mfaAvailable} busy={busy} onSubmit={(event) => void submit(event)} />
+        <AuthLinks mode={mode} busy={busy} onMode={changeMode} />
+      </>}
     </div>
   </section></AuthFrame>;
 }
@@ -106,21 +113,22 @@ export function VerifyEmailPage() {
 }
 
 export function ResetPasswordPage() {
+  const { capabilities } = useAuth();
   const token = new URLSearchParams(location.search).get('token') ?? '';
   const [done, setDone] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget); setError(null); setBusy(true);
-    try { await post('/auth/password-reset/complete', { token, newPassword: String(data.get('password')) }); setDone(true); }
+    try { const invalid = passwordError(data, capabilities?.passwordRules); if (invalid) { setError(invalid); return; } await post('/auth/password-reset/complete', { token, newPassword: String(data.get('password')) }); setDone(true); }
     catch (cause) { setError(message(cause)); } finally { setBusy(false); }
   };
   return <AuthFrame><section className="auth-card auth-single"><span className="eyebrow">Account security</span><h1>Choose a new password</h1>
-    {done ? <Notice tone="success">Password changed and existing sessions revoked.</Notice> : <form onSubmit={(event) => void submit(event)} aria-busy={busy}>{error ? <Notice tone="danger">{error}</Notice> : null}<label>New password<input name="password" type="password" minLength={12} maxLength={128} required autoComplete="new-password" aria-describedby="reset-help" /></label><p id="reset-help" className="field-help">Use 12–128 characters. Changing your password revokes existing sign-in sessions.</p><button className="button primary full" disabled={busy}>{busy ? 'Resetting…' : 'Reset password'}</button></form>}
+    {done ? <Notice tone="success">Password changed and existing sessions revoked.</Notice> : <form onSubmit={(event) => void submit(event)} aria-busy={busy}>{error ? <Notice tone="danger">{error}</Notice> : null}<NewPasswordFields /><p className="field-help">Changing your password revokes existing sign-in sessions.</p><button className="button primary full" disabled={busy}>{busy ? 'Resetting…' : 'Reset password'}</button></form>}
     <a className="text-action" href="/">Back to sign in</a>
   </section></AuthFrame>;
 }
 
 export function ProfilePage() {
-  const { profile, reload } = useAuth(); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false); const [busy, setBusy] = useState(false);
+  const { profile, reload, capabilities } = useAuth(); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false); const [busy, setBusy] = useState(false);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const displayName = String(new FormData(event.currentTarget).get('displayName')); setError(null); setSaved(false); setBusy(true);
     try { await put('/account/profile', { displayName }); await reload(); setSaved(true); } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
@@ -130,7 +138,7 @@ export function ProfilePage() {
       {saved ? <Notice tone="success">Profile saved.</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}
       <label>Display name<input name="displayName" defaultValue={profile?.displayName} required maxLength={128} autoComplete="name" aria-describedby="name-help" /></label><p id="name-help" className="field-help">The name shown in your account and organization memberships.</p>
       <label>Email<input value={profile?.email ?? ''} readOnly aria-describedby="email-help" /></label><p id="email-help" className="field-help">Your sign-in email cannot be changed from this page.</p>
-      <div className="facts"><span>Email verification<strong>{profile?.emailVerified ? 'Verified' : 'Pending'}</strong></span><span>MFA<strong>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</strong></span><span>Created<strong>{formatDate(profile?.createdAtUtc ?? null)}</strong></span></div><button className="button primary" disabled={busy}>{busy ? 'Saving…' : 'Save profile'}</button>
+      <div className="facts"><span>Email verification<strong>{profile?.emailVerified ? 'Verified' : 'Pending'}</strong></span>{capabilities?.mfaAvailable ? <span>MFA<strong>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</strong></span> : null}<span>Created<strong>{formatDate(profile?.createdAtUtc ?? null)}</strong></span></div><button className="button primary" disabled={busy}>{busy ? 'Saving…' : 'Save profile'}</button>
     </form>
   </Page>;
 }
@@ -217,8 +225,26 @@ export function AcceptInvitationPage() {
   return <Page title="Accept invitation" description="Join the organization with the role assigned by its administrator.">{state === 'loading' ? <LoadingState /> : state === 'done' ? <Notice tone="success">Invitation accepted. Your active organizations were refreshed.</Notice> : <ErrorState message="This invitation is invalid, expired, revoked, already used, or belongs to another account." />}</Page>;
 }
 
+function ChangePasswordForm() {
+  const { capabilities } = useAuth();
+  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setError(null); setSaved(false);
+    const invalid = passwordError(data, capabilities?.passwordRules); if (invalid) { setError(invalid); return; }
+    setBusy(true);
+    try { await post('/account/password/change', { currentPassword: data.get('currentPassword'), newPassword: data.get('password') }); form.reset(); setSaved(true); }
+    catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <form className="panel form-grid" onSubmit={(event) => void submit(event)} aria-busy={busy}><h2>Change password</h2>
+    <p>Your current sign-in session stays active. Other sign-in sessions and outstanding password-reset links are revoked.</p>
+    {error ? <Notice tone="danger">{error}</Notice> : null}{saved ? <Notice tone="success">Password changed. Other sign-in sessions have been revoked.</Notice> : null}
+    <PasswordField name="currentPassword" label="Current password" autoComplete="current-password" /><NewPasswordFields />
+    <button className="button primary" disabled={busy || !capabilities}>{busy ? 'Changing password...' : 'Change password'}</button>
+  </form>;
+}
+
 export function SecurityPage() {
-  const { profile, reload } = useAuth(); const { selected } = useOrganization();
+  const { profile, reload, capabilities } = useAuth(); const { selected } = useOrganization();
   const [setup, setSetup] = useState<{ secret: string; setupToken: string; otpAuthUri: string } | null>(null);
   const [codes, setCodes] = useState<string[] | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const begin = async () => { setError(null); setBusy(true); try { setSetup(await post('/account/mfa/setup')); } catch (cause) { setError(message(cause)); } finally { setBusy(false); } };
@@ -228,11 +254,12 @@ export function SecurityPage() {
   };
   return <Page title="Security" description="Protect your account and review who can sign in. Remote access permissions are approved separately in the desktop app.">
     {error ? <Notice tone="danger">{error}</Notice> : null}
-    <section className="panel security-panel"><div className="section-heading"><h2>Multi-factor authentication</h2><span className={profile?.mfaEnabled ? 'badge success' : 'badge muted'}>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</span></div><p>An authenticator adds a second sign-in check. Recovery codes provide one-time access if your authenticator is unavailable.</p>
+    <ChangePasswordForm />
+    {capabilities?.mfaAvailable ? <section className="panel security-panel"><div className="section-heading"><h2>Multi-factor authentication</h2><span className={profile?.mfaEnabled ? 'badge success' : 'badge muted'}>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</span></div><p>An authenticator adds a second sign-in check. Recovery codes provide one-time access if your authenticator is unavailable.</p>
       {!profile?.mfaEnabled && !setup ? <button className="button primary" disabled={busy} onClick={() => void begin()}>{busy ? 'Preparing…' : 'Set up MFA'}</button> : null}
       {setup ? <form className="form-grid" onSubmit={(event) => void confirm(event)} aria-busy={busy}><div className="setup-secret"><p>1. Add this setup key to your authenticator. Keep it private.</p><code>{setup.secret}</code></div><label>6-digit code<input name="code" inputMode="numeric" pattern="[0-9]{6}" required autoComplete="one-time-code" aria-describedby="mfa-help" autoFocus /></label><p className="field-help" id="mfa-help">2. Enter the current code from your authenticator to finish setup.</p><div className="form-actions"><button className="button primary" disabled={busy}>{busy ? 'Confirming…' : 'Confirm MFA'}</button><button type="button" className="button secondary" disabled={busy} onClick={() => setSetup(null)}>Cancel setup</button></div></form> : null}
       {codes ? <Notice tone="success"><strong>Save these one-time recovery codes now:</strong><p>Keep them somewhere private. Leaving this page clears this copy.</p><pre>{codes.join('\n')}</pre></Notice> : null}
-    </section>
+    </section> : null}
     <div className="overview-grid content-section"><article className="panel"><h2>Sign-in sessions</h2><p>Review and revoke account sessions you no longer recognize.</p><Link href="/sessions" className="text-action">Manage sign-in sessions</Link></article><article className="panel"><h2>Trusted sign-in devices</h2><p>Remove account sign-in trust when a device is no longer yours.</p><Link href="/trusted-devices" className="text-action">Review trusted sign-in devices</Link></article>{selected ? <article className="panel"><h2>Organization policy</h2><p>Review {selected.name}’s connection and security requirements.</p><Link href="/policy" className="text-action">Open policy</Link></article> : null}</div>
   </Page>;
 }
@@ -248,6 +275,7 @@ const policyControls = [
 ] as const;
 
 export function PolicyPage() {
+  const { capabilities } = useAuth();
   const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Policy>(`/organizations/${selected.id}/policy`) : Promise.resolve(null as unknown as Policy), [selected?.id]);
   const [saved, setSaved] = useState(false); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const canEdit = selected?.role === 'Owner' || selected?.role === 'Administrator';
@@ -261,7 +289,7 @@ export function PolicyPage() {
     {saved ? <Notice tone="success">Policy saved.</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}
     {!selected ? <EmptyState title="No organization selected">Choose an organization before reviewing its policy.</EmptyState> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : <form className="panel policy-form" onSubmit={(event) => void submit(event)} aria-busy={busy}>
       {!canEdit ? <Notice>You can review this policy. An organization Owner or Administrator can edit it.</Notice> : null}
-      <fieldset disabled={!canEdit || busy}><legend>Access & security</legend><div className="policy-options">{policyControls.map(([name, label, description]) => <div className="policy-option" key={name}><label className="check"><input name={name} type="checkbox" defaultChecked={state.data![name]} aria-describedby={`${name}-help`} />{label}</label><p id={`${name}-help`}>{description}</p></div>)}</div></fieldset>
+      <fieldset disabled={!canEdit || busy}><legend>Access & security</legend><div className="policy-options">{policyControls.filter(([name]) => name !== 'mfaRequired' || capabilities?.mfaAvailable).map(([name, label, description]) => <div className="policy-option" key={name}><label className="check"><input name={name} type="checkbox" defaultChecked={state.data![name]} aria-describedby={`${name}-help`} />{label}</label><p id={`${name}-help`}>{description}</p></div>)}</div></fieldset>
       <fieldset className="form-grid" disabled={!canEdit || busy}><legend>Trust, retention & connection requirements</legend>
         <label>Trusted-device lifetime (days)<input name="trustedDeviceLifetimeDays" type="number" min="1" max="3650" required defaultValue={state.data.trustedDeviceLifetimeDays} /></label>
         <label>Audit retention (days)<input name="auditRetentionDays" type="number" min="1" max="3650" required defaultValue={state.data.auditRetentionDays} /></label>

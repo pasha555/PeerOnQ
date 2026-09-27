@@ -539,6 +539,8 @@ CUSTOMER_SMTP_PORT=$3
 CUSTOMER_SMTP_HOST_PROVIDED=$4
 CUSTOMER_SMTP_PORT_PROVIDED=$5
 CUSTOMER_MAIL_DISABLE_REQUESTED=${6-false}
+CUSTOMER_REGISTRATION_MODE=${7-}
+CUSTOMER_MFA_ENABLED=${8-}
 ensure_customer_mail_configuration
 EOF
 chmod 755 "$migration_unit"
@@ -641,6 +643,31 @@ do
     exit 1
   }
 done
+
+# Registration upgrades preserve the operator's policy; invalid or incompatible policy fails closed.
+for registration_mode in Closed InvitationOnly Open; do
+  policy_environment="$temporary/policy-$registration_mode.env"
+  printf '%s\n' "PEERONQ_CUSTOMER_REGISTRATION_MODE=$registration_mode" \
+    'PEERONQ_CUSTOMER_MAIL_PROVIDER=Smtp' 'PEERONQ_CUSTOMER_SMTP_HOST=smtp.example.com' \
+    'PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION=true' 'PEERONQ_CUSTOMER_MFA_ENABLED=true' > "$policy_environment"
+  PATH="$temporary/stubs:$PATH" sh "$migration_unit" "$policy_environment" smtp.example.com 587 true false
+  grep -Fxq "PEERONQ_CUSTOMER_REGISTRATION_MODE=$registration_mode" "$policy_environment"
+  grep -Fxq 'PEERONQ_CUSTOMER_MFA_ENABLED=true' "$policy_environment"
+  PATH="$temporary/stubs:$PATH" sh "$migration_unit" "$policy_environment" '' 587 false false false "$registration_mode" false
+  grep -Fxq 'PEERONQ_CUSTOMER_MFA_ENABLED=false' "$policy_environment"
+  if [ "$registration_mode" != Closed ]; then
+    if PATH="$temporary/stubs:$PATH" sh "$migration_unit" "$policy_environment" '' 587 false false true > "$temporary/disable-policy.out" 2>&1; then
+      printf 'Disabling mail silently closed public registration.\n' >&2; exit 1
+    fi
+    grep -Fxq "PEERONQ_CUSTOMER_REGISTRATION_MODE=$registration_mode" "$policy_environment"
+  fi
+done
+invalid_policy="$temporary/invalid-policy.env"
+printf 'PEERONQ_CUSTOMER_REGISTRATION_MODE=Unknown\n' > "$invalid_policy"
+if PATH="$temporary/stubs:$PATH" sh "$migration_unit" "$invalid_policy" '' 587 false false > "$temporary/invalid-policy.out" 2>&1; then
+  printf 'Invalid registration mode was accepted.\n' >&2; exit 1
+fi
+grep -Fxq 'PEERONQ_CUSTOMER_REGISTRATION_MODE=Unknown' "$invalid_policy"
 
 host_migration_unit="$temporary/public-host-migration.sh"
 awk '

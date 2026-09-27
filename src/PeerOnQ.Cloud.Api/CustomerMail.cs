@@ -52,6 +52,12 @@ public sealed class CustomerMailSender(IOptions<CustomerPortalOptions> options, 
         if (!string.IsNullOrWhiteSpace(mail.SmtpUsername))
             client.Credentials = new NetworkCredential(mail.SmtpUsername, mail.SmtpPassword);
         cancellationToken.ThrowIfCancellationRequested();
-        await client.SendMailAsync(message, cancellationToken);
+        try { await client.SendMailAsync(message, cancellationToken); }
+        catch (SmtpException)
+        {
+            // Provider errors can contain addresses and infrastructure details. Never forward them.
+            throw new ApiProblemException(StatusCodes.Status503ServiceUnavailable, "customer_mail_unavailable",
+                "Email delivery is temporarily unavailable. Please try again later.");
+        }
     }
 }

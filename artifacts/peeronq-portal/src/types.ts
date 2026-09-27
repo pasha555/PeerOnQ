@@ -1,4 +1,9 @@
 export interface Profile { id: string; email: string; displayName: string; emailVerified: boolean; mfaEnabled: boolean; createdAtUtc: string }
+export interface AuthCapabilities {
+  registrationMode: 'Closed' | 'InvitationOnly' | 'Open'; registrationAvailable: boolean;
+  requireEmailVerification: boolean; passwordResetAvailable: boolean; mfaAvailable: boolean;
+  passwordRules: { minLength: number; maxLength: number; requireUppercase: boolean; requireLowercase: boolean; requireDigit: boolean };
+}
 export interface Organization { id: string; name: string; role: 'Owner' | 'Administrator' | 'Technician' | 'Member' | 'Auditor'; ownerAccountId: string }
 export interface Session { id: string; userAgentSummary: string; createdAtUtc: string; expiresAtUtc: string; revokedAtUtc: string | null }
 export interface TrustedDevice { id: string; name: string; createdAtUtc: string; expiresAtUtc: string; revokedAtUtc: string | null }

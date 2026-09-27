@@ -213,8 +213,10 @@ public sealed class CustomerOrganizationService(
     {
         _ = await RequireMembershipAsync(actorId, organizationId, cancellationToken, Managers);
         var policy = await db.OrganizationPolicies.SingleAsync(value => value.OrganizationId == organizationId, cancellationToken);
+        if (!options.Value.EnableMfa && request.MfaRequired)
+            throw Problem(StatusCodes.Status400BadRequest, "customer_mfa_disabled", "Customer MFA is not available.");
         policy.Update(request.ViewOnlyAllowed, request.FullControlAllowed, request.FileTransferAllowed, request.ClipboardAllowed,
-            request.UnattendedAccessAllowed, request.MfaRequired, request.TrustedDeviceLifetimeDays, request.AuditRetentionDays,
+            request.UnattendedAccessAllowed, options.Value.EnableMfa ? request.MfaRequired : policy.MfaRequired, request.TrustedDeviceLifetimeDays, request.AuditRetentionDays,
             request.ApprovedRelayRegionsCsv, request.MinimumClientVersion, request.HybridSecurityRequired);
         AddEvent(actorId, organizationId, "organization.policy_updated", AuditResult.Succeeded);
         await db.SaveChangesAsync(cancellationToken);
@@ -228,7 +230,7 @@ public sealed class CustomerOrganizationService(
         var denied = new List<string>();
         if (!policy.Allows(request.Mode)) denied.Add("connection_mode_denied");
         if (request.Unattended && !policy.UnattendedAccessAllowed) denied.Add("unattended_access_denied");
-        if (policy.MfaRequired && !account.MfaEnabled) denied.Add("mfa_required");
+        if (options.Value.EnableMfa && policy.MfaRequired && !account.MfaEnabled) denied.Add("mfa_required");
         if (policy.HybridSecurityRequired && !request.HybridSecurityActive) denied.Add("hybrid_security_required");
         if (!string.IsNullOrWhiteSpace(policy.ApprovedRelayRegionsCsv) && !string.IsNullOrWhiteSpace(request.RelayRegion) &&
             !policy.ApprovedRelayRegionsCsv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Contains(request.RelayRegion, StringComparer.OrdinalIgnoreCase))
@@ -305,8 +307,8 @@ public sealed class CustomerOrganizationService(
         db.CustomerSecurityEvents.Add(new CustomerSecurityEvent(Guid.NewGuid(), accountId, organizationId, action, result,
             DateTimeOffset.UtcNow, httpContextAccessor.HttpContext?.TraceIdentifier ?? Guid.NewGuid().ToString("N"), null));
 
-    private static OrganizationPolicyResult ToResult(OrganizationPolicy value) => new(value.OrganizationId, value.ViewOnlyAllowed,
-        value.FullControlAllowed, value.FileTransferAllowed, value.ClipboardAllowed, value.UnattendedAccessAllowed, value.MfaRequired,
+    private OrganizationPolicyResult ToResult(OrganizationPolicy value) => new(value.OrganizationId, value.ViewOnlyAllowed,
+        value.FullControlAllowed, value.FileTransferAllowed, value.ClipboardAllowed, value.UnattendedAccessAllowed, options.Value.EnableMfa && value.MfaRequired,
         value.TrustedDeviceLifetimeDays, value.AuditRetentionDays, value.ApprovedRelayRegionsCsv, value.MinimumClientVersion, value.HybridSecurityRequired);
     private static ApiProblemException Problem(int status, string code, string title) => new(status, code, title);
 }

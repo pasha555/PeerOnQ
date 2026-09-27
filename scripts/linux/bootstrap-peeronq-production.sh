@@ -8,6 +8,8 @@ LOCAL_IP=""
 ADMIN_ALLOWED_CIDR=""
 REGION="az-1"
 ADMIN_EMAIL="admin@peeronq.com"
+CUSTOMER_REGISTRATION_MODE=Closed
+CUSTOMER_MFA_ENABLED=false
 CUSTOMER_SMTP_HOST=""
 CUSTOMER_SMTP_PORT=587
 CUSTOMER_SMTP_PORT_PROVIDED=false
@@ -49,6 +51,8 @@ Options:
                            Default: the local IP's /24 LAN.
   --region REGION          Default: az-1
   --admin-email EMAIL      Initial Admin Panel login email.
+  --customer-registration-mode Closed|InvitationOnly|Open (default: Closed)
+  --enable-customer-mfa | --disable-customer-mfa (default: disabled; Admin unchanged)
   --customer-smtp-host HOST Optional; enables customer SMTP delivery.
   --customer-smtp-port PORT Default: 587 when SMTP is enabled.
   --platform-upgrade-keyring PATH
@@ -314,6 +318,9 @@ while [ "$#" -gt 0 ]; do
     --admin-allowed-cidr) [ "$#" -ge 2 ] || fail "--admin-allowed-cidr requires a value"; ADMIN_ALLOWED_CIDR=$2; shift 2 ;;
     --region) [ "$#" -ge 2 ] || fail "--region requires a value"; REGION=$2; shift 2 ;;
     --admin-email) [ "$#" -ge 2 ] || fail "--admin-email requires a value"; ADMIN_EMAIL=$2; shift 2 ;;
+    --customer-registration-mode) [ "$#" -ge 2 ] || fail "--customer-registration-mode requires a value"; CUSTOMER_REGISTRATION_MODE=$2; shift 2 ;;
+    --enable-customer-mfa) CUSTOMER_MFA_ENABLED=true; shift ;;
+    --disable-customer-mfa) CUSTOMER_MFA_ENABLED=false; shift ;;
     --customer-smtp-host) [ "$#" -ge 2 ] || fail "--customer-smtp-host requires a value"; CUSTOMER_SMTP_HOST=$2; shift 2 ;;
     --customer-smtp-port) [ "$#" -ge 2 ] || fail "--customer-smtp-port requires a value"; CUSTOMER_SMTP_PORT=$2; CUSTOMER_SMTP_PORT_PROVIDED=true; shift 2 ;;
     --acme-email) [ "$#" -ge 2 ] || fail "--acme-email requires a value"; ACME_EMAIL=$2; shift 2 ;;
@@ -375,6 +382,8 @@ fi
 validate_ipv4_cidr "$ADMIN_ALLOWED_CIDR"
 validate_region "$REGION"
 validate_email "$ADMIN_EMAIL"
+case "$CUSTOMER_REGISTRATION_MODE" in Closed|InvitationOnly|Open) ;; *) fail "--customer-registration-mode must be Closed, InvitationOnly, or Open" ;; esac
+[ "$CUSTOMER_REGISTRATION_MODE" = Closed ] || [ -n "$CUSTOMER_SMTP_HOST" ] || fail "Customer registration requires --customer-smtp-host"
 CUSTOMER_MAIL_PROVIDER=Disabled
 CUSTOMER_REQUIRE_EMAIL_VERIFICATION=false
 if [ "$CUSTOMER_SMTP_PORT_PROVIDED" = "true" ] && [ -z "$CUSTOMER_SMTP_HOST" ]; then
@@ -681,9 +690,11 @@ PEERONQ_ADMIN_PRIVACY_HMAC_KEY_BASE64=$admin_hmac
 PEERONQ_DOWNLOADS_PRIVACY_HMAC_KEY_BASE64=$downloads_hmac
 PEERONQ_ADMIN_TOKEN_SIGNING_KEY=$admin_token
 PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY=$customer_token
-PEERONQ_CUSTOMER_REGISTRATION_MODE=Closed
+PEERONQ_CUSTOMER_REGISTRATION_MODE=$CUSTOMER_REGISTRATION_MODE
+PEERONQ_CUSTOMER_MFA_ENABLED=$CUSTOMER_MFA_ENABLED
 PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION=$CUSTOMER_REQUIRE_EMAIL_VERIFICATION
 PEERONQ_CUSTOMER_MAIL_PROVIDER=$CUSTOMER_MAIL_PROVIDER
+PEERONQ_CUSTOMER_MAIL_FROM_ADDRESS=peeronq@$BASE_DOMAIN
 PEERONQ_CUSTOMER_SMTP_HOST=$CUSTOMER_SMTP_HOST
 PEERONQ_CUSTOMER_SMTP_PORT=$CUSTOMER_SMTP_PORT
 PEERONQ_CUSTOMER_SMTP_USERNAME=

@@ -9,11 +9,102 @@ using PeerOnQ.Cloud.Api;
 using PeerOnQ.Cloud.Domain;
 using PeerOnQ.Cloud.Domain.Entities;
 using PeerOnQ.Observability;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
+using PeerOnQ.Cloud.Infrastructure.Persistence;
 
 namespace PeerOnQ.Cloud.Infrastructure.Tests;
 
 public sealed class CustomerPortalSecurityTests
 {
+    [Theory]
+    [InlineData(CustomerRegistrationMode.Closed, false)]
+    [InlineData(CustomerRegistrationMode.InvitationOnly, true)]
+    [InlineData(CustomerRegistrationMode.Open, true)]
+    public void CapabilitiesDescribeTheConfiguredCustomerPolicy(CustomerRegistrationMode mode, bool available)
+    {
+        using var db = new CloudDbContext(new DbContextOptionsBuilder<CloudDbContext>().Options);
+        var options = new CustomerPortalOptions { RegistrationMode = mode, Mail = new CustomerMailOptions { Provider = "FileSink" } };
+        var capabilities = AccountService(db, options).GetCapabilities();
+        Assert.Equal(mode.ToString(), capabilities.RegistrationMode);
+        Assert.Equal(available, capabilities.RegistrationAvailable);
+        Assert.True(capabilities.RequireEmailVerification);
+        Assert.True(capabilities.PasswordResetAvailable);
+        Assert.False(capabilities.MfaAvailable);
+        Assert.Equal(new CustomerPasswordRules(12, 128, true, true, true), capabilities.PasswordRules);
+    }
+
+    [Fact]
+    public async Task DisabledCustomerMfaRejectsAllMutationsBeforeAccessingStoredSecrets()
+    {
+        using var db = new CloudDbContext(new DbContextOptionsBuilder<CloudDbContext>().Options);
+        var service = AccountService(db, DisabledMailOptions());
+        var id = Guid.NewGuid();
+        var setup = await Assert.ThrowsAsync<ApiProblemException>(() => service.BeginMfaSetupAsync(id, CancellationToken.None));
+        var confirm = await Assert.ThrowsAsync<ApiProblemException>(() => service.ConfirmMfaAsync(id, "unused", "123456", CancellationToken.None));
+        var disable = await Assert.ThrowsAsync<ApiProblemException>(() => service.DisableMfaAsync(id, "unused", "123456", CancellationToken.None));
+        Assert.All(new[] { setup, confirm, disable }, error =>
+        {
+            Assert.Equal(403, error.StatusCode);
+            Assert.Equal("customer_mfa_disabled", error.ErrorCode);
+        });
+        Assert.False(service.GetCapabilities().PasswordResetAvailable);
+    }
+
+    [Theory]
+    [InlineData((CustomerRegistrationMode)99, true)]
+    [InlineData(CustomerRegistrationMode.Open, false)]
+    [InlineData(CustomerRegistrationMode.InvitationOnly, false)]
+    public void ProductionRejectsUnknownModesAndUnverifiedRegistration(CustomerRegistrationMode mode, bool verify)
+    {
+        var result = new CustomerPortalOptionsValidator(new HostEnvironment("Production")).Validate(null, new CustomerPortalOptions
+        {
+            JwtSigningKey = new string('x', 64), RegistrationMode = mode, RequireEmailVerification = verify,
+            Mail = new CustomerMailOptions { Provider = "Smtp", SmtpHost = "smtp.example.test" },
+        });
+        Assert.True(result.Failed);
+    }
+
+    private static CustomerAccountService AccountService(CloudDbContext db, CustomerPortalOptions settings)
+    {
+        var options = Options.Create(settings);
+        return new CustomerAccountService(db, new CustomerPasswordService(), new CustomerTokenService(options),
+            new EphemeralDataProtectionProvider(), new CustomerMailSender(options, new HostEnvironment("Testing")),
+            options, new HttpContextAccessor());
+    }
+
+    [Fact]
+    public void RequiredVerificationRejectsMissingSmtpConfigurationAtStartup()
+    {
+        var result = new CustomerPortalOptionsValidator(new HostEnvironment("Production")).Validate(null, new CustomerPortalOptions
+        {
+            JwtSigningKey = new string('x', 64), RegistrationMode = CustomerRegistrationMode.Open,
+            RequireEmailVerification = true, Mail = new CustomerMailOptions { Provider = "Smtp" },
+        });
+        Assert.True(result.Failed);
+        Assert.Contains(result.Failures!, failure => failure.Contains("SmtpHost", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SmtpConnectionFailureHasABoundedNonSecretResponse()
+    {
+        // A loopback-only listener supplies an unused ephemeral port, never an external mail host.
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        var sender = new CustomerMailSender(Options.Create(new CustomerPortalOptions
+        {
+            Mail = new CustomerMailOptions { Provider = "Smtp", SmtpHost = "127.0.0.1", SmtpPort = port, FromAddress = "sender@example.test" },
+        }), new HostEnvironment("Testing"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var error = await Assert.ThrowsAsync<ApiProblemException>(() => sender.SendAsync("person@example.test", "Example subject", "Example body", timeout.Token));
+        Assert.Equal(503, error.StatusCode);
+        Assert.Equal("customer_mail_unavailable", error.ErrorCode);
+        Assert.DoesNotContain("127.0.0.1", error.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain("example.test", error.Title, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CustomerPasswordHasherUsesFrameworkFormatAndRejectsWeakPasswords()
     {

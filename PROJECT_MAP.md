@@ -888,17 +888,18 @@ place the root-owned public keyring and host agent; later releases can be staged
 **Important files:**
 
 - `CustomerPortalAuthentication.cs` — separate customer bearer/cookie scheme, DB-backed session validation, CSRF
-- `CustomerAccountService.cs` — registration, verification, password/reset, MFA/recovery, rotating sessions, privacy requests
+- `CustomerAccountService.cs` — capabilities, registration, verification/resend, password change/reset, optional MFA, rotating sessions, privacy requests
 - `CustomerOrganizationService.cs` — tenant-filtered membership, invitations, teams, RBAC, policy, device claim and audit
 - `CustomerIdentityEntities.cs` — customer and organization invariants; no internal Admin role reuse
 - `20260817060948_AddCustomerIdentityOrganizationsAndPolicy.cs` — forward-only schema and append-only customer audit trigger
 - `artifacts/peeronq-portal/src/` — real same-origin API portal with explicit loading/error/empty states; stable `api.ts`, `shell.tsx`, and `components.tsx` facades re-export their focused implementations
 - `artifacts/peeronq-portal/src/workspacePages.tsx` — authenticated overview, organization devices/remote-session history, downloads and support; resource responses are scoped to the current organization and aborted on scope changes
+- `artifacts/peeronq-portal/src/passwordFields.tsx` - accessible password visibility/confirmation and server-provided rules shared by registration, reset and Security
 - `artifacts/peeronq-portal/src/theme.tsx` — shared auth/customer theme, system preference fallback and guarded non-secret preference storage
 - `artifacts/peeronq-portal/src/portalShell.tsx` — grouped account/organization navigation, organization route gates and form remount boundaries; modal mobile navigation with deferred focus restoration
 - `artifacts/peeronq-portal/src/uiStates.tsx` — async feedback and native confirmation dialog for session/trust/invitation revocation and deletion requests
 - `artifacts/peeronq-portal/src/brand.tsx`, `public/brand/`, `src/styles.css` — shared canonical Q-mark, public/source destinations and standalone portal tokens/navigation
-- `scripts/windows/test-phase7-customer-portal.ps1` — real HTTPS multi-organization and multi-role acceptance
+- `scripts/windows/test-phase7-customer-portal.ps1` — real local HTTPS policy/MFA matrix, email/password/session/rate-limit and multi-organization acceptance
 
 **Notes:** internal Admin and customer identities use different schemes, claims, cookies, roles, routes,
 and UI hosts. Customer access is tenant-filtered in every query/command; the browser cannot grant a
@@ -1066,6 +1067,8 @@ append-only audit triggers or legal-hold policy.
 | `Signaling__Cluster__DeviceLeaseDuration` / `Signaling__Cluster__DeviceLeaseRefreshInterval` | Hard-crash ownership expiry and renewal cadence; validator requires a safe bounded relationship | 45 seconds / 15 seconds | high |
 | `PEERONQ_PUBLIC_DEVICE_ID_HMAC_KEY_BASE64` / `PEERONQ_ADMIN_TOKEN_SIGNING_KEY` / `PEERONQ_ADMIN_REFRESH_HASH_KEY` / `PEERONQ_DOWNLOAD_COMPLETION_TOKEN_KEY` | Server-only rotatable cloud/auth/download key material | none | critical |
 | `PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY` / `PEERONQ_CUSTOMER_REGISTRATION_MODE` / `PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION` | Customer JWT key and self-hosted registration/verification policy | none / `Closed` / false | critical |
+| `PEERONQ_CUSTOMER_MFA_ENABLED` | Customer-only MFA gate; disabled retains enrollment/recovery/policy data; Admin MFA unchanged | `false` | critical |
+| `PEERONQ_CUSTOMER_MAIL_FROM_ADDRESS` | Approved SMTP sender; defaults to `peeronq@<public web host>` in production | domain-derived | standard |
 | `PEERONQ_CUSTOMER_MAIL_PROVIDER` | Production customer-mail policy; `Disabled` is bounded to closed registration without verification and `Smtp` enables delivery | `Disabled` | critical |
 | `PEERONQ_CUSTOMER_SMTP_HOST` / `PEERONQ_CUSTOMER_SMTP_PORT` / `PEERONQ_CUSTOMER_SMTP_USERNAME` / `PEERONQ_CUSTOMER_SMTP_PASSWORD` | Optional self-hosted verification/reset/invitation SMTP transport; file sink is development/testing only | empty / 587 | critical |
 | `PEERONQ_SIGNALING_ATTESTATION_ISSUER` / `PEERONQ_SIGNALING_ATTESTATION_AUDIENCE` | Exact HTTPS issuer and signaling audience shared by Cloud and signaling | none / `peeronq-signaling` | critical |
