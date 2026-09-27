@@ -30,6 +30,40 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Customer portal account UX and scoped organization forms
+
+Task:
+- Refine the real customer portal on origin/main 483af37 without changing API schemas or backend security.
+Files changed:
+- Portal App/auth/brand/pages/portalShell/workspacePages/uiStates/styles, new theme provider,
+  auth/workspace/setup tests and new portalUx tests; PROJECT_MAP, ROUTES_MAP, DESIGN_SYSTEM and this entry.
+Reason:
+- Canonical logos and Overview already existed. Added independently loaded sign-in session/trust
+  counts, verification/MFA status, scoped workspace summaries and a canonical /profile route with
+  /account compatibility. Renamed Sign-in sessions, Trusted sign-in devices and Managed devices.
+- Organization routes gate loading/error/no-selection states and remount forms on tenant switches.
+  Policy labels/descriptions retain server values and field names; manager-only edits/invitations
+  follow existing server roles. Added confirmation/error feedback for revocations and deletion,
+  pending form feedback, branded reset/verification screens, shared auth theme and mobile focus/inert handling.
+- Failed logout now reports failure instead of falsely clearing the signed-in UI. Same-origin
+  credentials/CSRF, cookie design, rotation, MFA and customer/Admin identity boundaries are preserved.
+  No JWT/credential persistence, new endpoints, dependency changes or client/package changes.
+Validation:
+- Node 24.21.0: portal typecheck, production build and all 45 tests across 6 files passed
+  (auth 11, workspace 8, product UX 17, absent commercial routes 5, async states 3, API/CSRF 1).
+- Canonical logo bytes match public assets; regression coverage includes partial failures, policy
+  defaults/rejection/switching, profile alias, MFA, registration/invitation/reset/verification,
+  logout failure/retry, confirmation, storage restrictions and operator-link isolation.
+- git diff --check and repository secret scan passed (1,111 files). No shared runtime assets or
+  configuration changed; public/native/backend builds were outside this frontend-only validation.
+- Browser runtime returned no available browser. Dialog tests model native open/close in jsdom;
+  actual modal containment and desktop/mobile light/dark visual review remain unverified.
+Risk:
+- Source/build tests do not certify production readiness. Live cookie/mail/MFA/tenant acceptance and
+  public TLS/reachability were not executed; no production deployment was performed.
+Rollback:
+- Revert this portal UX commit. Backend routes, schemas, identity and policy defaults are unchanged.
+
 ## 2026-09-27 - Public website product narrative and primary download flow
 
 Task:

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowUpRight, Laptop, ShieldCheck, UsersRound } from 'lucide-react';
+import { Laptop, ShieldCheck, UsersRound } from 'lucide-react';
 import { Link } from 'wouter';
 import { api, ApiError, post, put, remove } from './api';
 import { useAuth } from './auth';
-import { Brand, publicWebsite, sourceRepository } from './brand';
-import { EmptyState, ErrorState, LoadingState, Notice, Page } from './components';
+import { AuthFrame } from './brand';
+import { ConfirmAction, EmptyState, ErrorState, LoadingState, Notice, Page } from './components';
 import { useOrganization } from './shell';
 import type { Invitation, Member, Organization, Policy, Profile, SecurityEvent, Session, Team, TrustedDevice } from './types';
 
@@ -23,7 +23,7 @@ async function submitAuthMode(mode: AuthMode, data: FormData, actions: AuthActio
     const token = new URLSearchParams(location.search).get('token') ?? undefined;
     const result = await actions.register(String(data.get('email')), String(data.get('displayName')), String(data.get('password')), token);
     return result.emailVerificationRequired
-      ? 'Check the configured mail inbox to verify your account.'
+      ? 'Check your inbox to verify your account, then sign in.'
       : 'Account created. You can sign in now.';
   }
   await post('/auth/password-reset/request', { email: String(data.get('email')) });
@@ -43,23 +43,26 @@ function AuthForm({ mode, mfa, busy, onSubmit }: {
   mode: AuthMode; mfa: boolean; busy: boolean;
   onSubmit(event: FormEvent<HTMLFormElement>): void;
 }) {
-  return <form onSubmit={onSubmit}>
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => { form.current?.querySelector('input')?.focus(); }, [mode]);
+  return <form ref={form} key={mode} onSubmit={onSubmit} aria-busy={busy}>
     {mode === 'register' ? <label>Display name<input name="displayName" required maxLength={128} autoComplete="name" /></label> : null}
     <label>Email<input name="email" type="email" required maxLength={320} autoComplete="email" /></label>
     {mode !== 'forgot' ? <label>Password<input name="password" type="password" required minLength={12} maxLength={128}
-      autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label> : null}
-    {mode === 'login' && mfa ? <label>MFA or recovery code<input name="mfaCode" required autoComplete="one-time-code" /></label> : null}
+      autoComplete={mode === 'login' ? 'current-password' : 'new-password'} aria-describedby={mode === 'register' ? 'password-help' : undefined} /></label> : null}
+    {mode === 'register' ? <p id="password-help" className="field-help">Use 12–128 characters. Registration depends on the service’s registration policy; an invitation may be required.</p> : null}
+    {mode === 'login' && mfa ? <label>MFA or recovery code<input name="mfaCode" required autoComplete="one-time-code" autoFocus /></label> : null}
     <button className="button primary full" disabled={busy}>{authButtonLabel(mode, busy)}</button>
   </form>;
 }
 
-function AuthLinks({ mode, onMode }: { mode: AuthMode; onMode(mode: AuthMode): void }) {
+function AuthLinks({ mode, busy, onMode }: { mode: AuthMode; busy: boolean; onMode(mode: AuthMode): void }) {
   if (mode !== 'login') {
-    return <div className="auth-links"><button className="link-button" onClick={() => onMode('login')}>Back to sign in</button></div>;
+    return <div className="auth-links"><button className="link-button" disabled={busy} onClick={() => onMode('login')}>Back to sign in</button></div>;
   }
   return <div className="auth-links">
-    <button className="link-button" onClick={() => onMode('register')}>Create account</button>
-    <button className="link-button" onClick={() => onMode('forgot')}>Forgot password?</button>
+    <button className="link-button" disabled={busy} onClick={() => onMode('register')}>Create account</button>
+    <button className="link-button" disabled={busy} onClick={() => onMode('forgot')}>Forgot password?</button>
   </div>;
 }
 
@@ -82,35 +85,54 @@ export function AuthPage() {
       } else setError(message(cause));
     } finally { setBusy(false); }
   };
-  return <main className="auth-screen"><header className="auth-topbar"><a className="brand" href={publicWebsite} aria-label="PeerOnQ public website"><Brand /></a><nav aria-label="Public links"><a href={`${publicWebsite}/#download`}>Download the app</a><a href={sourceRepository}>GitHub<ArrowUpRight size={14} aria-hidden="true" /></a></nav></header><section className="auth-layout">
-    <div className="auth-intro"><div><span className="eyebrow">Your PeerOnQ workspace</span><h1>A clear view of your devices and access.</h1><p>Manage your account and your organization’s shared resources from one place.</p></div><ul className="auth-benefits"><li><Laptop aria-hidden="true" /><div><strong>Devices & sessions</strong><span>Review assigned devices and recorded connections.</span></div></li><li><UsersRound aria-hidden="true" /><div><strong>Your organization</strong><span>Keep members, teams and access settings together.</span></div></li><li><ShieldCheck aria-hidden="true" /><div><strong>Account security</strong><span>Manage MFA, browser sessions and sign-in trust.</span></div></li></ul><p className="auth-note">Remote connections run in the native app. Local LAN access works without an account.</p></div>
+  const changeMode = (next: AuthMode) => { setMode(next); setMfa(false); setError(null); setNotice(null); };
+  return <AuthFrame><section className="auth-layout">
+    <div className="auth-intro"><div><span className="eyebrow">Your PeerOnQ workspace</span><h1>A clear view of your devices and access.</h1><p>Manage your account and your organization’s shared resources from one place.</p></div><ul className="auth-benefits"><li><Laptop aria-hidden="true" /><div><strong>Devices & sessions</strong><span>Review managed devices and remote session history.</span></div></li><li><UsersRound aria-hidden="true" /><div><strong>Your organization</strong><span>Keep members, teams and access settings together.</span></div></li><li><ShieldCheck aria-hidden="true" /><div><strong>Account security</strong><span>Manage MFA, sign-in sessions and trusted sign-in devices.</span></div></li></ul><p className="auth-note">Remote connections run in the native app. Local LAN access works without an account.</p></div>
     <div className="auth-card"><span className="eyebrow">Account portal</span><h2>{authTitle(mode)}</h2><p>{mode === 'login' ? 'Welcome back. Use your PeerOnQ account to continue.' : mode === 'register' ? 'Create your account to manage a shared workspace.' : 'We’ll send a reset link if the account exists.'}</p>
       {serviceError ? <Notice tone="danger">{serviceError} <button className="link-button" onClick={() => void reload()}>Retry</button></Notice> : null}
       {notice ? <Notice tone="success">{notice}</Notice> : null}
       {error ? <Notice tone="danger">{error}</Notice> : null}
       <AuthForm mode={mode} mfa={mfa} busy={busy} onSubmit={(event) => void submit(event)} />
-      <AuthLinks mode={mode} onMode={setMode} />
+      <AuthLinks mode={mode} busy={busy} onMode={changeMode} />
     </div>
-  </section><footer className="auth-footer"><span>Open source. MIT licensed.</span><a href={`${sourceRepository}#readme`}>Documentation<ArrowUpRight size={14} aria-hidden="true" /></a></footer></main>;
+  </section></AuthFrame>;
 }
 
 export function VerifyEmailPage() {
   const token = new URLSearchParams(location.search).get('token') ?? '';
   const started = useRef(false); const [state, setState] = useState<'loading' | 'done' | 'error'>('loading');
   useEffect(() => { if (started.current) return; started.current = true; void post('/auth/verify-email', { token }).then(() => setState('done')).catch(() => setState('error')); }, [token]);
-  return <main className="standalone">{state === 'loading' ? <LoadingState label="Verifying your account…" /> : state === 'done' ? <Notice tone="success">Email verified. <a href="/">Sign in</a>.</Notice> : <ErrorState message="This verification link is invalid, expired, or already used." />}</main>;
+  return <AuthFrame><section className="auth-card auth-single"><span className="eyebrow">Account security</span><h1>Verify your email</h1>{state === 'loading' ? <LoadingState label="Verifying your account…" /> : state === 'done' ? <Notice tone="success">Email verified. You can now sign in.</Notice> : <ErrorState message="This verification link is invalid, expired, or already used." />}<a className="button secondary" href="/">Back to sign in</a></section></AuthFrame>;
 }
 
 export function ResetPasswordPage() {
-  const token = new URLSearchParams(location.search).get('token') ?? ''; const [state, setState] = useState<'form' | 'done'>('form'); const [error, setError] = useState<string | null>(null);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); try { await post('/auth/password-reset/complete', { token, newPassword: String(data.get('password')) }); setState('done'); } catch (cause) { setError(message(cause)); } };
-  return <main className="standalone">{state === 'done' ? <Notice tone="success">Password changed and existing sessions revoked. <a href="/">Sign in</a>.</Notice> : <form className="panel compact-form" onSubmit={(event) => void submit(event)}><h1>Choose a new password</h1>{error ? <Notice tone="danger">{error}</Notice> : null}<label>New password<input name="password" type="password" minLength={12} maxLength={128} required autoComplete="new-password" /></label><button className="button primary">Reset password</button></form>}</main>;
+  const token = new URLSearchParams(location.search).get('token') ?? '';
+  const [done, setDone] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const data = new FormData(event.currentTarget); setError(null); setBusy(true);
+    try { await post('/auth/password-reset/complete', { token, newPassword: String(data.get('password')) }); setDone(true); }
+    catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <AuthFrame><section className="auth-card auth-single"><span className="eyebrow">Account security</span><h1>Choose a new password</h1>
+    {done ? <Notice tone="success">Password changed and existing sessions revoked.</Notice> : <form onSubmit={(event) => void submit(event)} aria-busy={busy}>{error ? <Notice tone="danger">{error}</Notice> : null}<label>New password<input name="password" type="password" minLength={12} maxLength={128} required autoComplete="new-password" aria-describedby="reset-help" /></label><p id="reset-help" className="field-help">Use 12–128 characters. Changing your password revokes existing sign-in sessions.</p><button className="button primary full" disabled={busy}>{busy ? 'Resetting…' : 'Reset password'}</button></form>}
+    <a className="text-action" href="/">Back to sign in</a>
+  </section></AuthFrame>;
 }
 
 export function ProfilePage() {
-  const { profile, reload } = useAuth(); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); try { await put('/account/profile', { displayName: String(new FormData(event.currentTarget).get('displayName')) }); await reload(); setSaved(true); } catch (cause) { setError(message(cause)); } };
-  return <Page title="My account" description="Your name, email and account status." actions={<Link href="/security" className="button secondary">Security settings</Link>}><form className="panel form-grid" onSubmit={(event) => void submit(event)}>{saved ? <Notice tone="success">Profile saved.</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}<label>Display name<input name="displayName" defaultValue={profile?.displayName} required maxLength={128} /></label><label>Email<input value={profile?.email ?? ''} readOnly /></label><div className="facts"><span>Email verification<strong>{profile?.emailVerified ? 'Verified' : 'Pending'}</strong></span><span>MFA<strong>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</strong></span><span>Created<strong>{formatDate(profile?.createdAtUtc ?? null)}</strong></span></div><button className="button primary">Save profile</button></form></Page>;
+  const { profile, reload } = useAuth(); const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState(false); const [busy, setBusy] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const displayName = String(new FormData(event.currentTarget).get('displayName')); setError(null); setSaved(false); setBusy(true);
+    try { await put('/account/profile', { displayName }); await reload(); setSaved(true); } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <Page title="Profile" description="Your name, email and account status." actions={<Link href="/security" className="button secondary">Security settings</Link>}>
+    <form className="panel form-grid" onSubmit={(event) => void submit(event)} aria-busy={busy}>
+      {saved ? <Notice tone="success">Profile saved.</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}
+      <label>Display name<input name="displayName" defaultValue={profile?.displayName} required maxLength={128} autoComplete="name" aria-describedby="name-help" /></label><p id="name-help" className="field-help">The name shown in your account and organization memberships.</p>
+      <label>Email<input value={profile?.email ?? ''} readOnly aria-describedby="email-help" /></label><p id="email-help" className="field-help">Your sign-in email cannot be changed from this page.</p>
+      <div className="facts"><span>Email verification<strong>{profile?.emailVerified ? 'Verified' : 'Pending'}</strong></span><span>MFA<strong>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</strong></span><span>Created<strong>{formatDate(profile?.createdAtUtc ?? null)}</strong></span></div><button className="button primary" disabled={busy}>{busy ? 'Saving…' : 'Save profile'}</button>
+    </form>
+  </Page>;
 }
 
 function useLoad<T>(loader: () => Promise<T>, dependencies: unknown[]) {
@@ -122,59 +144,71 @@ function useLoad<T>(loader: () => Promise<T>, dependencies: unknown[]) {
 
 export function SessionsPage() {
   const state = useLoad(() => api<Session[]>('/account/sessions'), []);
-  const [error, setError] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<string | null>(null);
-  const revoke = async (id: string) => {
-    setError(null); setRevoking(id);
-    try { await remove(`/account/sessions/${id}`); state.reload(); }
-    catch (cause) { setError(message(cause)); }
-    finally { setRevoking(null); }
-  };
-  return <Page title="Browser sessions" description="Review where your account is signed in. Revoking a browser session ends its access to your account; these are separate from remote desktop sessions." actions={<Link href="/remote-sessions" className="button secondary">Remote sessions</Link>}>
-    {error ? <Notice tone="danger">{error}</Notice> : null}
-    {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No browser sessions">No account sessions were found.</EmptyState> : <div className="cards">{state.data.map((item) => {
+  return <Page title="Sign-in sessions" description="Where your account is signed in. These sessions are separate from remote desktop connections.">
+    {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No sign-in sessions">No account sessions were found.</EmptyState> : <div className="cards">{state.data.map((item) => {
       const active = !item.revokedAtUtc && new Date(item.expiresAtUtc).getTime() > Date.now();
-      return <article className="card" key={item.id}><h2>{item.userAgentSummary || 'Browser session'}</h2><p>Created {formatDate(item.createdAtUtc)} · expires {formatDate(item.expiresAtUtc)}</p><span className={active ? 'badge success' : 'badge muted'}>{item.revokedAtUtc ? 'Revoked' : active ? 'Active' : 'Expired'}</span>{active ? <div><button className="button danger-outline" disabled={revoking !== null} onClick={() => void revoke(item.id)}>{revoking === item.id ? 'Revoking…' : 'Revoke session'}</button></div> : null}</article>;
+      return <article className="card" key={item.id}><h2>{item.userAgentSummary || 'Account session'}</h2><p>Created {formatDate(item.createdAtUtc)} · expires {formatDate(item.expiresAtUtc)}</p><span className={active ? 'badge success' : 'badge muted'}>{item.revokedAtUtc ? 'Revoked' : active ? 'Active' : 'Expired'}</span>{active ? <div><ConfirmAction label="Revoke session" title="Revoke this sign-in session?" description="This ends account access for the selected session. If it is your current session, you will need to sign in again." confirmLabel="Confirm revocation" onConfirm={async () => { await remove(`/account/sessions/${item.id}`); state.reload(); }} /></div> : null}</article>;
     })}</div>}
   </Page>;
 }
 
 export function TrustedDevicesPage() {
   const state = useLoad(() => api<TrustedDevice[]>('/account/trusted-devices'), []);
-  const [error, setError] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<string | null>(null);
-  const revoke = async (id: string) => {
-    setError(null); setRevoking(id);
-    try { await remove(`/account/trusted-devices/${id}`); state.reload(); }
-    catch (cause) { setError(message(cause)); }
-    finally { setRevoking(null); }
-  };
-  return <Page title="Sign-in trust" description="Review trusted account sign-ins. This does not grant remote control or Unattended Access to a desktop." actions={<Link href="/security" className="button secondary">Account security</Link>}>
-    {error ? <Notice tone="danger">{error}</Notice> : null}
-    {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No trusted sign-ins">No browser or account device has persistent sign-in trust.</EmptyState> : <div className="cards">{state.data.map((item) => {
+  return <Page title="Trusted sign-in devices" description="Account sign-in trust records. These are separate from managed remote-access devices and do not grant Full Control or Unattended Access." actions={<Link href="/security" className="button secondary">Account security</Link>}>
+    {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No trusted sign-in devices">No browser or account device has persistent sign-in trust.</EmptyState> : <div className="cards">{state.data.map((item) => {
       const active = !item.revokedAtUtc && new Date(item.expiresAtUtc).getTime() > Date.now();
-      return <article className="card" key={item.id}><h2>{item.name}</h2><p>Expires {formatDate(item.expiresAtUtc)}</p><span className={active ? 'badge success' : 'badge muted'}>{item.revokedAtUtc ? 'Revoked' : active ? 'Trusted' : 'Expired'}</span>{active ? <div><button className="button danger-outline" disabled={revoking !== null} onClick={() => void revoke(item.id)}>{revoking === item.id ? 'Revoking…' : 'Revoke trust'}</button></div> : null}</article>;
+      return <article className="card" key={item.id}><h2>{item.name}</h2><p>Expires {formatDate(item.expiresAtUtc)}</p><span className={active ? 'badge success' : 'badge muted'}>{item.revokedAtUtc ? 'Revoked' : active ? 'Trusted' : 'Expired'}</span>{active ? <div><ConfirmAction label="Revoke trust" title="Remove sign-in trust?" description="The selected device will no longer be trusted for account sign-in. Remote-access permissions are managed separately." confirmLabel="Confirm revocation" onConfirm={async () => { await remove(`/account/trusted-devices/${item.id}`); state.reload(); }} /></div> : null}</article>;
     })}</div>}
   </Page>;
 }
 
 export function OrganizationsPage() {
-  const { organizations, reload, loading } = useOrganization(); const [error, setError] = useState<string | null>(null);
-  const create = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; try { await post('/organizations/', { name: String(new FormData(event.currentTarget).get('name')) }); form.reset(); await reload(); } catch (cause) { setError(message(cause)); } };
-  return <Page title="Organizations" description="Tenant boundaries for shared devices, teams, support metadata and policy." actions={<a className="button secondary" href="/policy">Security policy</a>}><form className="inline-form panel" onSubmit={(event) => void create(event)}><label>New organization name<input name="name" required maxLength={128} /></label><button className="button primary">Create</button></form>{error ? <Notice tone="danger">{error}</Notice> : null}{loading ? <LoadingState /> : !organizations.length ? <EmptyState title="No organizations">Create an organization to share resources.</EmptyState> : <div className="cards">{organizations.map((item) => <article className="card" key={item.id}><h2>{item.name}</h2><p>Role: {item.role}</p><span className="badge">Tenant {item.id.slice(0, 8)}</span></article>)}</div>}</Page>;
+  const { organizations, reload, loading, error: organizationError, selected, select } = useOrganization();
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const create = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get('name')); setError(null); setBusy(true);
+    try { await post('/organizations/', { name }); form.reset(); await reload(); } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <Page title="Organizations" description="Workspaces for your shared devices, members and connection policy.">
+    <form className="inline-form panel" onSubmit={(event) => void create(event)} aria-busy={busy}><label>New organization name<input name="name" required maxLength={128} /></label><button className="button primary" disabled={busy}>{busy ? 'Creating...' : 'Create organization'}</button></form>
+    {error ? <Notice tone="danger">{error}</Notice> : null}
+    {loading ? <LoadingState /> : organizationError ? <p>Use Retry organizations above to restore your memberships.</p> : !organizations.length ? <EmptyState title="No organizations">Create an organization or use an invitation from its administrator.</EmptyState> : <div className="cards">{organizations.map((item) => <article className="card" key={item.id}><h2>{item.name}</h2><p>Role: {item.role}</p><span className="badge">{selected?.id === item.id ? 'Active organization' : 'Member organization'}</span>{selected?.id !== item.id ? <div><button className="button secondary" onClick={() => select(item.id)}>Switch to {item.name}</button></div> : null}</article>)}</div>}
+  </Page>;
 }
 
-
 export function TeamsPage() {
-  const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Team[]>(`/organizations/${selected.id}/teams`) : Promise.resolve([]), [selected?.id]); const [error, setError] = useState<string | null>(null);
-  const create = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; if (!selected) return; try { await post(`/organizations/${selected.id}/teams`, { name: String(new FormData(event.currentTarget).get('name')) }); form.reset(); state.reload(); } catch (cause) { setError(message(cause)); } };
-  return <Page title="Teams" description="Group organization members for managed support workflows."><form className="inline-form panel" onSubmit={(event) => void create(event)}><label>Team name<input name="name" required maxLength={128} /></label><button className="button primary" disabled={!selected}>Create team</button></form>{error ? <Notice tone="danger">{error}</Notice> : null}{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No teams">Create the first team in this organization.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={item.id}><h2>{item.name}</h2><p>Created {formatDate(item.createdAtUtc)}</p></article>)}</div>}</Page>;
+  const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Team[]>(`/organizations/${selected.id}/teams`) : Promise.resolve([]), [selected?.id]);
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const canManage = selected?.role === 'Owner' || selected?.role === 'Administrator';
+  const create = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = event.currentTarget; if (!selected || !canManage) return; const name = String(new FormData(form).get('name')); setError(null); setBusy(true);
+    try { await post(`/organizations/${selected.id}/teams`, { name }); form.reset(); state.reload(); } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <Page title="Teams" description="Groups of members within your selected organization.">
+    {canManage ? <form className="inline-form panel" onSubmit={(event) => void create(event)} aria-busy={busy}><label>Team name<input name="name" required maxLength={128} /></label><button className="button primary" disabled={busy}>{busy ? 'Creating...' : 'Create team'}</button></form> : <Notice>An organization Owner or Administrator can create teams.</Notice>}
+    {error ? <Notice tone="danger">{error}</Notice> : null}
+    {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No teams">No teams have been created in this organization.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={item.id}><h2>{item.name}</h2><p>Created {formatDate(item.createdAtUtc)}</p></article>)}</div>}
+  </Page>;
 }
 
 export function InvitationsPage() {
-  const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Invitation[]>(`/organizations/${selected.id}/invitations`) : Promise.resolve([]), [selected?.id]); const [error, setError] = useState<string | null>(null);
-  const invite = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; if (!selected) return; const data = new FormData(event.currentTarget); try { await post(`/organizations/${selected.id}/invitations`, { email: data.get('email'), role: data.get('role') }); form.reset(); state.reload(); } catch (cause) { setError(message(cause)); } };
-  return <Page title="Invitations" description="Invitation tokens are random, short-lived, email-bound and stored only as hashes."><form className="inline-form panel" onSubmit={(event) => void invite(event)}><label>Email<input name="email" type="email" required /></label><label>Role<select name="role"><option>Member</option><option>Technician</option><option>Auditor</option><option>Administrator</option></select></label><button className="button primary" disabled={!selected}>Invite</button></form>{error ? <Notice tone="danger">{error}</Notice> : null}{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No invitations">No invitations have been issued.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={item.id}><h2>{item.email}</h2><p>{item.role} · expires {formatDate(item.expiresAtUtc)}</p><span className="badge">{item.acceptedAtUtc ? 'Accepted' : item.revokedAtUtc ? 'Revoked' : 'Pending'}</span>{!item.acceptedAtUtc && !item.revokedAtUtc ? <button className="button danger-outline" onClick={() => selected && void remove(`/organizations/${selected.id}/invitations/${item.id}`).then(state.reload)}>Revoke</button> : null}</article>)}</div>}</Page>;
+  const { selected } = useOrganization(); const canManage = selected?.role === 'Owner' || selected?.role === 'Administrator';
+  const state = useLoad(() => selected && canManage ? api<Invitation[]>(`/organizations/${selected.id}/invitations`) : Promise.resolve([]), [selected?.id, canManage]);
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState<string | null>(null);
+  const invite = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = event.currentTarget; if (!selected || !canManage) return; const data = new FormData(form); setError(null); setNotice(null); setBusy(true);
+    try { await post(`/organizations/${selected.id}/invitations`, { email: data.get('email'), role: data.get('role') }); form.reset(); setNotice('Invitation issued.'); state.reload(); } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <Page title="Invitations" description="Invite someone to this organization with a specific role. Invitations are email-bound and expire.">
+    {!canManage ? <Notice>An organization Owner or Administrator is required to view and manage invitations.</Notice> : <>
+      <form className="inline-form panel" onSubmit={(event) => void invite(event)} aria-busy={busy}><label>Email<input name="email" type="email" required /></label><label>Role<select name="role"><option>Member</option><option>Technician</option><option>Auditor</option><option>Administrator</option></select></label><button className="button primary" disabled={busy}>{busy ? 'Sending...' : 'Invite'}</button></form>
+      {error ? <Notice tone="danger">{error}</Notice> : null}{notice ? <Notice tone="success">{notice}</Notice> : null}
+      {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No invitations">No invitations have been issued.</EmptyState> : <div className="cards">{state.data.map((item) => {
+        const active = !item.acceptedAtUtc && !item.revokedAtUtc && new Date(item.expiresAtUtc).getTime() > Date.now();
+        return <article className="card" key={item.id}><h2>{item.email}</h2><p>{item.role} - expires {formatDate(item.expiresAtUtc)}</p><span className="badge">{item.acceptedAtUtc ? 'Accepted' : item.revokedAtUtc ? 'Revoked' : active ? 'Pending' : 'Expired'}</span>{active ? <ConfirmAction label="Revoke invitation" title="Revoke this invitation?" description={`The invitation for ${item.email} will no longer allow them to join this organization.`} confirmLabel="Confirm revocation" onConfirm={async () => { if (!selected) return; await remove(`/organizations/${selected.id}/invitations/${item.id}`); state.reload(); }} /> : null}</article>;
+      })}</div>}
+    </>}
+  </Page>;
 }
 
 export function AcceptInvitationPage() {
@@ -184,30 +218,73 @@ export function AcceptInvitationPage() {
 }
 
 export function SecurityPage() {
-  const { profile, reload } = useAuth(); const [setup, setSetup] = useState<{ secret: string; setupToken: string; otpAuthUri: string } | null>(null); const [codes, setCodes] = useState<string[] | null>(null); const [error, setError] = useState<string | null>(null);
-  const begin = async () => { try { setSetup(await post('/account/mfa/setup')); } catch (cause) { setError(message(cause)); } };
-  const confirm = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!setup) return; try { const result = await post<{ recoveryCodes: string[] }>('/account/mfa/confirm', { setupToken: setup.setupToken, code: String(new FormData(event.currentTarget).get('code')) }); setCodes(result.recoveryCodes); setSetup(null); await reload(); } catch (cause) { setError(message(cause)); } };
-  return <Page title="Security" description="Protect your account and review who can sign in. Remote access permissions are approved separately in the desktop app.">{error ? <Notice tone="danger">{error}</Notice> : null}<div className="panel"><h2>Multi-factor authentication</h2><p>Status: <strong>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</strong></p>{!profile?.mfaEnabled && !setup ? <button className="button primary" onClick={() => void begin()}>Set up MFA</button> : null}{setup ? <form className="form-grid" onSubmit={(event) => void confirm(event)}><Notice>Enter this secret in an authenticator: <code>{setup.secret}</code></Notice><label>6-digit code<input name="code" inputMode="numeric" pattern="[0-9]{6}" required autoComplete="one-time-code" /></label><button className="button primary">Confirm MFA</button></form> : null}{codes ? <Notice tone="success"><strong>Save these one-time recovery codes now:</strong><pre>{codes.join('\n')}</pre></Notice> : null}</div><div className="overview-grid content-section"><article className="panel"><h2>Browser sessions</h2><p>Review and revoke browser access to your account.</p><Link href="/sessions" className="text-action">Manage browser sessions</Link></article><article className="panel"><h2>Sign-in trust</h2><p>Remove trust from account sign-ins you no longer recognize.</p><Link href="/trusted-devices" className="text-action">Review trusted sign-ins</Link></article><article className="panel"><h2>Organization settings</h2><p>Review your selected organization’s connection and security policy.</p><Link href="/policy" className="text-action">Open settings</Link></article></div></Page>;
+  const { profile, reload } = useAuth(); const { selected } = useOrganization();
+  const [setup, setSetup] = useState<{ secret: string; setupToken: string; otpAuthUri: string } | null>(null);
+  const [codes, setCodes] = useState<string[] | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const begin = async () => { setError(null); setBusy(true); try { setSetup(await post('/account/mfa/setup')); } catch (cause) { setError(message(cause)); } finally { setBusy(false); } };
+  const confirm = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); if (!setup) return; const code = String(new FormData(event.currentTarget).get('code')); setError(null); setBusy(true);
+    try { const result = await post<{ recoveryCodes: string[] }>('/account/mfa/confirm', { setupToken: setup.setupToken, code }); setCodes(result.recoveryCodes); setSetup(null); await reload(); } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <Page title="Security" description="Protect your account and review who can sign in. Remote access permissions are approved separately in the desktop app.">
+    {error ? <Notice tone="danger">{error}</Notice> : null}
+    <section className="panel security-panel"><div className="section-heading"><h2>Multi-factor authentication</h2><span className={profile?.mfaEnabled ? 'badge success' : 'badge muted'}>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</span></div><p>An authenticator adds a second sign-in check. Recovery codes provide one-time access if your authenticator is unavailable.</p>
+      {!profile?.mfaEnabled && !setup ? <button className="button primary" disabled={busy} onClick={() => void begin()}>{busy ? 'Preparing…' : 'Set up MFA'}</button> : null}
+      {setup ? <form className="form-grid" onSubmit={(event) => void confirm(event)} aria-busy={busy}><div className="setup-secret"><p>1. Add this setup key to your authenticator. Keep it private.</p><code>{setup.secret}</code></div><label>6-digit code<input name="code" inputMode="numeric" pattern="[0-9]{6}" required autoComplete="one-time-code" aria-describedby="mfa-help" autoFocus /></label><p className="field-help" id="mfa-help">2. Enter the current code from your authenticator to finish setup.</p><div className="form-actions"><button className="button primary" disabled={busy}>{busy ? 'Confirming…' : 'Confirm MFA'}</button><button type="button" className="button secondary" disabled={busy} onClick={() => setSetup(null)}>Cancel setup</button></div></form> : null}
+      {codes ? <Notice tone="success"><strong>Save these one-time recovery codes now:</strong><p>Keep them somewhere private. Leaving this page clears this copy.</p><pre>{codes.join('\n')}</pre></Notice> : null}
+    </section>
+    <div className="overview-grid content-section"><article className="panel"><h2>Sign-in sessions</h2><p>Review and revoke account sessions you no longer recognize.</p><Link href="/sessions" className="text-action">Manage sign-in sessions</Link></article><article className="panel"><h2>Trusted sign-in devices</h2><p>Remove account sign-in trust when a device is no longer yours.</p><Link href="/trusted-devices" className="text-action">Review trusted sign-in devices</Link></article>{selected ? <article className="panel"><h2>Organization policy</h2><p>Review {selected.name}’s connection and security requirements.</p><Link href="/policy" className="text-action">Open policy</Link></article> : null}</div>
+  </Page>;
 }
 
+const policyControls = [
+  ['viewOnlyAllowed', 'View Only allowed', 'Allow screen viewing when organization connection policy is evaluated.'],
+  ['fullControlAllowed', 'Full Control allowed', 'Allow remote keyboard and pointer control within an approved session.'],
+  ['fileTransferAllowed', 'File Transfer allowed', 'Allow file transfer where the client and connection support it.'],
+  ['clipboardAllowed', 'Clipboard allowed', 'Allow clipboard sharing within the approved session scope.'],
+  ['unattendedAccessAllowed', 'Unattended Access allowed', 'Permit unattended requests. The host still needs separate setup and trust.'],
+  ['mfaRequired', 'MFA required', 'Require the account to have MFA enabled for organization policy evaluation.'],
+  ['hybridSecurityRequired', 'Hybrid session security required', 'Require hybrid security to be active during organization policy evaluation.'],
+] as const;
+
 export function PolicyPage() {
-  const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Policy>(`/organizations/${selected.id}/policy`) : Promise.resolve(null as unknown as Policy), [selected?.id]); const [saved, setSaved] = useState(false); const [error, setError] = useState<string | null>(null);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (!selected || !state.data) return; const data = new FormData(event.currentTarget); const value = (name: string) => data.get(name) === 'on'; try { await put(`/organizations/${selected.id}/policy`, { ...state.data, viewOnlyAllowed: value('viewOnlyAllowed'), fullControlAllowed: value('fullControlAllowed'), fileTransferAllowed: value('fileTransferAllowed'), clipboardAllowed: value('clipboardAllowed'), unattendedAccessAllowed: value('unattendedAccessAllowed'), mfaRequired: value('mfaRequired'), hybridSecurityRequired: value('hybridSecurityRequired'), trustedDeviceLifetimeDays: Number(data.get('trustedDeviceLifetimeDays')), auditRetentionDays: Number(data.get('auditRetentionDays')), approvedRelayRegionsCsv: data.get('approvedRelayRegionsCsv'), minimumClientVersion: data.get('minimumClientVersion') }); setSaved(true); state.reload(); } catch (cause) { setError(message(cause)); } };
-  return <Page title="Organization policy" description="Connection and security settings for your selected organization. Changes require an authorized organization role.">{!selected ? <EmptyState title="No organization selected">Choose an organization before reviewing its settings.</EmptyState> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : <form className="panel form-grid" onSubmit={(event) => void submit(event)}>{saved ? <Notice tone="success">Policy saved.</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}<div className="check-grid">{['viewOnlyAllowed','fullControlAllowed','fileTransferAllowed','clipboardAllowed','unattendedAccessAllowed','mfaRequired','hybridSecurityRequired'].map((name) => <label className="check" key={name}><input name={name} type="checkbox" defaultChecked={Boolean(state.data?.[name as keyof Policy])} />{name.replace(/([A-Z])/g, ' $1')}</label>)}</div><label>Trusted-device lifetime (days)<input name="trustedDeviceLifetimeDays" type="number" min="1" max="3650" defaultValue={state.data.trustedDeviceLifetimeDays} /></label><label>Audit retention (days)<input name="auditRetentionDays" type="number" min="1" max="3650" defaultValue={state.data.auditRetentionDays} /></label><label>Approved relay regions, comma separated<input name="approvedRelayRegionsCsv" defaultValue={state.data.approvedRelayRegionsCsv} /></label><label>Minimum client version<input name="minimumClientVersion" defaultValue={state.data.minimumClientVersion} /></label><button className="button primary">Save policy</button></form>}</Page>;
+  const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Policy>(`/organizations/${selected.id}/policy`) : Promise.resolve(null as unknown as Policy), [selected?.id]);
+  const [saved, setSaved] = useState(false); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const canEdit = selected?.role === 'Owner' || selected?.role === 'Administrator';
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); if (!selected || !state.data || !canEdit) return;
+    const data = new FormData(event.currentTarget); const value = (name: string) => data.get(name) === 'on'; setSaved(false); setError(null); setBusy(true);
+    try { await put(`/organizations/${selected.id}/policy`, { ...state.data, viewOnlyAllowed: value('viewOnlyAllowed'), fullControlAllowed: value('fullControlAllowed'), fileTransferAllowed: value('fileTransferAllowed'), clipboardAllowed: value('clipboardAllowed'), unattendedAccessAllowed: value('unattendedAccessAllowed'), mfaRequired: value('mfaRequired'), hybridSecurityRequired: value('hybridSecurityRequired'), trustedDeviceLifetimeDays: Number(data.get('trustedDeviceLifetimeDays')), auditRetentionDays: Number(data.get('auditRetentionDays')), approvedRelayRegionsCsv: data.get('approvedRelayRegionsCsv'), minimumClientVersion: data.get('minimumClientVersion') }); setSaved(true); state.reload(); }
+    catch (cause) { setError(message(cause)); } finally { setBusy(false); }
+  };
+  return <Page title="Organization policy" description="Rules for your selected organization. Allowing a capability here does not grant remote access or replace host approval.">
+    {saved ? <Notice tone="success">Policy saved.</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}
+    {!selected ? <EmptyState title="No organization selected">Choose an organization before reviewing its policy.</EmptyState> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : <form className="panel policy-form" onSubmit={(event) => void submit(event)} aria-busy={busy}>
+      {!canEdit ? <Notice>You can review this policy. An organization Owner or Administrator can edit it.</Notice> : null}
+      <fieldset disabled={!canEdit || busy}><legend>Access & security</legend><div className="policy-options">{policyControls.map(([name, label, description]) => <div className="policy-option" key={name}><label className="check"><input name={name} type="checkbox" defaultChecked={state.data![name]} aria-describedby={`${name}-help`} />{label}</label><p id={`${name}-help`}>{description}</p></div>)}</div></fieldset>
+      <fieldset className="form-grid" disabled={!canEdit || busy}><legend>Trust, retention & connection requirements</legend>
+        <label>Trusted-device lifetime (days)<input name="trustedDeviceLifetimeDays" type="number" min="1" max="3650" required defaultValue={state.data.trustedDeviceLifetimeDays} /></label>
+        <label>Audit retention (days)<input name="auditRetentionDays" type="number" min="1" max="3650" required defaultValue={state.data.auditRetentionDays} /></label>
+        <label>Approved relay regions, comma separated<input name="approvedRelayRegionsCsv" defaultValue={state.data.approvedRelayRegionsCsv} aria-describedby="relay-help" /></label><p id="relay-help" className="field-help">Use region identifiers from your deployment. Leave empty to apply no region restriction from this field.</p>
+        <label>Minimum client version<input name="minimumClientVersion" defaultValue={state.data.minimumClientVersion} aria-describedby="version-help" /></label><p id="version-help" className="field-help">Leave empty for no minimum from this policy. The server validates policy changes and enforces authorization.</p>
+      </fieldset>
+      {canEdit ? <button className="button primary" disabled={busy}>{busy ? 'Saving…' : 'Save policy'}</button> : null}
+    </form>}
+  </Page>;
 }
 
 export function AuditPage() {
   const { selected } = useOrganization(); const state = useLoad(() => selected ? api<SecurityEvent[]>(`/organizations/${selected.id}/audit`) : Promise.resolve([]), [selected?.id]);
-  return <Page title="Security and audit events" description="Append-only, tenant-scoped metadata. Passwords, tokens, screen, input, clipboard and file contents are never recorded." actions={selected ? <a className="button secondary" href={`/portal/v1/organizations/${selected.id}/audit/export`}>Export JSON</a> : null}>{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No audit events">No organization security events were recorded.</EmptyState> : <div className="table-wrap" tabIndex={0}><table><thead><tr><th>Time</th><th>Action</th><th>Result</th><th>Correlation</th></tr></thead><tbody>{state.data.map((item) => <tr key={item.id}><td>{formatDate(item.timestampUtc)}</td><td>{item.action}</td><td>{item.result}</td><td><code>{item.correlationId}</code></td></tr>)}</tbody></table></div>}</Page>;
+  return <Page title="Security and audit events" description="Append-only, tenant-scoped metadata. Passwords, tokens, screen, input, clipboard and file contents are never recorded." actions={selected ? <a className="button secondary" href={`/portal/v1/organizations/${selected.id}/audit/export`}>Export JSON</a> : null}>{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No audit events">No organization security events were recorded.</EmptyState> : <div className="table-wrap" tabIndex={0} aria-label="Organization audit events"><table><thead><tr><th scope="col">Time</th><th scope="col">Action</th><th scope="col">Result</th><th scope="col">Correlation</th></tr></thead><tbody>{state.data.map((item) => <tr key={item.id}><td>{formatDate(item.timestampUtc)}</td><td>{item.action}</td><td>{item.result}</td><td><code>{item.correlationId}</code></td></tr>)}</tbody></table></div>}</Page>;
 }
 
 export function PrivacyPage() {
-  const [notice, setNotice] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
-  const request = async (kind: 'Export' | 'Delete') => { if (kind === 'Delete' && !confirm('Request account deletion? Owned organizations must be transferred first.')) return; try { await post('/account/data-requests', { kind }); setNotice(`${kind} request accepted.`); } catch (cause) { setError(message(cause)); } };
-  return <Page title="Privacy and data" description="Telemetry is operationally controlled and account data has transparent retention and lifecycle operations.">{notice ? <Notice tone="success">{notice}</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}<div className="cards"><article className="card"><h2>Data export</h2><p>Request an export of stored account and organization metadata.</p><button className="button secondary" onClick={() => void request('Export')}>Request export</button></article><article className="card"><h2>Delete account</h2><p>Deletion is guarded while you own an organization and revokes active sessions when accepted.</p><button className="button danger-outline" onClick={() => void request('Delete')}>Request deletion</button></article><article className="card"><h2>Data inventory</h2><p>Account identity, session metadata, organization membership, device ownership, security policy and redacted audit metadata. No screen, keystroke, clipboard or transferred-file content.</p></article></div></Page>;
+  const [notice, setNotice] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const requestExport = async () => { setError(null); setNotice(null); setBusy(true); try { await post('/account/data-requests', { kind: 'Export' }); setNotice('Export request accepted.'); } catch (cause) { setError(message(cause)); } finally { setBusy(false); } };
+  return <Page title="Privacy and data" description="Manage requests for your stored account data.">{notice ? <Notice tone="success">{notice}</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}<div className="cards"><article className="card"><h2>Data export</h2><p>Request an export of stored account and organization metadata.</p><button className="button secondary" disabled={busy} onClick={() => void requestExport()}>{busy ? 'Requesting…' : 'Request export'}</button></article><article className="card"><h2>Delete account</h2><p>Transfer any organizations you own before requesting deletion. Accepted deletion revokes active sessions.</p><ConfirmAction label="Request deletion" title="Request account deletion?" description="This submits an account deletion request. You must transfer organizations you own first. Accepted deletion revokes your active sign-in sessions." confirmLabel="Confirm deletion request" onConfirm={async () => { await post('/account/data-requests', { kind: 'Delete' }); setError(null); setNotice('Delete request accepted.'); }} /></article><article className="card"><h2>Data inventory</h2><p>Account identity, session metadata, organization membership, device ownership, security policy and redacted audit metadata. No screen, keystroke, clipboard or transferred-file content.</p></article></div></Page>;
 }
 
 export function MembersPage() {
   const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Member[]>(`/organizations/${selected.id}/members`) : Promise.resolve([]), [selected?.id]);
-  return <Page title="Members" description="Roles are tenant-scoped and separate from internal server administrator roles.">{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : <div className="cards">{state.data.map((item) => <article className="card" key={item.accountId}><h2>{item.displayName}</h2><p>{item.email}</p><span className="badge">{item.role}</span></article>)}</div>}</Page>;
+  return <Page title="Members" description="Roles are tenant-scoped and separate from internal server administrator roles.">{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No members">No members were returned for this organization.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={item.accountId}><h2>{item.displayName}</h2><p>{item.email}</p><span className="badge">{item.role}</span></article>)}</div>}</Page>;
 }

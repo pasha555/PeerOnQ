@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     return post<{ emailVerificationRequired: boolean }>('/auth/register', { email, displayName, password, invitationToken: invitationToken || null });
   }, []);
-  const logout = useCallback(async () => { try { await post('/auth/logout'); } finally { setProfile(null); setStatus('anonymous'); } }, []);
+  const logout = useCallback(async () => { await post('/auth/logout'); setProfile(null); setStatus('anonymous'); }, []);
   const value = useMemo(() => ({ status, profile, error, login, register, logout, reload: load }), [status, profile, error, login, register, logout, load]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

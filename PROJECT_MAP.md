@@ -863,6 +863,9 @@ place the root-owned public keyring and host agent; later releases can be staged
 - `20260817060948_AddCustomerIdentityOrganizationsAndPolicy.cs` — forward-only schema and append-only customer audit trigger
 - `artifacts/peeronq-portal/src/` — real same-origin API portal with explicit loading/error/empty states; stable `api.ts`, `shell.tsx`, and `components.tsx` facades re-export their focused implementations
 - `artifacts/peeronq-portal/src/workspacePages.tsx` — authenticated overview, organization devices/remote-session history, downloads and support; resource responses are scoped to the current organization and aborted on scope changes
+- `artifacts/peeronq-portal/src/theme.tsx` — shared auth/customer theme, system preference fallback and guarded non-secret preference storage
+- `artifacts/peeronq-portal/src/portalShell.tsx` — grouped account/organization navigation, organization route gates and form remount boundaries; modal mobile navigation with deferred focus restoration
+- `artifacts/peeronq-portal/src/uiStates.tsx` — async feedback and native confirmation dialog for session/trust/invitation revocation and deletion requests
 - `artifacts/peeronq-portal/src/brand.tsx`, `public/brand/`, `src/styles.css` — shared canonical Q-mark, public/source destinations and standalone portal tokens/navigation
 - `scripts/windows/test-phase7-customer-portal.ps1` — real HTTPS multi-organization and multi-role acceptance
 
@@ -876,8 +879,12 @@ closed registration and no email-verification dependency.
 
 The portal host is publicly reachable; its account and organization API still requires customer
 authentication/authorization. Nginx network allowlists remain on Admin, Grafana and Prometheus only.
-Signed-in users land on Overview; `/sessions` remains browser-session revocation and `/remote-sessions`
-shows up to 500 host-side remote-session records. Device installation proof and customer sign-in are
+Signed-in users land on Overview, with independently loaded real account-session/trust counts,
+identity verification/MFA and organization resources. Profile uses `/profile` with `/account` retained
+as a compatibility alias. `/sessions` is labeled Sign-in sessions; `/trusted-devices` is Trusted
+sign-in devices; `/remote-sessions` shows up to 500 host-side remote-session records. Policy and
+organization forms retain server semantics and reset on tenant switches. A failed logout is shown
+explicitly and does not imply that the cookie session has ended. Device installation proof and customer sign-in are
 distinct identities linked through the existing organization device-claim API; the desktop client
 has no self-service account sign-in/device-linking UI. The portal states this limitation explicitly.
 

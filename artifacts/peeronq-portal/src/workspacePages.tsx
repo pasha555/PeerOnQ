@@ -6,7 +6,7 @@ import { useAuth } from './auth';
 import { publicWebsite, sourceRepository } from './brand';
 import { EmptyState, ErrorState, LoadingState, Page } from './components';
 import { useOrganization } from './shell';
-import type { Device, RemoteSession } from './types';
+import type { Device, RemoteSession, Session, TrustedDevice } from './types';
 
 function date(value: string | null) {
   if (!value) return 'Not recorded';
@@ -20,9 +20,7 @@ function label(value: string) {
   return value.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
-function useOrganizationResource<T>(resource: string) {
-  const { selected, loading: organizationLoading, error: organizationError } = useOrganization();
-  const path = selected ? `/organizations/${encodeURIComponent(selected.id)}/${resource}` : null;
+function useResource<T>(path: string | null) {
   const [result, setResult] = useState<{ path: string | null; data: T[] | null; error: string | null }>({ path: null, data: null, error: null });
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((value) => value + 1), []);
@@ -40,7 +38,13 @@ function useOrganizationResource<T>(resource: string) {
   }, [path, version]);
   // Never display the previous organization's response while a new scope is loading.
   const current = result.path === path ? result : { data: null, error: null };
-  return { ...current, loading: organizationLoading || Boolean(path && !current.data && !current.error), selected, organizationError, reload };
+  return { ...current, loading: Boolean(path && !current.data && !current.error), reload };
+}
+
+function useOrganizationResource<T>(resource: string) {
+  const { selected, loading, error: organizationError } = useOrganization();
+  const state = useResource<T>(selected ? `/organizations/${encodeURIComponent(selected.id)}/${resource}` : null);
+  return { ...state, loading: loading || state.loading, selected, organizationError };
 }
 
 function NoOrganization({ children }: { children?: ReactNode }) {
@@ -57,44 +61,58 @@ function SessionsTable({ sessions }: { sessions: RemoteSession[] }) {
   </table></div>;
 }
 
+function AccountCount({ title, href, state }: {
+  title: string; href: string;
+  state: ReturnType<typeof useResource<Session | TrustedDevice>>;
+}) {
+  const count = state.data?.filter((item) => !item.revokedAtUtc && new Date(item.expiresAtUtc).getTime() > Date.now()).length;
+  return <article className="account-metric" aria-label={title}>
+    <h2>{title}</h2>
+    {state.loading ? <p role="status">Loading…</p> : state.error ? <div role="alert"><p>{state.error}</p><button className="link-button" onClick={state.reload}>Retry {title.toLowerCase()}</button></div> : <><strong className="summary-value">{count}</strong><p>Active, not expired or revoked</p></>}
+    <Link href={href} className="text-action">Review {title.toLowerCase()}<ArrowRight size={16} aria-hidden="true" /></Link>
+  </article>;
+}
+
 export function OverviewPage() {
   const { profile } = useAuth();
-  const { selected, loading, error } = useOrganization();
+  const { organizations, selected, loading, error } = useOrganization();
   const devices = useOrganizationResource<Device>('devices');
   const sessions = useOrganizationResource<RemoteSession>('sessions');
+  const accountSessions = useResource<Session>('/account/sessions');
+  const trustedDevices = useResource<TrustedDevice>('/account/trusted-devices');
   return <Page title="Overview" description={profile ? `Welcome, ${profile.displayName}. Your account and shared workspace in one place.` : 'Your account and shared workspace in one place.'} actions={<Link href="/downloads" className="button primary"><Download size={17} aria-hidden="true" />Get PeerOnQ</Link>}>
-    <section className="workspace-banner" aria-label="Current workspace">
-      <div><span className="eyebrow">{selected ? 'Organization workspace' : 'Personal account'}</span><h2>{selected?.name ?? profile?.displayName ?? 'Your account'}</h2><p>{selected ? `Your role: ${selected.role}. Devices and history below belong to this organization.` : 'Manage your profile and sign-in security. Shared resources belong to an organization.'}</p></div>
-      <Link href="/account" className="button secondary">My account<ArrowRight size={16} aria-hidden="true" /></Link>
+    <section className="account-summary panel" aria-label="Account status">
+      <div><span className="eyebrow">Your account</span><h2>{profile?.email}</h2><span className={profile?.emailVerified ? 'badge success' : 'badge muted'}>{profile?.emailVerified ? 'Email verified' : 'Email verification pending'}</span><Link href="/profile" className="text-action">Edit profile<ArrowRight size={16} aria-hidden="true" /></Link></div>
+      <div className="security-summary"><ShieldCheck aria-hidden="true" /><div><strong>{profile?.mfaEnabled ? 'MFA enabled' : 'MFA not enabled'}</strong><p>{profile?.mfaEnabled ? 'An additional check protects your sign-in.' : 'Add an authenticator to protect your sign-in.'}</p><Link href="/security" className="text-action">Review security<ArrowRight size={16} aria-hidden="true" /></Link></div></div>
     </section>
-    <div className="overview-grid">
-      <article className="panel overview-card"><span className="section-icon"><Laptop aria-hidden="true" /></span><h2>Devices</h2>
-        {devices.loading ? <p role="status">Loading assigned devices…</p> : error || devices.error ? <p>Device information is unavailable.</p> : <><strong className="summary-value">{devices.data?.length ?? 0}</strong><p>{selected ? 'Devices assigned to this organization' : 'No organization selected'}</p></>}
-        <Link href="/devices" className="text-action">Manage devices<ArrowRight size={16} aria-hidden="true" /></Link>
-      </article>
-      <article className="panel overview-card"><span className="section-icon"><ShieldCheck aria-hidden="true" /></span><h2>Account protection</h2>
-        <strong className="summary-status">{profile?.mfaEnabled ? 'MFA enabled' : 'Set up MFA'}</strong><p>{profile?.mfaEnabled ? 'An additional check protects your sign-in.' : 'Add an authenticator to protect your sign-in.'}</p><Link href="/security" className="text-action">Review security<ArrowRight size={16} aria-hidden="true" /></Link>
-      </article>
-      <article className="panel overview-card"><span className="section-icon"><Monitor aria-hidden="true" /></span><h2>Start a connection</h2><strong className="summary-status">Open the desktop app</strong><p>Choose View Only, Full Control or File Transfer. The remote owner approves attended access.</p><Link href="/downloads" className="text-action">View downloads<ArrowRight size={16} aria-hidden="true" /></Link></article>
-    </div>
-    {!loading && !selected && !error ? <NoOrganization /> : null}
-    <section className="content-section" aria-labelledby="recent-sessions"><div className="section-heading"><div><span className="eyebrow">Activity</span><h2 id="recent-sessions">Recent remote sessions</h2></div><Link href="/remote-sessions" className="text-action">View history<ArrowRight size={16} aria-hidden="true" /></Link></div>
-      {error ? <p>Remote-session history is unavailable until your organizations can be loaded.</p> : sessions.error ? <ErrorState message={sessions.error} retry={sessions.reload} /> : sessions.loading ? <LoadingState label="Loading remote-session history…" /> : !sessions.data?.length ? <div className="panel"><EmptyState title="No remote sessions yet">{selected ? 'Recorded sessions hosted by devices assigned to this organization will appear here.' : 'Select an organization to view its remote-session history.'}</EmptyState></div> : <SessionsTable sessions={sessions.data.slice(0, 5)} />}
+    <section className="account-metrics" aria-label="Account overview">
+      <AccountCount title="Sign-in sessions" href="/sessions" state={accountSessions} />
+      <AccountCount title="Trusted sign-in devices" href="/trusted-devices" state={trustedDevices} />
+      <article className="account-metric" aria-label="Organizations"><h2>Organizations</h2>{loading ? <p role="status">Loading…</p> : error ? <p>Organization count unavailable.</p> : <><strong className="summary-value">{organizations.length}</strong><p>Your organization memberships</p></>}<Link href="/organizations" className="text-action">Manage organizations<ArrowRight size={16} aria-hidden="true" /></Link></article>
     </section>
-    <div className="help-strip"><BookOpen aria-hidden="true" /><p>Local LAN connections work without an account. The portal manages account and organization metadata.</p><Link href="/support">How it works</Link></div>
+    {loading ? <LoadingState label="Loading your workspace…" /> : selected ? <>
+      <section className="workspace-banner" aria-label="Current workspace"><div><span className="eyebrow">Active organization</span><h2>{selected.name}</h2><p>Your role: {selected.role}. Devices and history below belong to this organization.</p></div><Link href="/organizations" className="button secondary">Organizations<ArrowRight size={16} aria-hidden="true" /></Link></section>
+      <div className="workspace-overview">
+        <section aria-labelledby="recent-sessions"><div className="section-heading"><h2 id="recent-sessions">Recent remote sessions</h2><Link href="/remote-sessions" className="text-action">View history<ArrowRight size={16} aria-hidden="true" /></Link></div>
+          {sessions.error ? <ErrorState message={sessions.error} retry={sessions.reload} /> : sessions.loading ? <LoadingState label="Loading remote-session history…" /> : !sessions.data?.length ? <div className="panel"><EmptyState title="No remote sessions yet">Sessions hosted by this organization’s managed devices will appear here.</EmptyState></div> : <SessionsTable sessions={sessions.data.slice(0, 5)} />}
+        </section>
+        <article className="panel overview-card" aria-label="Managed devices"><span className="section-icon"><Laptop aria-hidden="true" /></span><h2>Managed devices</h2>{devices.loading ? <p role="status">Loading assigned devices…</p> : devices.error ? <div role="alert"><p>{devices.error}</p><button className="link-button" onClick={devices.reload}>Retry managed devices</button></div> : <><strong className="summary-value">{devices.data?.length}</strong><p>Assigned device records, including revoked devices. This is not an online-device count.</p></>}<Link href="/devices" className="text-action">Manage devices<ArrowRight size={16} aria-hidden="true" /></Link></article>
+      </div>
+    </> : !error ? <NoOrganization /> : null}
+    <div className="help-strip"><BookOpen aria-hidden="true" /><p>Local LAN connections work without an account. Start remote viewing and control in the PeerOnQ app.</p><Link href="/support">How it works</Link></div>
   </Page>;
 }
 
 export function DevicesPage() {
   const state = useOrganizationResource<Device>('devices');
-  return <Page title="Devices" description="Devices assigned to your selected organization. Personal LAN connections remain in the desktop app." actions={<Link href="/downloads" className="button secondary"><Download size={17} aria-hidden="true" />Get the app</Link>}>
+  return <Page title="Managed devices" description="Devices assigned to your selected organization. Personal LAN connections remain in the desktop app." actions={<Link href="/downloads" className="button secondary"><Download size={17} aria-hidden="true" />Get the app</Link>}>
     {state.organizationError ? <p>Restore your organization list to view its devices.</p> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : state.loading ? <LoadingState label="Loading organization devices…" /> : !state.selected ? <NoOrganization /> : !state.data?.length ? <div className="panel"><EmptyState title="No assigned devices">This organization has no assigned devices. Desktop devices do not appear automatically when you sign in to this portal.</EmptyState><p className="empty-guidance">Device assignment requires verified ownership. There is currently no self-service desktop sign-in or device-linking flow. Contact your organization administrator for an existing managed setup.</p></div> : <div className="cards">{state.data.map((item) => <article className="card device-card" key={item.id}><div className="card-heading"><span className="section-icon"><Laptop aria-hidden="true" /></span><span className={item.isRevoked ? 'badge muted' : 'badge success'}>{item.isRevoked ? 'Revoked' : 'Assigned'}</span></div><h2>{item.displayName}</h2><code className="device-id">{item.maskedPublicDeviceId}</code><dl className="detail-list"><div><dt>Last seen</dt><dd>{date(item.lastSeenAtUtc)}</dd></div></dl></article>)}</div>}
   </Page>;
 }
 
 export function RemoteSessionsPage() {
   const state = useOrganizationResource<RemoteSession>('sessions');
-  return <Page title="Sessions" description="Recorded remote sessions hosted by devices assigned to your selected organization. This is connection metadata, not a screen recording." actions={<Link href="/sessions" className="button secondary">Browser sessions<ArrowRight size={16} aria-hidden="true" /></Link>}>
+  return <Page title="Remote sessions" description="Recorded remote sessions hosted by devices assigned to your selected organization. This is connection metadata, not a screen recording." actions={<Link href="/sessions" className="button secondary">Sign-in sessions<ArrowRight size={16} aria-hidden="true" /></Link>}>
     {state.organizationError ? <p>Restore your organization list to view its remote sessions.</p> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : state.loading ? <LoadingState label="Loading remote-session history…" /> : !state.selected ? <NoOrganization /> : !state.data?.length ? <div className="panel"><EmptyState title="No remote sessions yet">Session history will appear after an assigned host device records a remote connection.</EmptyState></div> : <><p className="table-caption">{state.data.length} recorded {state.data.length === 1 ? 'session' : 'sessions'} · up to the 500 most recent</p><SessionsTable sessions={state.data} /></>}
   </Page>;
 }

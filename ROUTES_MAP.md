@@ -222,13 +222,13 @@ and tenant authorization still apply.
 
 | URL | Page | Purpose | Data source |
 | --- | --- | --- | --- |
-| `/` | `OverviewPage` / unauthenticated `AuthPage` | Sign in, then real account/organization overview, assigned devices and recent remote sessions | `/portal/v1/auth/*`, `/account/profile`, `/organizations/*/{devices,sessions}` |
-| `/account` | `ProfilePage` | Current account profile | `/portal/v1/account/profile` |
+| `/` | `OverviewPage` / unauthenticated `AuthPage` | Sign in, then identity/verification/MFA, active account-session/trust counts, organization count, managed devices and recent remote sessions; independent widget errors/retries | `/portal/v1/auth/*`, `/account/{profile,sessions,trusted-devices}`, `/organizations/`, `/organizations/*/{devices,sessions}` |
+| `/profile`, `/account` | `ProfilePage` | Profile editor; `/profile` is canonical navigation, `/account` remains a working compatibility alias | `/portal/v1/account/profile` |
 | `/remote-sessions` | `RemoteSessionsPage` | Organization host-side remote-session metadata, up to 500 recent records | `/portal/v1/organizations/*/sessions` |
 | `/downloads` | `DownloadsPage` | Native app access modes and link to authoritative public downloads | Static; `https://peeronq.com/#download` |
 | `/support` | `SupportPage` | Documentation, GitHub issues/security policy and account/device access limits | Static; public repository |
 | `/verify-email`, `/reset-password` | token pages | Email verification and password recovery | `/portal/v1/auth/*` |
-| `/sessions`, `/trusted-devices` | account security pages | Browser account session and sign-in trust revocation; distinct from remote history | `/portal/v1/account/*` |
+| `/sessions`, `/trusted-devices` | account security pages | Sign-in sessions and Trusted sign-in devices; confirmation before revocation, distinct from remote history and managed devices | `/portal/v1/account/*` |
 | `/organizations`, `/members`, `/teams` | organization pages | Tenant membership, RBAC and teams | `/portal/v1/organizations/*` |
 | `/invitations`, `/invitations/accept` | invitation pages | Issue/revoke/accept protected invitations | `/portal/v1/organizations/*/invitations*` |
 | `/devices` | `DevicesPage` | Organization-scoped device visibility | `/portal/v1/organizations/*/devices` |
@@ -239,8 +239,15 @@ and tenant authorization still apply.
 
 Billing, pricing, invoice, subscription, entitlement, activation and payment routes are absent;
 unknown paths render a real not-found state. Loading, error and empty states are explicit and tested.
-Organization resources are scoped to the selected tenant; navigation groups workspace, organization,
-account and help. Device cards report assigned/revoked status rather than inferred online presence.
+Organization resources are scoped to the selected tenant; navigation groups Workspace, Account,
+Organization and help. Organization-specific links appear only with a selected organization; direct
+routes show loading/error/onboarding until that context exists. Organization forms remount on scope
+changes, so edits and mutation feedback do not cross organizations. Policy controls retain server
+values and field names; Owner/Administrator editing and invitation management mirror existing API
+roles, with server authorization authoritative. Device cards report assigned/revoked status rather
+than inferred online presence. Account-session/trust counts exclude expired and revoked records.
+Auth, reset and verification share canonical branding, public download links and the portal theme.
+Failed logout remains authenticated with a retryable error until the server confirms sign-out.
 Desktop installation identity remains separate from account sign-in; no self-service desktop account
 login/device-linking UI is claimed. Existing device ownership proof remains required.
 

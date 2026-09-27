@@ -124,6 +124,26 @@ or a current version for server-owned/tracked releases. Sign in and Portal links
 separately hosted customer portal; operational Admin/monitoring links remain absent.
 `prefers-reduced-motion` reduces transitions and animations globally.
 
+### Customer Portal
+
+The real customer portal keeps its standalone token stylesheet at
+`artifacts/peeronq-portal/src/styles.css`. It uses the same canonical light/dark SVG lockups, Segoe
+family, green actions and navy structure. Its dark background/foreground/primary match the public
+palette. `AuthFrame` shares branding, public/download navigation and theme controls across sign-in,
+registration, recovery and verification. `PortalThemeProvider` applies the stored preference before
+sign-in or follows the system theme; only theme/organization preferences are persisted, never tokens.
+
+Overview separates account identity/security, a compact count row, and the active organization's
+devices/history. Each count has its own loading/error/retry feedback. Account and Organization
+navigation use explicit Sign-in sessions, Trusted sign-in devices and Managed devices labels.
+Profile lives at `/profile`; the older `/account` URL remains supported.
+
+Policy controls use readable labels and adjacent descriptions while preserving API field names and
+server values. Destructive actions use a native modal `ConfirmAction` dialog with initial Cancel
+focus, pending/error feedback and focus restoration. The mobile navigation makes background controls
+inert, locks page scrolling, closes on Escape and restores focus after removing inert state.
+Reduced-motion, keyboard outlines, responsive tables and light/dark semantic statuses remain active.
+
 ---
 
 ## Typography

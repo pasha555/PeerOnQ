@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../App';
 import { AuthProvider } from '../auth';
@@ -34,7 +34,7 @@ describe('portal workspace', () => {
     let mobile = true;
     let notifyViewportChange: (() => void) | undefined;
     const removeListener = vi.fn();
-    const matchMedia = vi.fn().mockReturnValue({
+    const matchMedia = vi.fn().mockImplementation((query: string) => query.includes('prefers-color-scheme') ? { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() } : {
       get matches() { return mobile; },
       addEventListener: (_name: string, listener: () => void) => { notifyViewportChange = listener; },
       removeEventListener: removeListener,
@@ -96,9 +96,11 @@ describe('portal workspace', () => {
     renderPortal('/remote-sessions');
     expect(await screen.findByText('Full Control')).toBeVisible();
     expect(fetchMock.mock.calls.some(([url]) => url === '/portal/v1/account/sessions')).toBe(false);
-    await user.click(screen.getAllByRole('link', { name: 'Browser sessions' })[0]!);
+    await user.click(screen.getAllByRole('link', { name: 'Sign-in sessions' })[0]!);
     expect(await screen.findByRole('heading', { name: 'Browser on Windows' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Revoke session' }));
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+    await user.click(within(screen.getByRole('dialog', { name: 'Revoke this sign-in session?' })).getByRole('button', { name: 'Confirm revocation' }));
     expect(await screen.findByText('Revoked')).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith('/portal/v1/account/sessions/browser-1', expect.objectContaining({ method: 'DELETE', credentials: 'include' }));
   });
@@ -111,6 +113,7 @@ describe('portal workspace', () => {
     const user = userEvent.setup();
     renderPortal('/sessions');
     await user.click(await screen.findByRole('button', { name: 'Revoke session' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Revoke this sign-in session?' })).getByRole('button', { name: 'Confirm revocation' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Session could not be revoked.');
     expect(screen.getByText('Active')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Revoke session' })).toBeEnabled();

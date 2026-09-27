@@ -27,13 +27,13 @@
 }
 .dark {
   color-scheme: dark;
-  --background: 215 30% 9%;
-  --foreground: 210 22% 93%;
+  --background: 222 20% 9%;
+  --foreground: 210 25% 94%;
   --surface: 213 28% 13%;
   --subtle: 213 25% 17%;
   --border: 214 19% 25%;
   --muted: 213 17% 70%;
-  --primary: 153 52% 52%;
+  --primary: 153 52% 58%;
   --primary-hover: 153 56% 60%;
   --primary-fg: 215 30% 9%;
   --danger: 0 76% 70%;
@@ -92,7 +92,7 @@ code, pre { font-family: "Cascadia Code", Consolas, monospace; overflow-wrap: an
 .sidebar { position: fixed; z-index: 20; inset: var(--top) auto 0 0; width: var(--side); display: flex; flex-direction: column; padding: 18px 12px; border-right: 1px solid hsl(var(--border)); background: hsl(var(--surface)); overflow-y: auto; }
 .nav-group + .nav-group { margin-top: 22px; }
 .nav-heading { margin: 0 12px 7px; color: hsl(var(--muted)); font-size: .6875rem; font-weight: 650; text-transform: uppercase; letter-spacing: .09em; }
-.nav { min-height: 42px; display: flex; align-items: center; gap: 11px; margin: 2px 0; padding: 8px 12px; border: 1px solid transparent; border-radius: 8px; color: hsl(var(--muted)); font-size: .875rem; font-weight: 500; text-decoration: none; }
+.nav { min-height: 44px; display: flex; align-items: center; gap: 11px; margin: 2px 0; padding: 8px 12px; border: 1px solid transparent; border-radius: 8px; color: hsl(var(--muted)); font-size: .875rem; font-weight: 500; text-decoration: none; }
 .nav:hover { background: hsl(var(--subtle)); color: hsl(var(--foreground)); }
 .nav.active { border-color: hsl(var(--primary) / .12); background: hsl(var(--success-bg)); color: hsl(var(--success)); font-weight: 650; box-shadow: inset 3px 0 0 hsl(var(--primary)); }
 .sidebar-footer { margin-top: auto; padding-top: 24px; }
@@ -220,7 +220,46 @@ tbody tr:last-child td { border-bottom: 0; }
 .standalone > * { width: min(100%, 620px); }
 .compact-form { display: grid; gap: 18px; }
 .scrim { display: none; }
+.field-help { margin: -8px 0 0; font-size: .8125rem; font-weight: 400; line-height: 1.6; }
+.auth-card .field-help { margin: 10px 0 0; }
+.auth-single { width: min(100%, 520px); margin: auto 0; border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--surface)); box-shadow: var(--shadow); }
+.auth-single > .text-action { margin-top: 20px; }
+.account-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.account-summary h2 { overflow-wrap: anywhere; }
+.account-summary .badge { margin-right: 18px; }
+.security-summary { display: flex; align-items: flex-start; gap: 16px; padding-left: 32px; border-left: 1px solid hsl(var(--border)); }
+.security-summary > svg { color: hsl(var(--primary)); }
+.security-summary p { margin: 6px 0; font-size: .875rem; }
+.account-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 24px 0 32px; border-block: 1px solid hsl(var(--border)); }
+.account-metric { min-width: 0; padding: 22px 24px; }
+.account-metric + .account-metric { border-left: 1px solid hsl(var(--border)); }
+.account-metric h2 { font-size: .875rem; color: hsl(var(--muted)); }
+.account-metric p { margin: 8px 0; font-size: .8125rem; }
+.workspace-overview { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; }
+.workspace-overview > section { min-width: 0; }
+.workspace-overview .overview-card { align-self: start; }
+.security-panel { max-width: 800px; }
+.form-actions, .dialog-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.setup-secret { padding: 18px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--subtle)); }
+.setup-secret p { font-size: .875rem; }
+.setup-secret code { display: block; user-select: all; }
+.policy-form { max-width: 900px; }
+.policy-form fieldset { border: 0; padding: 0; margin: 0 0 32px; min-width: 0; }
+.policy-form legend { margin-bottom: 20px; font-weight: 650; }
+.policy-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+.policy-option { border-bottom: 1px solid hsl(var(--border)); padding-bottom: 16px; }
+.policy-option .check { background: transparent; padding: 0; font-weight: 600; text-transform: none; }
+.policy-option p { margin: 0 0 0 27px; font-size: .8125rem; }
+.confirmation { width: min(480px, calc(100% - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 28px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--surface)); color: hsl(var(--foreground)); box-shadow: var(--shadow); }
+.confirmation:not([open]) { display: none; }
+.confirmation::backdrop { background: hsl(var(--navy) / .65); }
+.confirmation h2 { font-size: 1.25rem; }
+.confirmation .dialog-actions { justify-content: flex-end; margin-top: 24px; }
+.confirmation .button { margin-top: 0; }
+tbody tr:hover { background: hsl(var(--subtle)); }
+td { overflow-wrap: anywhere; }
 @media (max-width: 1100px) {
+  .workspace-overview { grid-template-columns: minmax(0, 1fr); }
   .shell { padding-left: 0; }
   .sidebar { visibility: hidden; transform: translateX(-105%); transition: transform .18s, visibility .18s; box-shadow: var(--shadow); }
   .sidebar.open { visibility: visible; transform: translateX(0); }
@@ -233,6 +272,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .auth-card { padding: 36px; }
 }
 @media (max-width: 780px) {
+  .account-summary { grid-template-columns: 1fr; gap: 22px; }
+  .security-summary { padding: 22px 0 0; border-left: 0; border-top: 1px solid hsl(var(--border)); }
   .cards, .overview-grid, .capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-grid > :last-child { grid-column: 1 / -1; }
   .auth-screen { padding: 0 24px; }
@@ -243,6 +284,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .auth-card { padding: 32px; }
 }
 @media (max-width: 640px) {
+  .account-metrics, .policy-options { grid-template-columns: 1fr; }
+  .account-metric { padding: 20px 0; }
+  .account-metric + .account-metric { border-left: 0; border-top: 1px solid hsl(var(--border)); }
   :root { --top: 116px; }
   .topbar { flex-wrap: wrap; align-content: center; gap: 4px 8px; padding: 8px 12px; }
   .topbar .brand { min-width: 0; flex: 1; }
