@@ -1,0 +1,104 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="PeerOnQ"
+           Manufacturer="PeerOnQ"
+           Version="$(var.ProductVersion)"
+           ProductCode="$(var.ProductCode)"
+           UpgradeCode="8D5A3D20-5D8D-44D3-A5CC-785D493F2E1B"
+           Scope="perMachine"
+           InstallerVersion="500"
+           Language="1033"
+           Compressed="yes">
+
+    <SummaryInformation Description="PeerOnQ MIT-licensed open-source remote access" Manufacturer="PeerOnQ" />
+    <Icon Id="PeerOnQIcon" SourceFile="$(sys.SOURCEFILEDIR)..\src\PeerOnQ.App\Assets\PeerOnQ.ico" />
+    <Property Id="ARPPRODUCTICON" Value="PeerOnQIcon" />
+    <MajorUpgrade AllowDowngrades="no"
+                  DowngradeErrorMessage="A newer security version of PeerOnQ is already installed."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="PeerOnQ" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="PeerOnQProgramMenuFolder" Name="PeerOnQ" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+    <StandardDirectory Id="StartupFolder" />
+
+    <ComponentGroup Id="PublishedFiles" Directory="INSTALLFOLDER">
+      <Files Include="!(bindpath.Publish)\**">
+        <Exclude Files="!(bindpath.Publish)\**\*.pdb" />
+        <Exclude Files="!(bindpath.Publish)\**\*.xml" />
+        <Exclude Files="!(bindpath.Publish)\e_sqlite3.dll" />
+        <Exclude Files="!(bindpath.Publish)\PeerOnQ.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- SQLite is unversioned, so repair/upgrade follows the signed, versioned application executable. -->
+    <Component Id="AppCoreFiles" Directory="INSTALLFOLDER" Guid="ACDAB784-34CF-41EF-B081-930AB2230E76">
+      <File Id="PeerOnQExecutable" Source="!(bindpath.Publish)\PeerOnQ.exe" KeyPath="yes" />
+      <File Id="NativeSqliteFile" Source="!(bindpath.Publish)\e_sqlite3.dll" CompanionFile="PeerOnQExecutable" />
+    </Component>
+
+    <Component Id="StartMenuShortcut" Directory="PeerOnQProgramMenuFolder" Guid="DEB743DF-B5EB-4D9E-B32A-B02FDF29D678">
+      <Shortcut Id="StartMenuPeerOnQ" Name="PeerOnQ" Description="Secure remote access"
+                Target="[INSTALLFOLDER]PeerOnQ.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="PeerOnQIcon" />
+      <RemoveFolder Id="RemovePeerOnQProgramMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\PeerOnQ\Installer" Name="StartMenuShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="9785F9E3-1D7E-4DEA-BE8B-310367AA4DDD">
+      <Shortcut Id="DesktopPeerOnQ" Name="PeerOnQ" Description="Secure remote access"
+                Target="[INSTALLFOLDER]PeerOnQ.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="PeerOnQIcon" />
+      <RegistryValue Root="HKCU" Key="Software\PeerOnQ\Installer" Name="DesktopShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="StartupShortcut" Directory="StartupFolder" Guid="1AFF3AAC-12EB-4424-BE70-23DA4AD592CD">
+      <Shortcut Id="StartupPeerOnQ" Name="PeerOnQ" Description="Secure remote access"
+                Target="[INSTALLFOLDER]PeerOnQ.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="PeerOnQIcon" />
+      <RegistryValue Root="HKCU" Key="Software\PeerOnQ\Installer" Name="StartupShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="PeerOnQUrlProtocol" Directory="INSTALLFOLDER" Guid="A51ABDE1-0B64-42B6-9B75-B1B74EA4DE20">
+      <RegistryKey Root="HKLM" Key="Software\Classes\peeronq">
+        <RegistryValue Type="string" Value="URL:PeerOnQ Support Invitation" KeyPath="yes" />
+        <RegistryValue Name="URL Protocol" Type="string" Value="" />
+        <RegistryKey Key="DefaultIcon">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]PeerOnQ.exe,0" />
+        </RegistryKey>
+        <RegistryKey Key="shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]PeerOnQ.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+    </Component>
+
+    <Feature Id="MainFeature" Title="PeerOnQ" Level="1" AllowAbsent="no"
+             ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="PublishedFiles" />
+      <ComponentRef Id="AppCoreFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="PeerOnQUrlProtocol" />
+      <Feature Id="DesktopShortcutFeature" Title="Desktop shortcut" Description="Create a desktop shortcut." Level="1">
+        <ComponentRef Id="DesktopShortcut" />
+      </Feature>
+      <Feature Id="StartupFeature" Title="Start PeerOnQ when users sign in"
+               Description="Optional visible all-users startup shortcut. No service or hidden persistence is installed."
+               Level="2">
+        <ComponentRef Id="StartupShortcut" />
+      </Feature>
+    </Feature>
+
+    <ui:WixUI Id="WixUI_FeatureTree" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)license.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(sys.SOURCEFILEDIR)Assets\WixUIBanner.png" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(sys.SOURCEFILEDIR)Assets\WixUIDialog.png" />
+  </Package>
+</Wix>

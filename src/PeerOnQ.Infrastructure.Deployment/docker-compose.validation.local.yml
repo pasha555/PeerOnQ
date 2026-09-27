@@ -1,0 +1,12 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    pull_policy: never
+    ports:
+      - "127.0.0.1:15432:5432"
+    networks:
+      - control
+      - edge
+  redis:
+    image: redis:8.4.4-alpine
+    pull_policy: never

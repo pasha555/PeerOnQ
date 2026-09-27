@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <SupportedOSPlatformVersion>17.0</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>PeerOnQ.Apple</AssemblyName>
+    <RootNamespace>PeerOnQ.App.Apple</RootNamespace>
+    <ApplicationId>io.peeronq.apple</ApplicationId>
+    <ApplicationTitle>PeerOnQ</ApplicationTitle>
+    <ApplicationVersion>$(PeerOnQAppleClientVersionCode)</ApplicationVersion>
+    <ApplicationDisplayVersion>$(PeerOnQAppleClientVersion)</ApplicationDisplayVersion>
+    <Version>$(PeerOnQAppleClientVersion)</Version>
+    <AssemblyVersion>$(PeerOnQAppleClientVersion).0</AssemblyVersion>
+    <FileVersion>$(PeerOnQAppleClientVersion).0</FileVersion>
+    <InformationalVersion>$(PeerOnQAppleClientVersion)-apple-viewer-source-preview</InformationalVersion>
+    <PublishTrimmed>true</PublishTrimmed>
+    <RunAOTCompilation>true</RunAOTCompilation>
+    <UseInterpreter>false</UseInterpreter>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-ios'">
+    <CodesignEntitlements>Entitlements.iOS.plist</CodesignEntitlements>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-maccatalyst'">
+    <CodesignEntitlements>Entitlements.MacCatalyst.plist</CodesignEntitlements>
+    <UseHardenedRuntime>true</UseHardenedRuntime>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Application\PeerOnQ.Application.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Domain\PeerOnQ.Domain.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Media\PeerOnQ.Media.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Platform.Apple\PeerOnQ.Platform.Apple.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Transport\PeerOnQ.Transport.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="PeerOnQSignalingUrl" Value="$(PeerOnQSignalingUrl)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PeerOnQDevelopmentRootCertificate)' != ''">
+    <EmbeddedResource Include="$(PeerOnQDevelopmentRootCertificate)"
+                      LogicalName="PeerOnQ.DevelopmentRoot.cer" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PeerOnQAppleLibVpxPath)' != ''">
+    <NativeReference Include="$(PeerOnQAppleLibVpxPath)">
+      <Kind>Static</Kind>
+      <ForceLoad>true</ForceLoad>
+      <SmartLink>true</SmartLink>
+    </NativeReference>
+  </ItemGroup>
+  <Target Name="ValidatePeerOnQAppleBuildInputs" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(PeerOnQAppleClientVersion)' == ''"
+           Text="PeerOnQAppleClientVersion must be defined in Directory.Build.props." />
+    <Error Condition="'$(PeerOnQAppleClientVersionCode)' == ''"
+           Text="PeerOnQAppleClientVersionCode must be defined in Directory.Build.props." />
+    <Error Condition="'$(PeerOnQSignalingUrl)' == ''"
+           Text="PeerOnQ Apple requires a compiled wss:// signaling URL ending in /ws." />
+    <Error Condition="'$(PeerOnQAppleLibVpxPath)' == ''"
+           Text="PeerOnQ Apple requires a reviewed static libvpx.a path; the viewer cannot be built without its VP8 decoder." />
+    <Error Condition="!Exists('$(PeerOnQAppleLibVpxPath)')"
+           Text="The configured PeerOnQAppleLibVpxPath does not exist." />
+  </Target>
+  <Target Name="RemoveDesktopVp8NativeLibrary"
+          BeforeTargets="GetCopyToOutputDirectoryItems;CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <NativeLibs Remove="@(NativeLibs)" Condition="'%(Filename)%(Extension)' == 'vpxmd.dll'" />
+      <ContentWithTargetPath Remove="@(ContentWithTargetPath)"
+                             Condition="'%(Filename)%(Extension)' == 'vpxmd.dll'" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for queued PeerOnQ platform upgrades
+After=local-fs.target
+
+[Path]
+PathChanged=/var/lib/peeronq/platform-upgrade/inbox
+Unit=peeronq-platform-upgrade-agent.service
+
+[Install]
+WantedBy=multi-user.target

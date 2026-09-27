@@ -1,0 +1,746 @@
+<Window
+    x:Class="PeerOnQ.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="">
+
+    <Grid x:Name="AppShell"
+          RowDefinitions="Auto,*,Auto"
+          Background="{ThemeResource PeerOnQPageBrush}"
+          RequestedTheme="Light">
+        <Border Grid.Row="0"
+                MinHeight="64"
+                Background="{ThemeResource PeerOnQSurfaceBrush}"
+                BorderBrush="{ThemeResource PeerOnQBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="20,0">
+            <Grid ColumnDefinitions="Auto,24,*,Auto" VerticalAlignment="Center">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                    <Image Width="24" Height="24" Stretch="Uniform"
+                           AutomationProperties.Name="PeerOnQ logo">
+                        <Image.Source>
+                            <SvgImageSource UriSource="ms-appx:///Assets/PeerOnQ.svg" />
+                        </Image.Source>
+                    </Image>
+                    <TextBlock Text="PeerOnQ" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </StackPanel>
+                <Border Grid.Column="1" Width="1" Height="24" Background="{ThemeResource PeerOnQBorderBrush}" />
+                <TextBlock x:Name="HeaderPageTitleText" Grid.Column="2" Text="Dashboard" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8">
+                    <AutoSuggestBox x:Name="GlobalSearchBox" Width="250"
+                                    PlaceholderText="Search pages"
+                                    QueryIcon="Find"
+                                    TextChanged="OnGlobalSearchTextChanged"
+                                    QuerySubmitted="OnGlobalSearchSubmitted"
+                                    AutomationProperties.Name="Search PeerOnQ pages" />
+                    <Border x:Name="HeaderConnectionBadge"
+                            Background="{ThemeResource PeerOnQSubtleBrush}"
+                            CornerRadius="16"
+                            Padding="12,6"
+                            AutomationProperties.Name="Signaling connection status">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <Grid Width="7" Height="7" VerticalAlignment="Center">
+                                <Ellipse x:Name="HeaderDisconnectedDot"
+                                         Fill="{ThemeResource PeerOnQMutedTextBrush}" />
+                                <Ellipse x:Name="HeaderConnectedDot"
+                                         Fill="{ThemeResource PeerOnQAccentBrush}"
+                                         Visibility="Collapsed" />
+                            </Grid>
+                            <TextBlock x:Name="HeaderConnectionText" Text="Disconnected" FontSize="12" VerticalAlignment="Center"
+                                       AutomationProperties.LiveSetting="Polite" />
+                        </StackPanel>
+                    </Border>
+                    <Button Width="34" Height="34" Padding="0" Click="OnToggleTheme"
+                            ToolTipService.ToolTip="Toggle light or dark theme"
+                            AutomationProperties.Name="Toggle light or dark theme">
+                        <FontIcon x:Name="ThemeIcon" Glyph="&#xE706;" FontSize="15" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <NavigationView Grid.Row="1"
+                        x:Name="MainNavigation"
+                        PaneDisplayMode="Auto"
+                        IsPaneOpen="True"
+                        IsPaneToggleButtonVisible="True"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False"
+                        OpenPaneLength="240"
+                        CompactPaneLength="48"
+                        SelectionChanged="OnNavigationSelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Dashboard" Tag="Dashboard" IsSelected="True">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE80F;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Devices" Tag="Devices">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE772;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Sessions" Tag="Sessions">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE81C;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="File Transfer" Tag="FileTransfer">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE8B7;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Address Book" Tag="AddressBook">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE77B;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Security" Tag="Security">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xEA18;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Settings" Tag="Settings">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          HorizontalScrollMode="Disabled"
+                          IsHorizontalRailEnabled="False"
+                          HorizontalContentAlignment="Stretch">
+                <Grid HorizontalAlignment="Stretch">
+                    <Grid Padding="32,28,32,40" MaxWidth="1240" HorizontalAlignment="Stretch">
+                    <StackPanel x:Name="DashboardPanel" Spacing="24">
+                        <StackPanel Spacing="5">
+                            <TextBlock x:Name="DashboardGreetingText"
+                                       Text="Welcome to PeerOnQ"
+                                       Style="{StaticResource PeerOnQPageTitleStyle}"
+                                       AutomationProperties.HeadingLevel="Level1" />
+                            <TextBlock Text="Connect to another device and review this computer's security and activity."
+                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                        </StackPanel>
+
+                        <InfoBar x:Name="DashboardErrorBar" IsOpen="False" Severity="Error" IsClosable="True" />
+
+                        <Grid ColumnDefinitions="*,24,2*">
+                            <StackPanel Grid.Column="0" Spacing="16">
+                                <TextBlock Text="This Device" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                <Border Style="{StaticResource PeerOnQCardStyle}">
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Text="YOUR PEERONQ ID" FontSize="12" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <Border Background="{ThemeResource PeerOnQSubtleBrush}" CornerRadius="18" Padding="14,8">
+                                                <TextBlock x:Name="DeviceIdText" FontFamily="Consolas" FontSize="18" />
+                                            </Border>
+                                            <Button x:Name="CopyIdButton" Content="Copy" Click="OnCopyId"
+                                                    AutomationProperties.Name="Copy this PeerOnQ ID" />
+                                        </StackPanel>
+                                        <TextBlock x:Name="DeviceNameText" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        <TextBlock Text="Share this ID with the person who needs to connect to this device."
+                                                   TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource PeerOnQCardStyle}">
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Text="Agent Status" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="DashboardAgentStatusText" Text="Agent is starting"
+                                                   AutomationProperties.LiveSetting="Polite"
+                                                   Foreground="{ThemeResource PeerOnQMutedTextBrush}" TextWrapping="Wrap" />
+                                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,10,Auto">
+                                            <TextBlock Grid.Row="0" Text="OS" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                            <TextBlock x:Name="DashboardOsText" Grid.Row="0" Grid.Column="1" Text="Windows"
+                                                       FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Row="2" Text="Version" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                            <TextBlock x:Name="DashboardVersionText" Grid.Row="2" Grid.Column="1" Text="0.5.1"
+                                                       FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource PeerOnQCardStyle}">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock Text="Local Performance" FontWeight="SemiBold"
+                                                   AutomationProperties.HeadingLevel="Level2" />
+                                        <TextBlock x:Name="PerformanceStatusText" TextWrapping="Wrap" />
+                                        <TextBlock Text="Measured locally; no estimated network values are shown."
+                                                   TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Spacing="16">
+                                <TextBlock Text="Connect to Remote Device" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                <Border Style="{StaticResource PeerOnQCardStyle}">
+                                    <StackPanel Spacing="14">
+                                        <ComboBox x:Name="SavedDevicePicker"
+                                                  Header="Saved Device"
+                                                  PlaceholderText="Choose a saved device"
+                                                  HorizontalAlignment="Stretch"
+                                                  Visibility="Collapsed"
+                                                  SelectionChanged="OnSavedDeviceSelectionChanged"
+                                                  AutomationProperties.HelpText="Choose a saved device by alias, then select a connection mode and start the session." />
+                                        <TextBox x:Name="RemoteIdBox"
+                                                 Header="Remote Device ID"
+                                                 PlaceholderText="000-000-000-000"
+                                                 MaxLength="15"
+                                                 InputScope="Number"
+                                                 TextChanged="OnRemoteIdTextChanged"
+                                                 AutomationProperties.HelpText="Enter twelve digits. PeerOnQ adds a separator after each group of three digits." />
+
+                                        <ToggleSwitch x:Name="UnattendedConnectionToggle"
+                                                      Header="Connect without remote approval"
+                                                      OffContent="Remote Accept required"
+                                                      OnContent="Use unattended access"
+                                                      Toggled="OnUnattendedConnectionToggled"
+                                                      AutomationProperties.HelpText="Turn this on only when unattended access was enabled on the remote computer." />
+                                        <StackPanel x:Name="RemoteUnattendedCredentialPanel" Spacing="6" Visibility="Collapsed">
+                                            <PasswordBox x:Name="RemoteUnattendedPasswordBox"
+                                                         Header="Remote unattended password or recovery code"
+                                                         PlaceholderText="Enter the credential configured on the remote computer"
+                                                         PasswordRevealMode="Peek"
+                                                         AutomationProperties.HelpText="The credential is used to create a one-time proof and is not sent or saved as plain text." />
+                                            <TextBlock Text="Enter the password configured on the remote computer. You may leave it empty only when this computer was separately approved as a trusted device there."
+                                                       TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        </StackPanel>
+
+                                        <ToggleSwitch x:Name="SupportInvitationToggle"
+                                                      Header="Use a support invitation"
+                                                      OffContent="Standard connection"
+                                                      OnContent="Invitation-bound support"
+                                                      Toggled="OnSupportInvitationToggled"
+                                                      AutomationProperties.HelpText="Paste an expiring PeerOnQ support link. The remote owner must still approve every requested permission." />
+                                        <StackPanel x:Name="SupportInvitationConnectionPanel" Spacing="6" Visibility="Collapsed">
+                                            <TextBox x:Name="SupportInvitationLinkBox"
+                                                     Header="Support invitation link"
+                                                     PlaceholderText="peeronq://support?..."
+                                                     TextWrapping="Wrap"
+                                                     AutomationProperties.HelpText="The invitation token is kept only in memory for this connection attempt." />
+                                            <PasswordBox x:Name="SupportInvitationPasswordBox"
+                                                         Header="Invitation password (if required)"
+                                                         PasswordRevealMode="Peek" />
+                                            <TextBlock Text="PeerOnQ verifies expiry, revocation, use count, device/technician restriction, and the exact permission profile before showing Accept on the remote computer."
+                                                       TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        </StackPanel>
+
+                                        <ComboBox x:Name="QualityPicker" Header="Display quality" SelectedIndex="0"
+                                                  HorizontalAlignment="Stretch" SelectionChanged="OnQualitySelected"
+                                                  AutomationProperties.Name="Display quality profile">
+                                            <ComboBoxItem Content="Automatic" Tag="Automatic" />
+                                            <ComboBoxItem Content="Office (responsive, clear text)" Tag="Office" />
+                                            <ComboBoxItem Content="Balanced" Tag="Balanced" />
+                                            <ComboBoxItem Content="Performance (up to 60 fps)" Tag="Performance" />
+                                            <ComboBoxItem Content="High quality" Tag="Quality" />
+                                            <ComboBoxItem Content="Low bandwidth" Tag="LowBandwidth" />
+                                        </ComboBox>
+                                        <ComboBox x:Name="ResolutionPicker" Header="Target resolution" SelectedIndex="0"
+                                                  HorizontalAlignment="Stretch" SelectionChanged="OnQualitySelected"
+                                                  AutomationProperties.Name="Target display resolution"
+                                                  AutomationProperties.HelpText="PeerOnQ never upscales above the source display resolution.">
+                                            <ComboBoxItem Content="Automatic" Tag="Automatic" />
+                                            <ComboBoxItem Content="720p" Tag="P720" />
+                                            <ComboBoxItem Content="1080p" Tag="P1080" />
+                                            <ComboBoxItem Content="1440p" Tag="P1440" />
+                                            <ComboBoxItem Content="4K / UHD" Tag="P2160" />
+                                        </ComboBox>
+                                        <Button x:Name="ConnectButton" Content="Start Session" Style="{StaticResource PeerOnQPrimaryButtonStyle}"
+                                                HorizontalAlignment="Stretch" Click="OnRequestSession" />
+                                        <TextBlock x:Name="ConnectionConsentText"
+                                                   Text="The remote owner chooses View only or Full control. Full control includes screen control and file transfer."
+                                                   TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+
+                    </StackPanel>
+
+                    <StackPanel x:Name="SessionsPanel" Visibility="Collapsed" Spacing="22">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="Session History" Style="{StaticResource PeerOnQPageTitleStyle}"
+                                           AutomationProperties.HeadingLevel="Level1" />
+                                <TextBlock Text="Review real connection activity recorded on this device."
+                                           Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Export CSV" Click="OnExportSessions"
+                                    VerticalAlignment="Center" AccessKey="E" />
+                        </Grid>
+                        <Border Style="{StaticResource PeerOnQCardStyle}" Padding="12">
+                            <Grid ColumnDefinitions="*,12,*,12,*">
+                                <ComboBox x:Name="SessionDirectionFilter" Grid.Column="0" Header="Direction" SelectedIndex="0"
+                                          SelectionChanged="OnSessionFilterChanged">
+                                    <ComboBoxItem Content="All directions" Tag="All" />
+                                    <ComboBoxItem Content="Outgoing" Tag="Viewer" />
+                                    <ComboBoxItem Content="Incoming" Tag="Sharer" />
+                                </ComboBox>
+                                <ComboBox x:Name="SessionModeFilter" Grid.Column="2" Header="Mode" SelectedIndex="0"
+                                          SelectionChanged="OnSessionFilterChanged">
+                                    <ComboBoxItem Content="All modes" Tag="All" />
+                                    <ComboBoxItem Content="View only" Tag="ViewOnly" />
+                                    <ComboBoxItem Content="Full control" Tag="FullControl" />
+                                    <ComboBoxItem Content="File transfer" Tag="FileTransferOnly" />
+                                    <ComboBoxItem Content="Custom" Tag="Custom" />
+                                </ComboBox>
+                                <ComboBox x:Name="SessionTimeFilter" Grid.Column="4" Header="Time" SelectedIndex="0"
+                                          SelectionChanged="OnSessionFilterChanged">
+                                    <ComboBoxItem Content="All time" Tag="All" />
+                                    <ComboBoxItem Content="Today" Tag="1" />
+                                    <ComboBoxItem Content="Last 7 days" Tag="7" />
+                                    <ComboBoxItem Content="Last 30 days" Tag="30" />
+                                </ComboBox>
+                            </Grid>
+                        </Border>
+                        <Border Style="{StaticResource PeerOnQCardStyle}" Padding="0">
+                            <StackPanel>
+                                <Border Background="{ThemeResource PeerOnQSubtleBrush}" Padding="18,14"
+                                        BorderBrush="{ThemeResource PeerOnQBorderBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="Current session" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="SessionText" Text="No active session." TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        </StackPanel>
+                                        <Button x:Name="RevokeControlButton" Grid.Column="1" Content="Revoke control" IsEnabled="False"
+                                                VerticalAlignment="Center" Click="OnRevokeControl" />
+                                        <Button x:Name="EndSessionButton" Grid.Column="2" Content="End session" IsEnabled="False"
+                                                VerticalAlignment="Center" Click="OnEndSession" />
+                                    </Grid>
+                                </Border>
+                                <Grid MinHeight="260">
+                                    <ListView x:Name="SessionHistoryList" SelectionMode="None" Padding="8" Visibility="Collapsed" />
+                                    <Border x:Name="SessionHistoryEmptyState">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                            <FontIcon Glyph="&#xE81C;" FontSize="40" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                            <TextBlock Text="No sessions recorded" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Completed sessions will appear here without storing screen content or private addresses."
+                                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" TextWrapping="Wrap"
+                                                       MaxWidth="460" TextAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="FileTransferPanel" Visibility="Collapsed" Spacing="22">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="File Transfer" Style="{StaticResource PeerOnQPageTitleStyle}"
+                                       AutomationProperties.HeadingLevel="Level1" />
+                            <TextBlock Text="Transfer files and folders only inside an explicitly approved session."
+                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                        </StackPanel>
+                        <Border Background="{ThemeResource PeerOnQSuccessSubtleBrush}"
+                                BorderBrush="{ThemeResource PeerOnQSuccessBorderBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="16">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <FontIcon Glyph="&#xEA18;" FontSize="20" Foreground="{ThemeResource PeerOnQAccentBrush}" />
+                                <TextBlock x:Name="CollaborationStatusText"
+                                           Text="No authorized file-transfer or clipboard channel."
+                                           TextWrapping="Wrap" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ComboBox x:Name="TransferPriorityPicker" Header="Bandwidth allocation"
+                                      SelectedIndex="2" IsEnabled="False" MinWidth="240"
+                                      SelectionChanged="OnTransferPriorityChanged">
+                                <ComboBoxItem Content="Remote Control Priority" Tag="RemoteControlPriority" />
+                                <ComboBoxItem Content="Balanced" Tag="Balanced" />
+                                <ComboBoxItem Content="File Transfer Priority" Tag="FileTransferPriority" />
+                            </ComboBox>
+                            <TextBlock x:Name="TransferPriorityDescription"
+                                       Text="Uses the separate authenticated file relay when available; direct transfers use measured spare bandwidth after reserving live traffic."
+                                       MaxWidth="560" TextWrapping="Wrap" VerticalAlignment="Bottom"
+                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                        </StackPanel>
+                        <Border Style="{StaticResource PeerOnQCardStyle}">
+                            <StackPanel Spacing="14">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <FontIcon Glyph="&#xE7F8;" FontSize="19" />
+                                    <TextBlock Text="Local machine" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                </StackPanel>
+                                <TextBlock Text="Choose exactly what to send. PeerOnQ never scans or uploads unselected files."
+                                           TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button x:Name="SendFileButton" Content="Choose files" IsEnabled="False" Click="OnSendFile" />
+                                    <Button x:Name="SendFolderButton" Content="Choose folder" IsEnabled="False" Click="OnSendFolder" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource PeerOnQCardStyle}" Padding="0">
+                            <StackPanel>
+                                <Grid Padding="18,14" ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="Transfer queue" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                        <Button x:Name="PauseTransferButton" Content="Pause" IsEnabled="False" Click="OnPauseTransfer" />
+                                        <Button x:Name="ResumeTransferButton" Content="Resume" IsEnabled="False" Click="OnResumeTransfer" />
+                                        <Button x:Name="CancelTransferButton" Content="Cancel" IsEnabled="False" Click="OnCancelTransfer" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid MinHeight="250">
+                                    <ListView x:Name="TransferList" SelectionMode="Single" Padding="8" Visibility="Collapsed" />
+                                    <Border x:Name="TransferEmptyState">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                            <FontIcon Glyph="&#xE8B7;" FontSize="40" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                            <TextBlock Text="No transfers in progress" FontSize="17" FontWeight="SemiBold" />
+                                            <TextBlock Text="Connect with File Transfer permission to enable file and folder selection."
+                                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" TextAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="AddressBookPanel" Visibility="Collapsed" Spacing="22">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="Address Book" Style="{StaticResource PeerOnQPageTitleStyle}"
+                                           AutomationProperties.HeadingLevel="Level1" />
+                                <TextBlock Text="Organize encrypted local contacts, groups, tags, and trusted peers."
+                                           Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Content="Save current Remote ID" Click="OnSaveAddress" />
+                                <Button x:Name="EditAddressButton" Content="Edit selected" IsEnabled="False" Click="OnEditAddress" />
+                                <Button x:Name="RemoveAddressButton" Content="Remove selected" IsEnabled="False" Click="OnRemoveAddress" />
+                                <Button x:Name="TrustCurrentButton" Content="Trust current peer" IsEnabled="False" Click="OnTrustCurrent" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBox x:Name="AddressSearchBox" PlaceholderText="Search contacts, tags, or notes"
+                                 TextChanged="OnAddressSearchChanged" MinHeight="42" />
+                        <Grid ColumnDefinitions="270,18,*">
+                            <Border Grid.Column="0" Style="{StaticResource PeerOnQCardStyle}" Padding="0">
+                                <StackPanel>
+                                    <StackPanel Padding="16" Spacing="10">
+                                        <TextBlock Text="Groups" FontWeight="SemiBold" />
+                                        <ComboBox x:Name="AddressGroupFilter" PlaceholderText="All groups"
+                                                  HorizontalAlignment="Stretch" SelectionChanged="OnAddressGroupChanged" />
+                                        <Grid ColumnDefinitions="*,8,*">
+                                            <Button x:Name="RenameGroupButton" Grid.Column="0" Content="Rename" IsEnabled="False"
+                                                    HorizontalAlignment="Stretch" Click="OnRenameGroup" />
+                                            <Button x:Name="RemoveGroupButton" Grid.Column="2" Content="Delete" IsEnabled="False"
+                                                    HorizontalAlignment="Stretch" Click="OnRemoveGroup" />
+                                        </Grid>
+                                    </StackPanel>
+                                    <Border BorderBrush="{ThemeResource PeerOnQBorderBrush}" BorderThickness="0,1,0,0"
+                                            Padding="16">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="Create group" FontWeight="SemiBold" />
+                                            <TextBox x:Name="NewGroupNameBox" PlaceholderText="Group name" />
+                                            <Button Content="Create group" HorizontalAlignment="Stretch" Click="OnCreateGroup" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource PeerOnQCardStyle}" Padding="0">
+                                <Grid>
+                                    <ListView x:Name="AddressBookList" MinHeight="390" Padding="8"
+                                              SelectionChanged="OnAddressSelectionChanged"
+                                              DoubleTapped="OnAddressBookActivated" />
+                                    <StackPanel x:Name="AddressBookEmptyState" HorizontalAlignment="Center"
+                                                VerticalAlignment="Center" Spacing="8">
+                                        <FontIcon Glyph="&#xE77B;" FontSize="42" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        <TextBlock Text="Address book is empty" FontSize="17" FontWeight="SemiBold" />
+                                        <TextBlock Text="Save a valid Remote ID to create your first encrypted local contact."
+                                                   Foreground="{ThemeResource PeerOnQMutedTextBrush}" TextAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel x:Name="DevicesPanel" Visibility="Collapsed" Spacing="22">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="Devices" Style="{StaticResource PeerOnQPageTitleStyle}"
+                                           AutomationProperties.HeadingLevel="Level1" />
+                                <TextBlock Text="Manage saved devices and review separately verified trust."
+                                           Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="Add Device" Click="OnAddDevice"
+                                    Style="{StaticResource PeerOnQPrimaryButtonStyle}"
+                                    VerticalAlignment="Center" />
+                        </Grid>
+                        <Border Style="{StaticResource PeerOnQCardStyle}" Padding="12">
+                            <TextBox x:Name="TrustedDeviceSearchBox" PlaceholderText="Search devices"
+                                     TextChanged="OnTrustedDeviceSearchChanged" />
+                        </Border>
+                        <Border Style="{StaticResource PeerOnQCardStyle}" Padding="0">
+                            <Grid RowDefinitions="Auto,*">
+                                <Border Grid.Row="0" Background="{ThemeResource PeerOnQSubtleBrush}" Padding="18,14"
+                                        BorderBrush="{ThemeResource PeerOnQBorderBrush}" BorderThickness="0,0,0,1">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="Device directory" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="TrustedDeviceCountText" Text="0 devices"
+                                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <Button x:Name="EditDeviceButton" Content="Edit selected"
+                                                    IsEnabled="False" Click="OnEditDevice" />
+                                            <Button x:Name="DeleteDeviceButton" Content="Delete selected"
+                                                    IsEnabled="False" Click="OnDeleteDevice" />
+                                            <Button x:Name="RevokeTrustedButton" Content="Revoke trust"
+                                                    IsEnabled="False" Click="OnRevokeTrusted" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <Grid Grid.Row="1" MinHeight="330">
+                                    <ListView x:Name="TrustedDeviceList" Padding="8" Visibility="Collapsed"
+                                              SelectionChanged="OnTrustedDeviceSelectionChanged" />
+                                    <StackPanel x:Name="TrustedDeviceEmptyState" HorizontalAlignment="Center"
+                                                VerticalAlignment="Center" Spacing="8">
+                                        <FontIcon Glyph="&#xE772;" FontSize="42" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        <TextBlock Text="No devices found" FontSize="17" FontWeight="SemiBold" />
+                                        <TextBlock Text="Add a device for quick access. Trust is granted only after a verified session."
+                                                   MaxWidth="520" TextWrapping="Wrap" TextAlignment="Center"
+                                                   Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        <Button Content="Add Device" Click="OnAddDevice"
+                                                Style="{StaticResource PeerOnQPrimaryButtonStyle}"
+                                                HorizontalAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SecurityPanel" Visibility="Collapsed" Spacing="22">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Security" Style="{StaticResource PeerOnQPageTitleStyle}"
+                                       AutomationProperties.HeadingLevel="Level1" />
+                            <TextBlock Text="Control unattended access, privacy consent, and local audit integrity."
+                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                        </StackPanel>
+                        <Border Style="{StaticResource PeerOnQCardStyle}">
+                            <Grid ColumnDefinitions="Auto,20,*">
+                                <Border Width="74" Height="74" CornerRadius="37"
+                                        Background="{ThemeResource PeerOnQSuccessSubtleBrush}">
+                                    <FontIcon Glyph="&#xEA18;" FontSize="34" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              Foreground="{ThemeResource PeerOnQAccentBrush}" />
+                                </Border>
+                                <StackPanel Grid.Column="2" Spacing="6" VerticalAlignment="Center">
+                                    <TextBlock Text="Verified local security posture" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                    <TextBlock x:Name="AuditIntegrityText" Text="Security audit is initializing."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <Border Background="{ThemeResource PeerOnQSuccessSubtleBrush}"
+                                BorderBrush="{ThemeResource PeerOnQSuccessBorderBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="18">
+                            <StackPanel Orientation="Horizontal" Spacing="14">
+                                <FontIcon Glyph="&#xE72E;" FontSize="22" Foreground="{ThemeResource PeerOnQAccentBrush}" />
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Core principle: no hidden monitoring" FontWeight="SemiBold" />
+                                    <TextBlock Text="Attended connections require approval. Unattended access is explicit, scope-limited, audited, and always visibly indicated."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Grid ColumnDefinitions="*,18,*">
+                            <Border Grid.Column="0" Style="{StaticResource PeerOnQCardStyle}">
+                                <StackPanel Spacing="14">
+                                    <TextBlock Text="Unattended Access" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                    <TextBlock Text="Disabled by default. It never installs a service, bypasses UAC, or hides the active-session indicator."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    <PasswordBox x:Name="UnattendedPasswordBox"
+                                                 Header="Set unattended access password"
+                                                 PlaceholderText="14+ characters with upper, lower, number, and symbol"
+                                                 PasswordRevealMode="Peek"
+                                                 AutomationProperties.HelpText="This password is entered on the computer that connects to this device. PeerOnQ stores only a protected verifier." />
+                                    <TextBlock Text="You will enter this password on the connecting computer. It is never shown again or stored as plain text."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    <ComboBox x:Name="UnattendedAllowedModePicker"
+                                              Header="Maximum unattended connection mode"
+                                              SelectedIndex="0"
+                                              HorizontalAlignment="Stretch"
+                                              AutomationProperties.HelpText="Requests outside this exact permission scope are rejected.">
+                                        <ComboBoxItem Content="View only (recommended)" Tag="ViewOnly" />
+                                        <ComboBoxItem Content="Full control (view and input)" Tag="FullControl" />
+                                        <ComboBoxItem Content="File transfer only" Tag="FileTransferOnly" />
+                                    </ComboBox>
+                                    <ToggleSwitch x:Name="TrustedDeviceAuthCheck"
+                                                  Header="Allow approved trusted devices without a password"
+                                                  IsOn="False" />
+                                    <TextBlock Text="Only devices separately approved after an authenticated session, with the same fingerprint and allowed permission scope, can use this option."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    <Border Background="{ThemeResource PeerOnQSubtleBrush}" CornerRadius="8" Padding="12">
+                                        <TextBlock x:Name="UnattendedStatusText" Text="Disabled" FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                    </Border>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button x:Name="EnableUnattendedButton" Content="Enable on this device" Click="OnEnableUnattended" />
+                                        <Button x:Name="DisableUnattendedButton" Content="Disable and revoke credentials" IsEnabled="False" Click="OnDisableUnattended" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource PeerOnQCardStyle}">
+                                <StackPanel Spacing="14">
+                                    <TextBlock Text="Privacy and Audit" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                    <ToggleSwitch x:Name="CrashReportingToggle" Header="Create sanitized local crash reports"
+                                                  OffContent="Disabled by default" OnContent="Enabled with consent"
+                                                  Toggled="OnCrashReportingToggled" />
+                                    <ComboBox x:Name="AuditRetentionPicker" Header="Audit retention"
+                                              SelectionChanged="OnAuditRetentionChanged">
+                                        <ComboBoxItem Content="30 days" Tag="30" />
+                                        <ComboBoxItem Content="90 days" Tag="90" />
+                                        <ComboBoxItem Content="180 days" Tag="180" />
+                                        <ComboBoxItem Content="365 days" Tag="365" />
+                                    </ComboBox>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Export sanitized audit" Click="OnExportAudit" />
+                                        <Button Content="Clear audit" Click="OnClearAudit" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Border Style="{StaticResource PeerOnQCardStyle}">
+                            <StackPanel Spacing="14">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Secure Support Invitations" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                    <TextBlock Text="Create an expiring, revocable invitation. The token is shown only in the copied link; PeerOnQ stores a protected hash and still requires the remote Accept dialog."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                </StackPanel>
+                                <Grid ColumnDefinitions="*,14,*" RowDefinitions="Auto,12,Auto">
+                                    <ComboBox x:Name="SupportInvitationModePicker" Grid.Row="0" Grid.Column="0"
+                                              Header="Requested permission profile" SelectedIndex="0">
+                                        <ComboBoxItem Content="View only" Tag="ViewOnly" />
+                                        <ComboBoxItem Content="Full control" Tag="FullControl" />
+                                        <ComboBoxItem Content="File transfer only" Tag="FileTransferOnly" />
+                                    </ComboBox>
+                                    <ComboBox x:Name="SupportInvitationLifetimePicker" Grid.Row="0" Grid.Column="2"
+                                              Header="Expiry" SelectedIndex="1">
+                                        <ComboBoxItem Content="15 minutes" Tag="15" />
+                                        <ComboBoxItem Content="1 hour" Tag="60" />
+                                        <ComboBoxItem Content="8 hours" Tag="480" />
+                                        <ComboBoxItem Content="24 hours" Tag="1440" />
+                                    </ComboBox>
+                                    <NumberBox x:Name="SupportInvitationMaxUsesBox" Grid.Row="2" Grid.Column="0"
+                                               Header="Maximum uses" Value="1" Minimum="1" Maximum="25"
+                                               SpinButtonPlacementMode="Inline" />
+                                    <PasswordBox x:Name="SupportInvitationCreatePasswordBox" Grid.Row="2" Grid.Column="2"
+                                                 Header="Optional password (10+ characters)" PasswordRevealMode="Peek" />
+                                </Grid>
+                                <TextBox x:Name="SupportInvitationNoteBox" Header="Support note (optional)"
+                                         MaxLength="512" TextWrapping="Wrap"
+                                         PlaceholderText="Describe the support request without secrets." />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Create invitation" Click="OnCreateSupportInvitation"
+                                            Style="{StaticResource PeerOnQPrimaryButtonStyle}" />
+                                    <Button x:Name="CopySupportInvitationButton" Content="Copy latest link"
+                                            IsEnabled="False" Click="OnCopySupportInvitation" />
+                                    <Button x:Name="RevokeSupportInvitationButton" Content="Revoke selected"
+                                            IsEnabled="False" Click="OnRevokeSupportInvitation" />
+                                </StackPanel>
+                                <TextBlock x:Name="SupportInvitationStatusText"
+                                           Text="No invitation link has been created in this app session."
+                                           TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}"
+                                           AutomationProperties.LiveSetting="Polite" />
+                                <ListView x:Name="SupportInvitationList" MaxHeight="220"
+                                          SelectionChanged="OnSupportInvitationSelectionChanged" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource PeerOnQCardStyle}">
+                            <StackPanel Spacing="14">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Blocked Devices" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                    <TextBlock x:Name="BlockedDeviceCountText"
+                                               Text="Loading blocked devices..."
+                                               TextWrapping="Wrap"
+                                               Foreground="{ThemeResource PeerOnQMutedTextBrush}"
+                                               AutomationProperties.LiveSetting="Polite" />
+                                </StackPanel>
+                                <InfoBar x:Name="BlockedDevicesStatusBar"
+                                         IsOpen="False"
+                                         IsClosable="True" />
+                                <ListView x:Name="BlockedDeviceList"
+                                          SelectionMode="None"
+                                          HorizontalContentAlignment="Stretch"
+                                          AutomationProperties.Name="Blocked devices" />
+                                <TextBlock x:Name="BlockedDeviceEmptyText"
+                                           Text="No devices are blocked."
+                                           TextWrapping="Wrap"
+                                           Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SettingsPanel" Visibility="Collapsed" Spacing="22">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Settings" Style="{StaticResource PeerOnQPageTitleStyle}"
+                                       AutomationProperties.HeadingLevel="Level1" />
+                            <TextBlock Text="Configure appearance, diagnostics, and verified application updates."
+                                       Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,18,*">
+                            <Border Grid.Column="0" Style="{StaticResource PeerOnQCardStyle}">
+                                <StackPanel Spacing="14">
+                                    <TextBlock Text="Appearance" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                    <TextBlock Text="Switch between the PeerOnQ light and dark themes."
+                                               Foreground="{ThemeResource PeerOnQMutedTextBrush}" TextWrapping="Wrap" />
+                                    <Button Content="Toggle light or dark theme" HorizontalAlignment="Left"
+                                            Click="OnToggleTheme" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="2" Style="{StaticResource PeerOnQCardStyle}">
+                                <StackPanel Spacing="14">
+                                    <TextBlock Text="Advanced diagnostics" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                    <TextBlock x:Name="SettingsDiagnosticsText" Text="Diagnostics are initializing."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    <TextBlock Text="Includes sanitized logs, app/OS/version, WebRTC summary, failure codes, update state, database schema, and health checks. Excludes screens, clipboard, credentials, tokens, private keys, full Device ID, and personal files."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                    <Button x:Name="RunNetworkDoctorButton" Content="Run Network Doctor"
+                                            HorizontalAlignment="Left" Click="OnRunNetworkDoctor"
+                                            AutomationProperties.HelpText="Runs bounded connectivity checks without displaying private network addresses." />
+                                    <TextBlock x:Name="NetworkDoctorStatusText"
+                                               Text="Network Doctor has not been run."
+                                               TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                               AutomationProperties.LiveSetting="Polite" />
+                                    <Button x:Name="NetworkDoctorDetailsButton" Content="Open technical details"
+                                            HorizontalAlignment="Left" IsEnabled="False" Click="OnOpenNetworkDoctorDetails" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Export diagnostics ZIP" Click="OnExportDiagnostics" />
+                                        <Button x:Name="SendDiagnosticsButton" Content="Send diagnostics" Click="OnSendDiagnostics" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="DiagnosticsUploadStatusText" Text="No diagnostic bundle created."
+                                               TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Border Style="{StaticResource PeerOnQCardStyle}">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="Verified Updates" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                <TextBlock x:Name="UpdateStatusText" Text="Update service is initializing." TextWrapping="Wrap"
+                                           AutomationProperties.LiveSetting="Polite" />
+                                <ProgressBar x:Name="UpdateProgressBar" Minimum="0" Maximum="100" Value="0"
+                                             Visibility="Collapsed" AutomationProperties.Name="Update download progress" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="CheckUpdateButton" Content="Check for updates" AccessKey="U"
+                                            IsEnabled="False" Click="OnCheckForUpdates" />
+                                    <Button x:Name="DownloadUpdateButton" Content="Download verified update" IsEnabled="False" Click="OnDownloadUpdate" />
+                                    <Button x:Name="InstallUpdateButton" Content="Install downloaded update" IsEnabled="False" Click="OnInstallUpdate" />
+                                </StackPanel>
+                                <TextBlock Text="Packages are accepted only after signed manifest, SHA-256, Authenticode, and publisher verification."
+                                           TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource PeerOnQCardStyle}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="About and local data" Style="{StaticResource PeerOnQSectionTitleStyle}" />
+                                <TextBlock x:Name="AboutVersionText" Text="PeerOnQ version is loading."
+                                           AutomationProperties.Name="Installed PeerOnQ version" />
+                                <TextBlock Text="PeerOnQ is MIT-licensed open-source software. The installed client requires no license key, product activation, paid subscription, or online entitlement check."
+                                           TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                <TextBlock x:Name="LocalDataPathText" Text="Local data location is loading."
+                                           TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                           AutomationProperties.Name="PeerOnQ local data folder" />
+                                <TextBlock Text="Upgrade, repair, and uninstall preserve this folder to protect device identity and audit history. To remove it, uninstall PeerOnQ, close every PeerOnQ process, then delete this folder as the data owner."
+                                           TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                <Button x:Name="OpenLocalDataFolderButton" Content="Open local data folder"
+                                        HorizontalAlignment="Left" AccessKey="D"
+                                        AutomationProperties.HelpText="Opens the current user's PeerOnQ data folder in File Explorer."
+                                        Click="OnOpenLocalDataFolder" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    </Grid>
+                </Grid>
+            </ScrollViewer>
+        </NavigationView>
+
+        <Border Grid.Row="2" Background="{ThemeResource PeerOnQSurfaceBrush}"
+                BorderBrush="{ThemeResource PeerOnQBorderBrush}" BorderThickness="0,1,0,0" Padding="20,8">
+            <TextBlock x:Name="StatusText" FontSize="12" Foreground="{ThemeResource PeerOnQMutedTextBrush}"
+                       TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite" />
+        </Border>
+    </Grid>
+</Window>

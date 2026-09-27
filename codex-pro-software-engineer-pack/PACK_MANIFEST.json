@@ -1,0 +1,22 @@
+{
+  "name": "codex-pro-software-engineer-pack",
+  "version": "1.0.0",
+  "skill": "pro-software-engineer",
+  "install_path": ".agents/skills/pro-software-engineer",
+  "files": [
+    ".agents/skills/pro-software-engineer/SKILL.md",
+    ".agents/skills/pro-software-engineer/references/ARCHITECTURE.md",
+    ".agents/skills/pro-software-engineer/references/BACKEND.md",
+    ".agents/skills/pro-software-engineer/references/FRONTEND.md",
+    ".agents/skills/pro-software-engineer/references/PERFORMANCE.md",
+    ".agents/skills/pro-software-engineer/references/REMOTE_DESKTOP.md",
+    ".agents/skills/pro-software-engineer/references/SECURITY.md",
+    ".agents/skills/pro-software-engineer/references/TESTING.md",
+    ".agents/skills/pro-software-engineer/references/TOKEN_EFFICIENCY.md",
+    ".agents/skills/pro-software-engineer/scripts/changed_scope.ps1",
+    ".agents/skills/pro-software-engineer/scripts/repo_snapshot.ps1",
+    "AGENTS_APPEND.md",
+    "FIRST_RUN_PROMPT.txt",
+    "README_INSTALL.md"
+  ]
+}

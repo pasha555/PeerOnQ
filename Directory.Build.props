@@ -1,0 +1,25 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Product>PeerOnQ</Product>
+    <Company>PeerOnQ</Company>
+    <!-- Single source of truth for every distributable Windows client surface. -->
+    <PeerOnQWindowsClientVersion>0.9.66</PeerOnQWindowsClientVersion>
+    <!-- Linux preview builds share the product source version but retain an independent release gate. -->
+    <PeerOnQLinuxClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQLinuxClientVersion>
+    <!-- Android preview builds share the source version and use a monotonic Play-compatible code. -->
+    <PeerOnQAndroidClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQAndroidClientVersion>
+    <PeerOnQAndroidClientVersionCode>9066</PeerOnQAndroidClientVersionCode>
+    <!-- Apple source previews share the source version and use one monotonic App Store bundle code. -->
+    <PeerOnQAppleClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQAppleClientVersion>
+    <PeerOnQAppleClientVersionCode>9066</PeerOnQAppleClientVersionCode>
+  </PropertyGroup>
+
+</Project>

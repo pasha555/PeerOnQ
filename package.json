@@ -1,0 +1,21 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.33.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "node scripts/check-package-manager.mjs",
+    "build": "pnpm run typecheck && pnpm -r --filter \"!./artifacts/mockup-sandbox\" --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"!./artifacts/mockup-sandbox\" --filter \"./scripts\" --if-present run typecheck",
+    "lint": "pnpm -r --filter \"!./artifacts/mockup-sandbox\" --if-present run lint",
+    "test": "pnpm -r --filter \"!./artifacts/mockup-sandbox\" --if-present run test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "private": true,
+  "devDependencies": {
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3"
+  }
+}

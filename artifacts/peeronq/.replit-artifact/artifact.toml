@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "PeerOnQ"
+description = "PeerOnQ is a secure remote-desktop platform frontend prototype. It includes a public marketing landing page, an authenticated app shell with collapsible sidebar, and 12+ pages covering dashboard, devices, sessions, file transfer, address book, security, settings, downloads, pricing, and more. All data is localStorage-based with no real backend. The UI must look like a premium global tech product with light/dark themes."
+version = "1.0.0"
+id = "artifacts/peeronq"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23586
+
+[services.development]
+run = "pnpm --filter @workspace/peeronq run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/peeronq", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/peeronq/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23586"
+BASE_PATH = "/"

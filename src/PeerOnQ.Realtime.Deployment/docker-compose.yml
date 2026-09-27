@@ -1,0 +1,61 @@
+name: peeronq-phase3
+
+services:
+  signaling:
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Signaling.Server/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Signaling__RequireTlsOutsideLoopback: "false"
+      Signaling__Turn__Realm: ${PEERONQ_TURN_REALM:?set PEERONQ_TURN_REALM}
+      Signaling__Turn__ServerId: ${PEERONQ_TURN_SERVER_ID:-turn-dev-1}
+      Signaling__Turn__Region: ${PEERONQ_TURN_REGION:-local}
+      Signaling__Turn__SharedSecret: ${PEERONQ_TURN_SHARED_SECRET:?set PEERONQ_TURN_SHARED_SECRET}
+      Signaling__Turn__StunUrls__0: stun:${PEERONQ_TURN_PUBLIC_HOST:?set PEERONQ_TURN_PUBLIC_HOST}:3478
+      Signaling__Turn__TurnUrls__0: turn:${PEERONQ_TURN_PUBLIC_HOST}:3478?transport=udp
+      Signaling__Turn__TurnUrls__1: turn:${PEERONQ_TURN_PUBLIC_HOST}:3478?transport=tcp
+      Signaling__Turn__RelayOnly: ${PEERONQ_TURN_RELAY_ONLY:-false}
+    depends_on:
+      turn:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PEERONQ_SIGNALING_PORT:-5080}:8080"
+    volumes:
+      - signaling-data:/app/data
+      - signaling-logs:/app/logs
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  turn:
+    build:
+      context: ../PeerOnQ.Turn.Configuration
+    environment:
+      PEERONQ_TURN_REALM: ${PEERONQ_TURN_REALM:?set PEERONQ_TURN_REALM}
+      PEERONQ_TURN_EXTERNAL_IP: ${PEERONQ_TURN_EXTERNAL_IP:-}
+      PEERONQ_TURN_SHARED_SECRET: ${PEERONQ_TURN_SHARED_SECRET:?set PEERONQ_TURN_SHARED_SECRET}
+      PEERONQ_TURN_ALLOW_PRIVATE_PEERS: ${PEERONQ_TURN_ALLOW_PRIVATE_PEERS:-true}
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49160-49200:49160-49200/udp"
+      - "127.0.0.1:9641:9641/tcp"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "turnutils_stunclient -p 3478 127.0.0.1 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  signaling-data:
+  signaling-logs:

@@ -1,0 +1,39 @@
+{
+    "schemaVersion":  1,
+    "measuredAtUtc":  "2026-08-17T20:17:29.7288604+00:00",
+    "conditions":  {
+                       "machineNameHash":  "CA2FD86C9A5E",
+                       "os":  "Microsoft Windows NT 10.0.26200.0",
+                       "architecture":  "X64",
+                       "logicalProcessors":  16,
+                       "durationSeconds":  15,
+                       "mode":  "idle-main-window",
+                       "executableVersion":  "0.9.20.0"
+                   },
+    "startup":  {
+                    "milliseconds":  837.765,
+                    "unavailableReason":  null
+                },
+    "idle":  {
+                 "cpuPercentMedian":  0,
+                 "cpuPercentP95":  3,
+                 "workingSetMiBMedian":  200.34,
+                 "workingSetMiBP95":  201.027,
+                 "privateMemoryMiBP95":  129.551,
+                 "gpuDedicatedMiBP95":  52.469,
+                 "gpuUnavailableReason":  null,
+                 "samples":  10
+             },
+    "mediaDiagnostics":  null,
+    "notMeasured":  [
+                        "active capture CPU/GPU",
+                        "encode CPU/GPU",
+                        "decode CPU/GPU",
+                        "capture/encode/render FPS",
+                        "input latency",
+                        "end-to-end frame latency",
+                        "network bitrate/loss",
+                        "reconnect duration",
+                        "file-transfer throughput"
+                    ]
+}

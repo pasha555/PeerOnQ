@@ -1,0 +1,1 @@
+{"type":"hello","deviceId":"123-456-789-012","displayName":"Linux Viewer","clientVersion":"0.8.0","protocolVersion":3,"clientCapabilities":{"platform":"linux","capabilities":["screen.render","session.viewer"],"optionalFeatures":["signaling.safe-unknown-message.v1"],"requiredServerCapabilities":["session.routing"]},"mid":"vector-hello-v3"}

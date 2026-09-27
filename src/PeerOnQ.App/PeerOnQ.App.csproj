@@ -1,0 +1,95 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <RootNamespace>PeerOnQ.App</RootNamespace>
+    <AssemblyName>PeerOnQ</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\PeerOnQ.ico</ApplicationIcon>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <!-- WiX owns deployment; the desktop executable stays unpackaged and never self-elevates. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- Traditional MSI installs must run on clean Windows machines without a separately installed Windows App Runtime. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>$(PeerOnQWindowsClientVersion)</Version>
+    <AssemblyVersion>$(PeerOnQWindowsClientVersion).0</AssemblyVersion>
+    <FileVersion>$(PeerOnQWindowsClientVersion).0</FileVersion>
+    <InformationalVersion>$(PeerOnQWindowsClientVersion)-development</InformationalVersion>
+    <SatelliteResourceLanguages>en-US</SatelliteResourceLanguages>
+    <PeerOnQReleaseChannel Condition="'$(PeerOnQReleaseChannel)' == ''">beta</PeerOnQReleaseChannel>
+    <PeerOnQDeploymentEnvironment Condition="'$(PeerOnQDeploymentEnvironment)' == ''">Development</PeerOnQDeploymentEnvironment>
+    <PeerOnQRegion Condition="'$(PeerOnQRegion)' == ''">local</PeerOnQRegion>
+    <PeerOnQLanDevelopment Condition="'$(PeerOnQLanDevelopment)' == ''">false</PeerOnQLanDevelopment>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\PeerOnQ.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\PeerOnQ.svg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+    <Content Include="..\..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Domain\PeerOnQ.Domain.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Application\PeerOnQ.Application.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Infrastructure\PeerOnQ.Infrastructure.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Transport\PeerOnQ.Transport.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Media\PeerOnQ.Media.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Platform.Windows\PeerOnQ.Platform.Windows.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="PeerOnQReleaseChannel" Value="$(PeerOnQReleaseChannel)" />
+    <AssemblyMetadata Include="PeerOnQSignalingUrl" Value="$(PeerOnQSignalingUrl)" />
+    <AssemblyMetadata Include="PeerOnQApiBaseUrl" Value="$(PeerOnQApiBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQPresenceUrl" Value="$(PeerOnQPresenceUrl)" />
+    <AssemblyMetadata Include="PeerOnQUpdatesBaseUrl" Value="$(PeerOnQUpdatesBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDownloadsBaseUrl" Value="$(PeerOnQDownloadsBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDiagnosticsBaseUrl" Value="$(PeerOnQDiagnosticsBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDeploymentEnvironment" Value="$(PeerOnQDeploymentEnvironment)" />
+    <AssemblyMetadata Include="PeerOnQRegion" Value="$(PeerOnQRegion)" />
+    <AssemblyMetadata Include="PeerOnQLanDevelopment" Value="$(PeerOnQLanDevelopment)" />
+    <AssemblyMetadata Include="PeerOnQUpdateManifestUrl" Value="$(PeerOnQUpdateManifestUrl)" />
+    <AssemblyMetadata Include="PeerOnQUpdatePublicKeySpki" Value="$(PeerOnQUpdatePublicKeySpki)" />
+    <AssemblyMetadata Include="PeerOnQUpdateKeyId" Value="$(PeerOnQUpdateKeyId)" />
+    <AssemblyMetadata Include="PeerOnQPublisherCertificateSha256" Value="$(PeerOnQPublisherCertificateSha256)" />
+  </ItemGroup>
+
+  <Target Name="ValidateOfficialReleaseTrust" BeforeTargets="Publish"
+          Condition="'$(PeerOnQOfficialRelease)' == 'true'">
+    <Error Condition="'$(Configuration)' != 'Release'" Text="Official PeerOnQ artifacts must use Release configuration." />
+    <Error Condition="'$(PeerOnQUpdateManifestUrl)' == ''" Text="Official releases require PeerOnQUpdateManifestUrl." />
+    <Error Condition="'$(PeerOnQSignalingUrl)' == ''" Text="Official releases require PeerOnQSignalingUrl." />
+    <Error Condition="'$(PeerOnQApiBaseUrl)' == ''" Text="Official releases require PeerOnQApiBaseUrl." />
+    <Error Condition="'$(PeerOnQPresenceUrl)' == ''" Text="Official releases require PeerOnQPresenceUrl." />
+    <Error Condition="'$(PeerOnQUpdatesBaseUrl)' == ''" Text="Official releases require PeerOnQUpdatesBaseUrl." />
+    <Error Condition="'$(PeerOnQDownloadsBaseUrl)' == ''" Text="Official releases require PeerOnQDownloadsBaseUrl." />
+    <Error Condition="'$(PeerOnQDiagnosticsBaseUrl)' == ''" Text="Official releases require PeerOnQDiagnosticsBaseUrl." />
+    <Error Condition="'$(PeerOnQDeploymentEnvironment)' != 'Production'" Text="Official releases require PeerOnQDeploymentEnvironment=Production." />
+    <Error Condition="'$(PeerOnQLanDevelopment)' == 'true'" Text="Official releases cannot enable LAN development mode." />
+    <Error Condition="'$(PeerOnQRegion)' == ''" Text="Official releases require PeerOnQRegion." />
+    <Error Condition="'$(PeerOnQUpdatePublicKeySpki)' == ''" Text="Official releases require PeerOnQUpdatePublicKeySpki." />
+    <Error Condition="'$(PeerOnQUpdateKeyId)' == ''" Text="Official releases require PeerOnQUpdateKeyId." />
+    <Error Condition="'$(PeerOnQPublisherCertificateSha256)' == ''" Text="Official releases require PeerOnQPublisherCertificateSha256." />
+  </Target>
+
+  <Target Name="ValidateSelfContainedWindowsRuntime" BeforeTargets="Publish">
+    <Error Condition="'$(SelfContained)' != 'true'"
+           Text="PeerOnQ publish must include the .NET runtime (SelfContained=true)." />
+    <Error Condition="'$(WindowsAppSDKSelfContained)' != 'true'"
+           Text="PeerOnQ publish must include the Windows App Runtime (WindowsAppSDKSelfContained=true)." />
+  </Target>
+
+</Project>

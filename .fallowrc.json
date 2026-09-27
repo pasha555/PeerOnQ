@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignorePatterns": [
+    "artifacts/mockup-sandbox/**",
+    "artifacts/test-results/**"
+  ],
+  "ignoreFindings": [
+    "artifacts/peeronq/src/components/ui/**",
+    "artifacts/peeronq/src/hooks/use-mobile.tsx",
+    "artifacts/peeronq/src/features/connections/useConnectionState.ts",
+    "artifacts/peeronq/src/features/files/useFileTransfer.ts",
+    "lib/api-client-react/src/custom-fetch.ts"
+  ],
+  "ignoreExports": [
+    {
+      "file": "artifacts/peeronq/src/hooks/use-toast.ts",
+      "exports": ["reducer", "toast"]
+    }
+  ],
+  "ignoreDependencies": [
+    "pino-pretty",
+    "thread-stream"
+  ],
+  "ignoreDependencyOverrides": [
+    { "package": "@expo/ngrok-bin-darwin-arm64", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-darwin-x64", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-freebsd-ia32", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-freebsd-x64", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-linux-arm64", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-linux-arm", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-linux-ia32", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-sunos-x64", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-win32-ia32", "source": "pnpm-workspace.yaml" },
+    { "package": "@expo/ngrok-bin-win32-x64", "source": "pnpm-workspace.yaml" }
+  ],
+  "health": {
+    "ignore": [
+      "artifacts/peeronq/src/components/ui/**",
+      "lib/api-client-react/src/custom-fetch.ts"
+    ]
+  },
+  "duplicates": {
+    "minOccurrences": 3,
+    "ignore": [
+      "artifacts/mockup-sandbox/**",
+      "artifacts/peeronq/src/components/ui/**",
+      "lib/api-client-react/src/generated/**",
+      "lib/api-zod/src/generated/**"
+    ]
+  }
+}

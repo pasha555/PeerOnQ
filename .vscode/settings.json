@@ -1,0 +1,4 @@
+{
+  "fallow.configPath": ".fallowrc.json",
+  "fallow.health.hotspots": false
+}

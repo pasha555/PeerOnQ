@@ -1,0 +1,10 @@
+[
+  {
+    "targets": ["signaling:8081"],
+    "labels": { "replica": "signaling-ha-1" }
+  },
+  {
+    "targets": ["signaling-ha-2:8081"],
+    "labels": { "replica": "signaling-ha-2" }
+  }
+]

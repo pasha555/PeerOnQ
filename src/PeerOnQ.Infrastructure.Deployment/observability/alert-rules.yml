@@ -1,0 +1,168 @@
+groups:
+  - name: peeronq-service-reliability
+    interval: 30s
+    rules:
+      - alert: PeerOnQApiHighErrorRate
+        expr: sum(rate(peeronq_api_errors_total[5m])) / clamp_min(sum(rate(peeronq_api_requests_total[5m])), 0.01) > 0.05
+        for: 10m
+        labels: { severity: critical, owner: PlatformOperations }
+        annotations:
+          summary: PeerOnQ API error rate exceeds 5%
+          threshold: ">5% of requests"
+          window: "5m rate sustained for 10m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#api-high-error-rate
+          escalation: "Primary on-call -> Platform lead -> Incident commander"
+
+      - alert: PeerOnQAuthenticationFailureSpike
+        expr: sum(increase(peeronq_authentication_failures_total[10m])) > 100
+        for: 5m
+        labels: { severity: critical, owner: SecurityOperations }
+        annotations:
+          summary: Authentication failures exceed the regional security threshold
+          threshold: ">100 failures"
+          window: "10m increase sustained for 5m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#authentication-failure-spike
+          escalation: "Security on-call -> Security owner -> Incident commander"
+
+      - alert: PeerOnQSignalingUnavailable
+        expr: max(up{job="signaling"}) < 1
+        for: 3m
+        labels: { severity: critical, owner: RealtimeOperations }
+        annotations:
+          summary: Signaling metrics endpoint is unavailable
+          threshold: "no healthy signaling scrape target"
+          window: "3m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#signaling-unavailable
+          escalation: "Realtime on-call -> Platform lead -> Incident commander"
+
+      - alert: PeerOnQCoturnUnavailable
+        expr: max(up{job="coturn"}) < 1 or max(probe_success{job="dependency-probes",instance="turn:3478"}) < 1
+        for: 3m
+        labels: { severity: critical, owner: RealtimeOperations }
+        annotations:
+          summary: coturn metrics or listener probe is unavailable
+          threshold: "metrics scrape or TURN TCP listener probe below 1"
+          window: "3m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#coturn-unavailable
+          escalation: "Realtime on-call -> Network provider -> Incident commander"
+
+      - alert: PeerOnQTurnPacketDropRate
+        expr: sum(rate(turn_packet_dropped[5m])) / clamp_min(sum(rate(turn_packet_processed[5m])) + sum(rate(turn_packet_dropped[5m])), 1) > 0.05
+        for: 10m
+        labels: { severity: critical, owner: RealtimeOperations }
+        annotations:
+          summary: TURN packet drop ratio exceeds 5%
+          threshold: ">5% of processed and dropped packets"
+          window: "5m ratio sustained for 10m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#turn-packet-drop-rate
+          escalation: "Realtime on-call -> Network provider -> Incident commander"
+
+      - alert: PeerOnQTurnBandwidthSaturation
+        expr: 8 * sum(rate(turn_total_traffic_rcvb[5m]) + rate(turn_total_traffic_sentb[5m])) > 850000000
+        for: 15m
+        labels: { severity: warning, owner: RealtimeOperations }
+        annotations:
+          summary: TURN bandwidth exceeds 85% of the configured one-gigabit capacity
+          threshold: ">850 Mbit/s aggregate finished-session traffic"
+          window: "5m rate sustained for 15m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#turn-bandwidth-saturation
+          escalation: "Realtime on-call -> Capacity owner"
+
+      - alert: PeerOnQPresenceUnavailable
+        expr: max(up{job="presence"}) < 1
+        for: 3m
+        labels: { severity: critical, owner: RealtimeOperations }
+        annotations:
+          summary: Presence service metrics endpoint is unavailable
+          threshold: "no healthy presence scrape target"
+          window: "3m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#presence-unavailable
+          escalation: "Realtime on-call -> Platform lead -> Incident commander"
+
+      - alert: PeerOnQDatabasePoolPressure
+        expr: max(peeronq_database_pool_usage) > 90
+        for: 10m
+        labels: { severity: critical, owner: DatabaseOperations }
+        annotations:
+          summary: Database connection usage exceeds 90 of the configured 100 connections
+          threshold: ">90 connections"
+          window: "10m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#database-pool-pressure
+          escalation: "Database on-call -> Platform lead -> Incident commander"
+
+      - alert: PeerOnQRedisUnavailable
+        expr: max(probe_success{job="dependency-probes",instance="redis:6379"}) < 1
+        for: 3m
+        labels: { severity: critical, owner: PlatformOperations }
+        annotations:
+          summary: Redis TCP dependency probe is failing
+          threshold: "probe success below 1"
+          window: "3m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#redis-unavailable
+          escalation: "Platform on-call -> Database on-call -> Incident commander"
+
+      - alert: PeerOnQQueueBacklog
+        expr: max(peeronq_queue_depth) > 1000
+        for: 10m
+        labels: { severity: warning, owner: PlatformOperations }
+        annotations:
+          summary: Internal work queue depth exceeds 1000 items
+          threshold: ">1000 queued items"
+          window: "10m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#queue-backlog
+          escalation: "Platform on-call -> Capacity owner"
+
+      - alert: PeerOnQUpdateFailureSpike
+        expr: sum(increase(peeronq_update_failures_total[30m])) > 25
+        for: 15m
+        labels: { severity: critical, owner: ReleaseEngineering }
+        annotations:
+          summary: Client update failures exceed the release safety threshold
+          threshold: ">25 failed update events"
+          window: "30m increase sustained for 15m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#update-failure-spike
+          escalation: "Release on-call -> Security owner -> Incident commander"
+
+      - alert: PeerOnQClientCrashRateIncrease
+        expr: sum(increase(peeronq_client_crashes_total[1h])) / clamp_min(max(peeronq_active_installations), 1) > 0.01
+        for: 30m
+        labels: { severity: critical, owner: ClientReliability }
+        annotations:
+          summary: Client crash events exceed 1% of active installations
+          threshold: ">1%"
+          window: "1h ratio sustained for 30m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#client-crash-rate-increase
+          escalation: "Client on-call -> Release manager -> Incident commander"
+
+      - alert: PeerOnQTelemetryPipelineUnavailable
+        expr: max(up{job="otel-collector"}) < 1
+        for: 5m
+        labels: { severity: warning, owner: PlatformOperations }
+        annotations:
+          summary: OpenTelemetry Collector metrics endpoint is unavailable
+          threshold: "collector scrape target below 1"
+          window: "5m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#telemetry-pipeline-unavailable
+          escalation: "Platform on-call -> Observability owner"
+
+      - alert: PeerOnQDiskSpacePressure
+        expr: min(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.15
+        for: 15m
+        labels: { severity: warning, owner: PlatformOperations }
+        annotations:
+          summary: Host disk free space is below 15%
+          threshold: "<15% free"
+          window: "15m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#disk-space-pressure
+          escalation: "Platform on-call -> Storage owner"
+
+      - alert: PeerOnQBackupFailure
+        expr: time() - peeronq_backup_last_success_timestamp_seconds > 90000
+        for: 30m
+        labels: { severity: critical, owner: DatabaseOperations }
+        annotations:
+          summary: No successful PostgreSQL backup completed within 25 hours
+          threshold: ">25h since last successful backup"
+          window: "30m"
+          runbook_url: https://docs.peeronq.com/runbooks/phase6#backup-failure
+          escalation: "Database on-call -> Platform lead -> Incident commander"

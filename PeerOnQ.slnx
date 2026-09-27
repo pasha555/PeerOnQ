@@ -1,0 +1,47 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PeerOnQ.App.Linux/PeerOnQ.App.Linux.csproj" />
+    <Project Path="src/PeerOnQ.App/PeerOnQ.App.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/PeerOnQ.Application/PeerOnQ.Application.csproj" />
+    <Project Path="src/PeerOnQ.Domain/PeerOnQ.Domain.csproj" />
+    <Project Path="src/PeerOnQ.Infrastructure/PeerOnQ.Infrastructure.csproj" />
+    <Project Path="src/PeerOnQ.Media/PeerOnQ.Media.csproj" />
+    <Project Path="src/PeerOnQ.Platform.Apple/PeerOnQ.Platform.Apple.csproj" />
+    <Project Path="src/PeerOnQ.Platform.Android/PeerOnQ.Platform.Android.csproj" />
+    <Project Path="src/PeerOnQ.Platform.Linux/PeerOnQ.Platform.Linux.csproj" />
+    <Project Path="src/PeerOnQ.Platform.Windows/PeerOnQ.Platform.Windows.csproj" />
+    <Project Path="src/PeerOnQ.Signaling.Server/PeerOnQ.Signaling.Server.csproj" />
+    <Project Path="src/PeerOnQ.Transport/PeerOnQ.Transport.csproj" />
+    <Project Path="src/PeerOnQ.Admin.Api/PeerOnQ.Admin.Api.csproj" />
+    <Project Path="src/PeerOnQ.Cloud.Api/PeerOnQ.Cloud.Api.csproj" />
+    <Project Path="src/PeerOnQ.Cloud.Application/PeerOnQ.Cloud.Application.csproj" />
+    <Project Path="src/PeerOnQ.Cloud.Domain/PeerOnQ.Cloud.Domain.csproj" />
+    <Project Path="src/PeerOnQ.Cloud.Infrastructure/PeerOnQ.Cloud.Infrastructure.csproj" />
+    <Project Path="src/PeerOnQ.Downloads.Service/PeerOnQ.Downloads.Service.csproj" />
+    <Project Path="src/PeerOnQ.Observability/PeerOnQ.Observability.csproj" />
+    <Project Path="src/PeerOnQ.Presence.Server/PeerOnQ.Presence.Server.csproj" />
+    <Project Path="src/PeerOnQ.Shared.Contracts/PeerOnQ.Shared.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PeerOnQ.App.Linux.Tests/PeerOnQ.App.Linux.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Application.Tests/PeerOnQ.Application.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Domain.Tests/PeerOnQ.Domain.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.EndToEnd.Tests/PeerOnQ.EndToEnd.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Infrastructure.Tests/PeerOnQ.Infrastructure.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Media.Tests/PeerOnQ.Media.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Platform.Apple.Tests/PeerOnQ.Platform.Apple.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Platform.Android.Tests/PeerOnQ.Platform.Android.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Platform.Linux.Tests/PeerOnQ.Platform.Linux.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Signaling.Tests/PeerOnQ.Signaling.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Transport.Tests/PeerOnQ.Transport.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Admin.Api.Tests/PeerOnQ.Admin.Api.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Cloud.Application.Tests/PeerOnQ.Cloud.Application.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Cloud.Domain.Tests/PeerOnQ.Cloud.Domain.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Cloud.Infrastructure.Tests/PeerOnQ.Cloud.Infrastructure.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Downloads.Tests/PeerOnQ.Downloads.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Observability.Tests/PeerOnQ.Observability.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Presence.Tests/PeerOnQ.Presence.Tests.csproj" />
+  </Folder>
+</Solution>

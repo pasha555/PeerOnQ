@@ -1,0 +1,149 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:a11y="clr-namespace:Avalonia.Automation;assembly=Avalonia.Controls"
+        x:Class="PeerOnQ.App.Linux.MainWindow"
+        Title="PeerOnQ Linux Viewer"
+        Width="1180"
+        Height="760"
+        MinWidth="880"
+        MinHeight="620"
+        Background="{DynamicResource PeerOnQPageBrush}">
+  <Grid RowDefinitions="Auto,*">
+    <Border Grid.Row="0"
+            Padding="24,16"
+            Background="{DynamicResource PeerOnQSurfaceBrush}"
+            BorderBrush="{DynamicResource PeerOnQBorderBrush}"
+            BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Border Width="34" Height="34" CornerRadius="17" Background="{DynamicResource PeerOnQAccentBrush}">
+            <TextBlock Text="Q" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontSize="18" FontWeight="Bold" Foreground="{DynamicResource PeerOnQAccentTextBrush}" />
+          </Border>
+          <StackPanel>
+            <TextBlock Text="PeerOnQ" FontSize="19" FontWeight="SemiBold" />
+            <TextBlock Text="Linux Viewer · Preview / Unsigned" FontSize="12"
+                       Foreground="{DynamicResource PeerOnQMutedTextBrush}" />
+          </StackPanel>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <Border Padding="12,7" CornerRadius="16" Background="{DynamicResource PeerOnQSubtleBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse x:Name="ConnectionDot" Width="8" Height="8" Fill="{DynamicResource PeerOnQMutedTextBrush}" />
+              <TextBlock x:Name="ConnectionStatusText" Text="Initializing" FontSize="12"
+                         a11y:AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+          </Border>
+          <Button x:Name="RetryServerButton" Classes="secondary" Content="Retry server"
+                  IsVisible="False" Click="OnRetryServerClick"
+                  a11y:AutomationProperties.Name="Retry signaling server connection" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1" Margin="24" ColumnDefinitions="340,*" ColumnSpacing="20">
+      <Border Grid.Column="0" Padding="22" CornerRadius="12"
+              Background="{DynamicResource PeerOnQSurfaceBrush}"
+              BorderBrush="{DynamicResource PeerOnQBorderBrush}" BorderThickness="1">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" RowSpacing="14">
+          <StackPanel Grid.Row="0" Spacing="5">
+            <TextBlock Text="This device" FontSize="12" Foreground="{DynamicResource PeerOnQMutedTextBrush}" />
+            <TextBlock x:Name="LocalIdText" Text="Preparing secure identity…"
+                       FontFamily="monospace" FontSize="17" FontWeight="SemiBold"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+
+          <Border Grid.Row="1" Height="1" Background="{DynamicResource PeerOnQBorderBrush}" />
+
+          <StackPanel Grid.Row="2" Spacing="6">
+            <TextBlock Text="Connect to a Windows device" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock Text="The owner must approve every attended session."
+                       FontSize="12" Foreground="{DynamicResource PeerOnQMutedTextBrush}"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+
+          <StackPanel Grid.Row="3" Spacing="7">
+            <TextBlock Text="REMOTE PEERONQ ID" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PeerOnQMutedTextBrush}" />
+            <TextBox x:Name="RemoteIdTextBox" PlaceholderText="LNK-000-000-000-000"
+                     MinHeight="44" FontFamily="monospace"
+                     a11y:AutomationProperties.Name="Remote PeerOnQ ID" />
+          </StackPanel>
+
+          <StackPanel Grid.Row="4" Spacing="7">
+            <TextBlock Text="SESSION MODE" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PeerOnQMutedTextBrush}" />
+            <ComboBox x:Name="SessionModeComboBox" SelectedIndex="0" MinHeight="44"
+                      a11y:AutomationProperties.Name="Session mode">
+              <ComboBoxItem Content="View only" />
+              <ComboBoxItem Content="Full control" />
+            </ComboBox>
+          </StackPanel>
+
+          <Grid Grid.Row="5" ColumnDefinitions="*,*" ColumnSpacing="10">
+            <Button x:Name="StartSessionButton" Grid.Column="0" Classes="primary"
+                    Content="Connect" IsEnabled="False" Click="OnStartSessionClick"
+                    a11y:AutomationProperties.Name="Start remote session" />
+            <Button x:Name="EndSessionButton" Grid.Column="1" Classes="secondary"
+                    Content="End" IsEnabled="False" Click="OnEndSessionClick"
+                    a11y:AutomationProperties.Name="End remote session" />
+          </Grid>
+
+          <StackPanel Grid.Row="6" Spacing="10">
+            <ProgressBar x:Name="ActivityProgress" IsIndeterminate="True" IsVisible="True" Height="3" />
+            <TextBlock x:Name="SessionStatusText" Text="Loading the Linux client…"
+                       Foreground="{DynamicResource PeerOnQMutedTextBrush}"
+                       TextWrapping="Wrap" a11y:AutomationProperties.LiveSetting="Polite" />
+            <TextBlock x:Name="ErrorText" IsVisible="False"
+                       Foreground="{DynamicResource PeerOnQDangerBrush}"
+                       TextWrapping="Wrap" a11y:AutomationProperties.LiveSetting="Assertive" />
+          </StackPanel>
+
+          <Border Grid.Row="7" Padding="12" CornerRadius="8" Background="{DynamicResource PeerOnQSubtleBrush}">
+            <StackPanel Spacing="8">
+              <ToggleSwitch x:Name="RemoteInputToggle" Content="Forward keyboard and pointer"
+                            IsEnabled="False" IsCheckedChanged="OnRemoteInputChanged"
+                            a11y:AutomationProperties.Name="Forward keyboard and pointer to remote device" />
+              <TextBlock Text="Full control starts off. Press Ctrl+Alt+Shift+Esc to release input."
+                         FontSize="11" Foreground="{DynamicResource PeerOnQMutedTextBrush}"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Border>
+
+      <Border x:Name="RemoteViewport" Grid.Column="1" CornerRadius="12" ClipToBounds="True"
+              Background="{DynamicResource PeerOnQRemoteCanvasBrush}"
+              BorderBrush="{DynamicResource PeerOnQBorderBrush}" BorderThickness="1"
+              Focusable="True" PointerMoved="OnRemotePointerMoved"
+              PointerPressed="OnRemotePointerPressed" PointerReleased="OnRemotePointerReleased"
+              PointerWheelChanged="OnRemotePointerWheelChanged"
+              KeyDown="OnRemoteKeyDown" KeyUp="OnRemoteKeyUp"
+              a11y:AutomationProperties.Name="Remote desktop viewport">
+        <Grid>
+          <Image x:Name="RemoteImage" Stretch="Uniform" IsVisible="False" />
+          <StackPanel x:Name="EmptyViewportContent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                      MaxWidth="360" Spacing="10">
+            <Border Width="58" Height="58" CornerRadius="29" Background="{DynamicResource PeerOnQSubtleBrush}">
+              <Path Width="28" Height="22" Stretch="Uniform"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Stroke="{DynamicResource PeerOnQMutedTextBrush}" StrokeThickness="1.8"
+                    Data="M2,2 L26,2 L26,18 L2,18 Z M9,22 L19,22 M14,18 L14,22" />
+            </Border>
+            <TextBlock Text="Remote screen will appear here" FontSize="18" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" />
+            <TextBlock Text="Enter the Windows device ID and wait for the owner to approve the request."
+                       TextAlignment="Center" TextWrapping="Wrap"
+                       Foreground="{DynamicResource PeerOnQMutedTextBrush}" />
+          </StackPanel>
+          <Border x:Name="InputActiveBadge" IsVisible="False" HorizontalAlignment="Left"
+                  VerticalAlignment="Top" Margin="14" Padding="10,6" CornerRadius="14"
+                  Background="{DynamicResource PeerOnQAccentBrush}">
+            <TextBlock Text="Remote input active" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{DynamicResource PeerOnQAccentTextBrush}" />
+          </Border>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

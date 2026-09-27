@@ -1,0 +1,22 @@
+$pro-software-engineer
+
+Work as the senior production engineer for this repository.
+
+First, perform the minimum repository inspection needed to understand:
+- current architecture and stack,
+- existing AGENTS/project documentation,
+- build/test/lint commands,
+- current git state,
+- the modules relevant to my next task.
+
+Do not rewrite the project, do not create duplicate documentation, and do not read every file.
+Use targeted search and only load references from the skill when they are relevant.
+
+If AGENTS.md does not yet contain the "Codex engineering contract" from AGENTS_APPEND.md, merge that marked section safely without deleting or weakening existing project-specific instructions.
+
+Then give me only:
+1. a short architecture/status summary,
+2. any serious existing blocker you can prove,
+3. the exact short prompt format I should use for future feature requests with this skill.
+
+Do not make unrelated code changes during this first run.

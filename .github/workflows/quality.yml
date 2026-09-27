@@ -1,0 +1,94 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          global-json-file: global.json
+      - name: Restore
+        shell: pwsh
+        run: |
+          dotnet restore PeerOnQ.slnx
+          dotnet restore installer/PeerOnQ.Installer.wixproj
+      - name: Canonical Windows client version invariant
+        shell: pwsh
+        run: ./scripts/windows/test-peeronq-client-version-invariant.ps1
+      - name: Canonical Linux viewer version invariant
+        shell: bash
+        run: bash ./scripts/linux/test-peeronq-linux-viewer-version.sh
+      - name: Canonical Android viewer version invariant
+        shell: pwsh
+        run: ./scripts/android/test-peeronq-android-viewer-version.ps1
+      - name: Build with static analysis
+        run: >-
+          dotnet build PeerOnQ.slnx --no-restore -c Release
+          -p:ContinuousIntegrationBuild=true -p:EnableNETAnalyzers=true
+          -p:AnalysisLevel=latest -warnaserror
+      - name: Unit and integration tests
+        run: dotnet test PeerOnQ.slnx --no-restore -c Release --nologo
+      - name: Native QUIC 1 GiB per minute regression gate
+        timeout-minutes: 3
+        env:
+          PEERONQ_LIVE_QUIC_TRANSFER_BYTES: "1073741824"
+        run: >-
+          dotnet test tests/PeerOnQ.Transport.Tests/PeerOnQ.Transport.Tests.csproj
+          --no-restore --no-build -c Release --nologo
+          --filter FullyQualifiedName=PeerOnQ.Transport.Tests.ManagedQuicRemoteSessionTransportTests.FileLaneMeetsOneGiBPerMinuteWhileInteractiveLaneStaysResponsive
+      - name: Dependency vulnerability scan
+        shell: pwsh
+        run: |
+          dotnet list PeerOnQ.slnx package --vulnerable --include-transitive --format json | Out-File dotnet-vulnerabilities.json -Encoding utf8
+          $report = Get-Content dotnet-vulnerabilities.json -Raw | ConvertFrom-Json -Depth 64
+          $blocked = @($report.projects | ForEach-Object { $_.frameworks } | ForEach-Object {
+            @($_.topLevelPackages) + @($_.transitivePackages)
+          } | ForEach-Object { $_.vulnerabilities } | Where-Object { $_.severity -in 'High', 'Critical' })
+          if ($blocked.Count -gt 0) { throw "High/critical .NET vulnerabilities found: $($blocked.Count)" }
+      - name: Repository secret patterns
+        shell: pwsh
+        run: ./scripts/security/scan-repository-secrets.ps1
+
+  web-workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format release-critical configuration
+        run: >-
+          pnpm exec prettier --check ".github/workflows/*.yml" package.json global.json
+          .config/dotnet-tools.json scripts/check-package-manager.mjs
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run test
+      - run: pnpm run build
+        env:
+          PORT: "23586"
+          BASE_PATH: "/"
+      - run: pnpm audit --audit-level high
+
+  secret-history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

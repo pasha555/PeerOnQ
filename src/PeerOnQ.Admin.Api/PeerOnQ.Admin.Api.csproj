@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PeerOnQ.Admin.Api</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Cloud.Application\PeerOnQ.Cloud.Application.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Cloud.Infrastructure\PeerOnQ.Cloud.Infrastructure.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Observability\PeerOnQ.Observability.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Shared.Contracts\PeerOnQ.Shared.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+</Project>

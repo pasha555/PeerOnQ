@@ -1,0 +1,8 @@
+services:
+  signaling:
+    environment:
+      Signaling__Turn__TurnUrls__2: turns:${PEERONQ_TURN_PUBLIC_HOST:?set PEERONQ_TURN_PUBLIC_HOST}:5349?transport=tcp
+
+  turn:
+    volumes:
+      - ${PEERONQ_TURN_CERT_DIR:?set PEERONQ_TURN_CERT_DIR}:/certs:ro

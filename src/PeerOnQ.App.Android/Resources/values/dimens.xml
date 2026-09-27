@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <dimen name="space_xs">4dp</dimen>
+  <dimen name="space_sm">8dp</dimen>
+  <dimen name="space_md">16dp</dimen>
+  <dimen name="space_lg">24dp</dimen>
+  <dimen name="touch_target">48dp</dimen>
+  <dimen name="corner_radius">12dp</dimen>
+  <dimen name="body_text">16sp</dimen>
+  <dimen name="label_text">14sp</dimen>
+  <dimen name="title_text">24sp</dimen>
+</resources>

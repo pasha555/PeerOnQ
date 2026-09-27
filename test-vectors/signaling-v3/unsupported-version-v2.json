@@ -1,0 +1,1 @@
+{"type":"error","code":"unsupported_version","message":"Signaling protocol 2 is unsupported; this server supports 3-3.","inReplyTo":"vector-hello-v2","receivedProtocolVersion":2,"minimumProtocolVersion":3,"maximumProtocolVersion":3,"mid":"vector-error-v3"}

@@ -1,0 +1,11 @@
+services:
+  prometheus:
+    volumes:
+      - ./observability/local-phase3-targets.development.json:/etc/prometheus/targets/local-phase3.json:ro
+    networks:
+      local-observability:
+
+networks:
+  local-observability:
+    external: true
+    name: peeronq-local-observability

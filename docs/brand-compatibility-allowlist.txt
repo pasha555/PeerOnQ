@@ -1,0 +1,9 @@
+# Repository-relative path or directory prefix | evidence-backed reason
+AI_CHANGELOG.md | immutable historical decision log
+attached_assets/ | imported historical design inputs, never active product code
+artifacts/test-results/r0-baseline/ | immutable pre-migration evidence
+artifacts/test-results/r0-final/ | generated test evidence containing compatibility fixture names
+artifacts/peeronq/src/compatibility/legacyBrandStorageMigration.ts | browser storage compatibility adapter
+artifacts/peeronq/src/test/storageMigration.test.ts | browser migration fixtures
+tests/PeerOnQ.Infrastructure.Tests/SecretStorageTests.cs | filesystem and secret migration fixtures
+docs/BRAND_MIGRATION.md | migration register and compatibility disclosure

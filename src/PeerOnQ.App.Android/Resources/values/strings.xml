@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">PeerOnQ</string>
+  <string name="android_viewer">Android viewer</string>
+  <string name="local_id_label">This device ID</string>
+  <string name="remote_id_label">Remote PeerOnQ ID</string>
+  <string name="remote_id_hint">000-000-000-000</string>
+  <string name="session_mode_label">Session mode</string>
+  <string name="connect">Connect</string>
+  <string name="end_session">End session</string>
+  <string name="retry_server">Retry server</string>
+  <string name="input_control">Send touch and keyboard input</string>
+  <string name="input_safety_hint">Control turns off when the app loses focus. Hardware keyboard: Ctrl+Alt+Shift+Esc.</string>
+  <string name="text_input_label">Send short text</string>
+  <string name="text_input_hint">ASCII text, maximum 256 characters</string>
+  <string name="send_text">Send text</string>
+  <string name="remote_screen">Remote screen</string>
+  <string name="waiting_for_screen">Remote screen appears after the owner approves.</string>
+  <string name="view_only">View only</string>
+  <string name="full_control">Full control</string>
+</resources>

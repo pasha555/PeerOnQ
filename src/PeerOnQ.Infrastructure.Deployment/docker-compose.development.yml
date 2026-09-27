@@ -1,0 +1,936 @@
+name: peeronq-phase6-development
+
+x-dotnet-service: &dotnet-service
+  restart: unless-stopped
+  stop_grace_period: 30s
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  networks:
+    - control
+    - observability
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-common-environment: &common-environment
+  ASPNETCORE_ENVIRONMENT: Development
+  ASPNETCORE_HTTP_PORTS: "8080"
+  ReverseProxy__TrustedProxyIp: 172.29.60.10
+  CloudSecurity__MaximumDiagnosticArchiveBytes: "20971520"
+  DataRetention__PresenceHistory: "30.00:00:00"
+  DataRetention__SessionMetadata: "90.00:00:00"
+  DataRetention__DownloadEvents: "90.00:00:00"
+  DataRetention__Diagnostics: "14.00:00:00"
+  DataRetention__ServiceHealthSnapshots: "30.00:00:00"
+  DataRetention__AuditEvents: "${PEERONQ_AUDIT_RETENTION_DAYS:-365}.00:00:00"
+  DataRetention__AlertEvents: "${PEERONQ_ALERT_RETENTION_DAYS:-365}.00:00:00"
+  DataRetention__CompletedAdminSessions: "30.00:00:00"
+  DataRetention__BatchSize: "500"
+  DataRetention__PolicyVersion: phase6-v1
+  DataRetention__AuditEventsEnabled: ${PEERONQ_AUDIT_RETENTION_ENABLED:-false}
+  DataRetention__AuditEventsLegalHold: ${PEERONQ_AUDIT_LEGAL_HOLD:-false}
+  DataRetention__AlertEventsEnabled: ${PEERONQ_ALERT_RETENTION_ENABLED:-true}
+  DataRetention__AlertEventsLegalHold: ${PEERONQ_ALERT_LEGAL_HOLD:-false}
+  DataRetention__DiagnosticsLegalHold: ${PEERONQ_DIAGNOSTICS_LEGAL_HOLD:-false}
+  Region__Id: ${PEERONQ_REGION:-local-dev}
+  OpenTelemetry__Endpoint: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+
+services:
+  proxy:
+    image: nginx:1.28.3-alpine
+    depends_on:
+      cloud-api: { condition: service_healthy }
+      admin-api: { condition: service_healthy }
+      presence: { condition: service_healthy }
+      downloads: { condition: service_healthy }
+      signaling: { condition: service_healthy }
+      admin-ui: { condition: service_healthy }
+      portal-ui: { condition: service_healthy }
+      web-ui: { condition: service_healthy }
+      release-storage-init: { condition: service_completed_successfully }
+      website-storage-init: { condition: service_completed_successfully }
+    environment:
+      NGINX_ENVSUBST_FILTER: ^PEERONQ_
+      PEERONQ_API_HOST: ${PEERONQ_API_HOST:-api.dev.localhost}
+      PEERONQ_ADMIN_HOST: ${PEERONQ_ADMIN_HOST:-admin.dev.localhost}
+      PEERONQ_PORTAL_HOST: ${PEERONQ_PORTAL_HOST:-portal.dev.localhost}
+      PEERONQ_GRAFANA_HOST: ${PEERONQ_GRAFANA_HOST:-grafana.dev.localhost}
+      PEERONQ_PROMETHEUS_HOST: ${PEERONQ_PROMETHEUS_HOST:-prometheus.dev.localhost}
+      PEERONQ_ADMIN_ALLOWED_CIDR: ${PEERONQ_ADMIN_ALLOWED_CIDR:-0.0.0.0/0}
+      PEERONQ_DOWNLOAD_HOST: ${PEERONQ_DOWNLOAD_HOST:-download.dev.localhost}
+      PEERONQ_WEB_HOST: ${PEERONQ_WEB_HOST:-dev.localhost}
+      PEERONQ_WEB_WWW_HOST: ${PEERONQ_WEB_WWW_HOST:-www.dev.localhost}
+      PEERONQ_UPDATE_HOST: ${PEERONQ_UPDATE_HOST:-updates.dev.localhost}
+      PEERONQ_PRESENCE_HOST: ${PEERONQ_PRESENCE_HOST:-presence.dev.localhost}
+      PEERONQ_SIGNAL_HOST: ${PEERONQ_SIGNAL_HOST:-signal.dev.localhost}
+      PEERONQ_CLOUD_API_UPSTREAMS: "server cloud-api:8080 resolve max_fails=1 fail_timeout=10s;"
+      PEERONQ_PRESENCE_UPSTREAMS: "server presence:8080 resolve max_fails=1 fail_timeout=10s;"
+      PEERONQ_DOWNLOADS_UPSTREAMS: "server downloads:8080 resolve max_fails=1 fail_timeout=10s;"
+      PEERONQ_SIGNALING_UPSTREAMS: "server signaling:8080 resolve max_fails=1 fail_timeout=10s;"
+    ports:
+      - "${PEERONQ_HTTPS_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/peeronq.conf.template:/etc/nginx/templates/peeronq.conf.template:ro
+      - ./nginx/proxy_params:/etc/nginx/proxy_params:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${PEERONQ_TLS_CERT_DIR:?set PEERONQ_TLS_CERT_DIR}:/certs:ro
+      - release-artifacts:/var/lib/peeronq/releases:ro
+      - website-releases:/var/lib/peeronq/website:ro
+    secrets:
+      - peeronq_tls_private_key
+    networks:
+      edge:
+      control:
+        ipv4_address: 172.29.60.10
+      observability:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+      - /etc/nginx/conf.d:size=1m,mode=0755
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE, CHOWN, SETGID, SETUID]
+    healthcheck:
+      test: [CMD, nginx, -t]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  cloud-api:
+    <<: *dotnet-service
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Cloud.Api/Dockerfile
+    environment:
+      <<: *common-environment
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=peeronq_cloud;Username=peeronq_cloud_runtime;Password=${PEERONQ_CLOUD_DB_PASSWORD:?set PEERONQ_CLOUD_DB_PASSWORD};Pooling=true;Maximum Pool Size=100
+      ConnectionStrings__Redis: redis:6379,user=peeronq_cloud,password=${PEERONQ_REDIS_CLOUD_PASSWORD:?set PEERONQ_REDIS_CLOUD_PASSWORD},ssl=false,abortConnect=false
+      CloudSecurity__PublicDeviceIdHmacKeyBase64: ${PEERONQ_CLOUD_PUBLIC_DEVICE_ID_HMAC_KEY_BASE64:?set PEERONQ_CLOUD_PUBLIC_DEVICE_ID_HMAC_KEY_BASE64}
+      AllowedHosts: ${PEERONQ_API_HOST:-api.dev.localhost};${PEERONQ_PORTAL_HOST:-portal.dev.localhost};cloud-api
+      PeerOnQ__CustomerPortal__RegistrationMode: ${PEERONQ_CUSTOMER_REGISTRATION_MODE:-Open}
+      PeerOnQ__CustomerPortal__RequireEmailVerification: ${PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION:-true}
+      PeerOnQ__CustomerPortal__JwtIssuer: https://${PEERONQ_API_HOST:-api.dev.localhost}
+      PeerOnQ__CustomerPortal__JwtAudience: peeronq-customer-portal
+      PeerOnQ__CustomerPortal__JwtSigningKey: ${PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY:?set PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY}
+      PeerOnQ__CustomerPortal__PortalBaseUrl: https://${PEERONQ_PORTAL_HOST:-portal.dev.localhost}:${PEERONQ_HTTPS_PORT:-8443}
+      PeerOnQ__CustomerPortal__DataProtectionPath: /var/lib/peeronq/customer-data-protection
+      PeerOnQ__CustomerPortal__Mail__Provider: FileSink
+      PeerOnQ__CustomerPortal__Mail__FileSinkPath: /var/lib/peeronq/customer-mail
+      PeerOnQ__DiagnosticsStorage__Provider: Http
+      PeerOnQ__DiagnosticsStorage__HttpEndpoint: ${PEERONQ_DIAGNOSTICS_HTTP_ENDPOINT:-}
+      PeerOnQ__DiagnosticsStorage__HttpAllowedHosts__0: ${PEERONQ_DIAGNOSTICS_HTTP_ALLOWED_HOST:-}
+      PeerOnQ__DiagnosticsStorage__HttpBearerToken: ${PEERONQ_DIAGNOSTICS_HTTP_BEARER_TOKEN:-}
+      PeerOnQ__DiagnosticsStorage__AllowFileSystemOutsideDevelopment: ${PEERONQ_DIAGNOSTICS_ALLOW_SINGLE_NODE_FILESYSTEM:-false}
+      PeerOnQ__SignalingAttestation__Issuer: ${PEERONQ_SIGNALING_ATTESTATION_ISSUER:-https://api.dev.localhost}
+      PeerOnQ__SignalingAttestation__Audience: ${PEERONQ_SIGNALING_ATTESTATION_AUDIENCE:-peeronq-signaling}
+      PeerOnQ__SignalingAttestation__Lifetime: ${PEERONQ_SIGNALING_ATTESTATION_LIFETIME:-00:05:00}
+      PeerOnQ__SignalingAttestation__PrivateKeyFile: /run/secrets/peeronq_signaling_attestation_private_key
+      CloudWorkers__EnablePresenceExpiration: "true"
+      CloudWorkers__EnableSessionReconciliation: "true"
+      CloudWorkers__SessionReconciliationInterval: ${PEERONQ_SESSION_RECONCILIATION_INTERVAL:-00:01:00}
+      CloudWorkers__SessionNegotiationTimeout: ${PEERONQ_SESSION_NEGOTIATION_TIMEOUT:-00:05:00}
+      CloudWorkers__SessionConnectedInactivityTimeout: ${PEERONQ_SESSION_CONNECTED_INACTIVITY_TIMEOUT:-00:03:00}
+      CloudWorkers__SessionReconciliationBatchSize: ${PEERONQ_SESSION_RECONCILIATION_BATCH_SIZE:-500}
+      CloudWorkers__WorkerLeaseDuration: ${PEERONQ_CLOUD_WORKER_LEASE_DURATION:-00:02:00}
+      CloudWorkers__EnableRetention: "true"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      otel-collector: { condition: service_started }
+      diagnostic-storage-init: { condition: service_completed_successfully }
+      customer-storage-init: { condition: service_completed_successfully }
+    secrets:
+      - peeronq_signaling_attestation_private_key
+    volumes:
+      - diagnostic-artifacts:/var/lib/peeronq/diagnostics
+      - customer-data-protection:/var/lib/peeronq/customer-data-protection
+      - customer-mail:/var/lib/peeronq/customer-mail
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /health/ready HTTP/1.1\\r\\nHost: ${PEERONQ_API_HOST:-api.dev.localhost}\\r\\nConnection: close\\r\\n\\r\\n' >&3; IFS=' ' read -r protocol status reason <&3; test \"$$status\" = 200"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 5
+
+  presence:
+    <<: *dotnet-service
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Presence.Server/Dockerfile
+    environment:
+      <<: *common-environment
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=peeronq_cloud;Username=peeronq_presence_runtime;Password=${PEERONQ_PRESENCE_DB_PASSWORD:?set PEERONQ_PRESENCE_DB_PASSWORD};Pooling=true;Maximum Pool Size=40
+      ConnectionStrings__Redis: redis:6379,user=peeronq_presence,password=${PEERONQ_REDIS_PRESENCE_PASSWORD:?set PEERONQ_REDIS_PRESENCE_PASSWORD},ssl=false,abortConnect=false
+      ConnectionStrings__DeviceTokenValidationRedis: redis:6379,user=peeronq_presence_token_reader,password=${PEERONQ_REDIS_PRESENCE_TOKEN_READER_PASSWORD:?set PEERONQ_REDIS_PRESENCE_TOKEN_READER_PASSWORD},ssl=false,abortConnect=false
+      AllowedHosts: ${PEERONQ_PRESENCE_HOST:-presence.dev.localhost};presence
+      PeerOnQ__Presence__HeartbeatSeconds: "25"
+      PeerOnQ__Presence__LeaseSeconds: "75"
+      PeerOnQ__Presence__StaleSweepSeconds: "15"
+      PeerOnQ__Presence__ServerId: ${PEERONQ_PRESENCE_SERVER_ID:-presence-local-1}
+      PeerOnQ__Presence__Region: ${PEERONQ_REGION:-local-dev}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      otel-collector: { condition: service_started }
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /health/ready HTTP/1.1\\r\\nHost: ${PEERONQ_PRESENCE_HOST:-presence.dev.localhost}\\r\\nConnection: close\\r\\n\\r\\n' >&3; IFS=' ' read -r protocol status reason <&3; test \"$$status\" = 200"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 5
+
+  admin-api:
+    <<: *dotnet-service
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Admin.Api/Dockerfile
+    environment:
+      <<: *common-environment
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=peeronq_cloud;Username=peeronq_admin_runtime;Password=${PEERONQ_ADMIN_DB_PASSWORD:?set PEERONQ_ADMIN_DB_PASSWORD};Pooling=true;Maximum Pool Size=40
+      ConnectionStrings__Redis: redis:6379,user=peeronq_admin,password=${PEERONQ_REDIS_ADMIN_PASSWORD:?set PEERONQ_REDIS_ADMIN_PASSWORD},ssl=false,abortConnect=false
+      CloudSecurity__PublicDeviceIdHmacKeyBase64: ${PEERONQ_ADMIN_PRIVACY_HMAC_KEY_BASE64:?set PEERONQ_ADMIN_PRIVACY_HMAC_KEY_BASE64}
+      AllowedHosts: ${PEERONQ_ADMIN_HOST:-admin.dev.localhost};admin-api
+      PeerOnQ__AdminTokens__Issuer: https://${PEERONQ_ADMIN_HOST:-admin.dev.localhost}
+      PeerOnQ__AdminTokens__Audience: peeronq-admin
+      PeerOnQ__AdminTokens__SigningKey: ${PEERONQ_ADMIN_TOKEN_SIGNING_KEY:?set PEERONQ_ADMIN_TOKEN_SIGNING_KEY}
+      PeerOnQ__AdminTokens__RefreshHashKey: ${PEERONQ_ADMIN_REFRESH_HASH_KEY:?set PEERONQ_ADMIN_REFRESH_HASH_KEY}
+      PeerOnQ__AdminTokens__AccessTokenMinutes: "5"
+      PeerOnQ__AdminTokens__RefreshTokenHours: "8"
+      PeerOnQ__AdminTokens__MfaChallengeMinutes: "5"
+      PeerOnQ__AdminTokens__MaxFailedAttempts: "5"
+      PeerOnQ__AdminTokens__LockoutMinutes: "15"
+      PeerOnQ__AdminTokens__AllowMfaBypassForDevelopment: "true"
+      PeerOnQ__AdminInfrastructureMetrics__PrometheusEndpoint: ${PEERONQ_ADMIN_PROMETHEUS_ENDPOINT:-http://prometheus:9090/}
+      PeerOnQ__AdminInfrastructureMetrics__AllowedHosts__0: ${PEERONQ_ADMIN_PROMETHEUS_ALLOWED_HOST:-prometheus}
+      PeerOnQ__AlertIngestion__TokenFile: /run/secrets/peeronq_alertmanager_webhook_token
+      PeerOnQ__AlertIngestion__AllowedRunbookHosts__0: docs.peeronq.com
+      PeerOnQ__AlertIngestion__DefaultRegion: ${PEERONQ_REGION:-local-dev}
+      PeerOnQ__ReleasePublication__Enabled: ${PEERONQ_RELEASE_PUBLICATION_ENABLED:-false}
+      PeerOnQ__ReleasePublication__StorageDirectory: /var/lib/peeronq/releases
+      PeerOnQ__ReleasePublication__PublicBaseUrl: https://${PEERONQ_UPDATE_HOST:-updates.dev.localhost}/
+      PeerOnQ__ReleasePublication__KeyId: ${PEERONQ_RELEASE_SIGNING_KEY_ID:-}
+      PeerOnQ__ReleasePublication__PublicKeySpkiBase64: ${PEERONQ_RELEASE_SIGNING_PUBLIC_KEY_SPKI_BASE64:-}
+      PeerOnQ__ReleasePublication__MaximumPackageBytes: ${PEERONQ_RELEASE_MAXIMUM_PACKAGE_BYTES:-100663296}
+      PeerOnQ__WebsitePublication__Enabled: ${PEERONQ_WEBSITE_PUBLICATION_ENABLED:-false}
+      PeerOnQ__WebsitePublication__StorageDirectory: /var/lib/peeronq/website
+      PeerOnQ__WebsitePublication__KeyId: ${PEERONQ_WEBSITE_SIGNING_KEY_ID:-}
+      PeerOnQ__WebsitePublication__PublicKeySpkiBase64: ${PEERONQ_WEBSITE_SIGNING_PUBLIC_KEY_SPKI_BASE64:-}
+      PeerOnQ__WebsitePublication__MaximumArchiveBytes: ${PEERONQ_WEBSITE_MAXIMUM_ARCHIVE_BYTES:-100663296}
+      PeerOnQ__PlatformUpgrade__Enabled: "false"
+      PeerOnQ__PlatformUpgrade__RequestSpoolDirectory: /var/lib/peeronq/platform-upgrade/inbox
+      PeerOnQ__PlatformUpgrade__StatusDirectory: /var/lib/peeronq/platform-upgrade/status
+      PeerOnQ__PlatformUpgrade__MaximumBundleBytes: ${PEERONQ_PLATFORM_UPGRADE_MAXIMUM_BUNDLE_BYTES:-268435456}
+      AdminBootstrap__Enabled: "true"
+      AdminBootstrap__Email: ${PEERONQ_ADMIN_BOOTSTRAP_EMAIL:-}
+      AdminBootstrap__Password: ${PEERONQ_ADMIN_BOOTSTRAP_PASSWORD:-}
+      AdminBootstrap__TotpSecretBase32: ${PEERONQ_ADMIN_BOOTSTRAP_TOTP_SECRET_BASE32:-}
+      AdminBootstrap__RecoveryCodes__0: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_1:-}
+      AdminBootstrap__RecoveryCodes__1: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_2:-}
+      AdminBootstrap__RecoveryCodes__2: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_3:-}
+      AdminBootstrap__RecoveryCodes__3: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_4:-}
+      AdminBootstrap__RecoveryCodes__4: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_5:-}
+      AdminBootstrap__RecoveryCodes__5: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_6:-}
+      AdminBootstrap__RecoveryCodes__6: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_7:-}
+      AdminBootstrap__RecoveryCodes__7: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_8:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      otel-collector: { condition: service_started }
+      release-storage-init: { condition: service_completed_successfully }
+      website-storage-init: { condition: service_completed_successfully }
+    secrets:
+      - peeronq_alertmanager_webhook_token
+    volumes:
+      - release-artifacts:/var/lib/peeronq/releases
+      - website-releases:/var/lib/peeronq/website
+    tmpfs:
+      - /tmp:size=272m,mode=1777
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /health/ready HTTP/1.1\\r\\nHost: ${PEERONQ_ADMIN_HOST:-admin.dev.localhost}\\r\\nConnection: close\\r\\n\\r\\n' >&3; IFS=' ' read -r protocol status reason <&3; test \"$$status\" = 200"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 5
+
+  downloads:
+    <<: *dotnet-service
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Downloads.Service/Dockerfile
+    environment:
+      <<: *common-environment
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=peeronq_cloud;Username=peeronq_downloads_runtime;Password=${PEERONQ_DOWNLOADS_DB_PASSWORD:?set PEERONQ_DOWNLOADS_DB_PASSWORD};Pooling=true;Maximum Pool Size=40
+      ConnectionStrings__Redis: redis:6379,user=peeronq_downloads,password=${PEERONQ_REDIS_DOWNLOADS_PASSWORD:?set PEERONQ_REDIS_DOWNLOADS_PASSWORD},ssl=false,abortConnect=false
+      CloudSecurity__PublicDeviceIdHmacKeyBase64: ${PEERONQ_DOWNLOADS_PRIVACY_HMAC_KEY_BASE64:?set PEERONQ_DOWNLOADS_PRIVACY_HMAC_KEY_BASE64}
+      AllowedHosts: ${PEERONQ_DOWNLOAD_HOST:-download.dev.localhost};downloads
+      PeerOnQ__Downloads__AllowedArtifactHosts__0: ${PEERONQ_RELEASE_ARTIFACT_HOST:?set PEERONQ_RELEASE_ARTIFACT_HOST}
+      PeerOnQ__Downloads__AllowHttpArtifacts: "false"
+      PeerOnQ__Downloads__CompletionTokenMinutes: "120"
+      PeerOnQ__Downloads__CompletionTokenKey: ${PEERONQ_DOWNLOAD_COMPLETION_TOKEN_KEY:?set PEERONQ_DOWNLOAD_COMPLETION_TOKEN_KEY}
+      PeerOnQ__Downloads__MaximumArtifactBytes: ${PEERONQ_MAXIMUM_ARTIFACT_BYTES:-1073741824}
+      PeerOnQ__Downloads__MaximumConcurrentStreams: ${PEERONQ_DOWNLOAD_MAX_CONCURRENT_STREAMS:-16}
+      PeerOnQ__Downloads__StreamBufferBytes: ${PEERONQ_DOWNLOAD_STREAM_BUFFER_BYTES:-131072}
+      PeerOnQ__Downloads__StreamDeadlineMinutes: ${PEERONQ_DOWNLOAD_STREAM_DEADLINE_MINUTES:-30}
+      PeerOnQ__Downloads__CacheDirectory: /var/lib/peeronq/download-cache
+      PeerOnQ__Downloads__MaximumCacheBytes: ${PEERONQ_DOWNLOAD_CACHE_MAX_BYTES:-4294967296}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      otel-collector: { condition: service_started }
+    volumes:
+      - downloads-verified-cache:/var/lib/peeronq/download-cache
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /health/ready HTTP/1.1\\r\\nHost: ${PEERONQ_DOWNLOAD_HOST:-download.dev.localhost}\\r\\nConnection: close\\r\\n\\r\\n' >&3; IFS=' ' read -r protocol status reason <&3; test \"$$status\" = 200"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 5
+
+  signaling:
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Signaling.Server/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      AllowedHosts: ${PEERONQ_SIGNAL_HOST:-signal.dev.localhost};signaling
+      Signaling__ServerId: ${PEERONQ_SIGNAL_SERVER_ID:-signal-local-1}
+      Signaling__RequireTlsOutsideLoopback: "true"
+      Signaling__TrustedProxyIp: 172.29.60.10
+      Signaling__PinStorePath: /app/data/device-pins.json
+      Signaling__Turn__Realm: ${PEERONQ_TURN_REALM:?set PEERONQ_TURN_REALM}
+      Signaling__Turn__ServerId: ${PEERONQ_TURN_SERVER_ID:-turn-local-1}
+      Signaling__Turn__Region: ${PEERONQ_REGION:-local-dev}
+      Signaling__Turn__SharedSecret: ${PEERONQ_TURN_SHARED_SECRET:?set PEERONQ_TURN_SHARED_SECRET}
+      Signaling__Turn__StunUrls__0: stun:${PEERONQ_TURN_PUBLIC_HOST:?set PEERONQ_TURN_PUBLIC_HOST}:3478
+      Signaling__Turn__TurnUrls__0: turn:${PEERONQ_TURN_PUBLIC_HOST}:3478?transport=udp
+      Signaling__Turn__TurnUrls__1: turn:${PEERONQ_TURN_PUBLIC_HOST}:3478?transport=tcp
+      Signaling__Turn__RelayOnly: ${PEERONQ_TURN_RELAY_ONLY:-false}
+      Signaling__Attestation__Required: "true"
+      Signaling__Attestation__AllowDevelopmentTofuFallback: "false"
+      Signaling__Attestation__Issuer: ${PEERONQ_SIGNALING_ATTESTATION_ISSUER:-https://api.dev.localhost}
+      Signaling__Attestation__Audience: ${PEERONQ_SIGNALING_ATTESTATION_AUDIENCE:-peeronq-signaling}
+      Signaling__Attestation__MaximumTokenLifetime: ${PEERONQ_SIGNALING_ATTESTATION_MAXIMUM_LIFETIME:-00:15:00}
+      Signaling__Attestation__ClockSkew: ${PEERONQ_SIGNALING_ATTESTATION_CLOCK_SKEW:-00:00:30}
+      Signaling__Attestation__PublicKeyFiles__0: /run/secrets/peeronq_signaling_attestation_public_key
+      Signaling__Cluster__Enabled: "true"
+      Signaling__Cluster__InstanceId: ${PEERONQ_SIGNALING_INSTANCE_ID:-signaling-ha-1}
+      Signaling__Cluster__RedisConnectionString: redis:6379,user=peeronq_signaling,password=${PEERONQ_REDIS_SIGNALING_PASSWORD:?set PEERONQ_REDIS_SIGNALING_PASSWORD},ssl=false,abortConnect=false
+      Signaling__Cluster__KeyPrefix: peeronq:{signaling}
+      Signaling__Cluster__DeviceLeaseDuration: ${PEERONQ_SIGNALING_DEVICE_LEASE_DURATION:-00:00:45}
+      Signaling__Cluster__DeviceLeaseRefreshInterval: ${PEERONQ_SIGNALING_DEVICE_LEASE_REFRESH_INTERVAL:-00:00:15}
+    depends_on:
+      turn: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      otel-collector: { condition: service_started }
+    volumes:
+      - signaling-data:/app/data
+    secrets:
+      - peeronq_signaling_attestation_public_key
+    expose: ["8080"]
+    networks: [control, observability]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /app/logs:size=32m,mode=0700
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 172.29.61.10:24224
+        fluentd-async: "true"
+        tag: peeronq.signaling
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --header, "Host: ${PEERONQ_SIGNAL_HOST:-signal.dev.localhost}", http://127.0.0.1:8080/health/ready]
+      interval: 15s
+      timeout: 3s
+      start_period: 15s
+      retries: 5
+
+  signaling-metrics:
+    image: nginx:1.28.3-alpine
+    entrypoint: [nginx]
+    command: [-c, /etc/nginx/signaling-metrics.conf, -g, "daemon off;"]
+    user: "101:101"
+    volumes:
+      - ./nginx/signaling-metrics.conf:/etc/nginx/signaling-metrics.conf:ro
+    network_mode: service:signaling
+    depends_on:
+      signaling:
+        condition: service_healthy
+        # The sidecar shares the signaling container's network namespace. Recreate it whenever
+        # Compose replaces signaling so it never stays pinned to a dead container ID.
+        restart: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8081/metrics]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  turn:
+    build:
+      context: ../PeerOnQ.Turn.Configuration
+    environment:
+      PEERONQ_TURN_REALM: ${PEERONQ_TURN_REALM:?set PEERONQ_TURN_REALM}
+      PEERONQ_TURN_EXTERNAL_IP: ${PEERONQ_TURN_EXTERNAL_IP:-}
+      PEERONQ_TURN_SHARED_SECRET: ${PEERONQ_TURN_SHARED_SECRET:?set PEERONQ_TURN_SHARED_SECRET}
+      PEERONQ_TURN_ALLOW_PRIVATE_PEERS: ${PEERONQ_TURN_ALLOW_PRIVATE_PEERS:-true}
+      PEERONQ_TURN_REQUIRE_TLS: "true"
+    ports:
+      - "${PEERONQ_TURN_BIND_ADDRESS:-127.0.0.1}:3478:3478/udp"
+      - "${PEERONQ_TURN_BIND_ADDRESS:-127.0.0.1}:3478:3478/tcp"
+      - "${PEERONQ_TURN_BIND_ADDRESS:-127.0.0.1}:5349:5349/udp"
+      - "${PEERONQ_TURN_BIND_ADDRESS:-127.0.0.1}:5349:5349/tcp"
+      - "${PEERONQ_TURN_BIND_ADDRESS:-127.0.0.1}:49160-49200:49160-49200/udp"
+    volumes:
+      - ${PEERONQ_TLS_CERT_DIR:?set PEERONQ_TLS_CERT_DIR}:/certs:ro
+    expose: ["9641"]
+    networks: [edge, observability]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/coturn:size=16m,mode=0700,uid=65534,gid=65534
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 172.29.61.10:24225
+        fluentd-async: "true"
+        tag: peeronq.turn
+    healthcheck:
+      test: [CMD-SHELL, "turnutils_stunclient -p 3478 127.0.0.1 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+
+  admin-ui:
+    build:
+      context: ../..
+      dockerfile: artifacts/peeronq-admin/Dockerfile
+    expose: ["8080"]
+    networks: [control]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8080/health/live]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  portal-ui:
+    build:
+      context: ../..
+      dockerfile: artifacts/peeronq-portal/Dockerfile
+    expose: ["8080"]
+    networks: [control]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8080/health/live]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  web-ui:
+    build:
+      context: ../..
+      dockerfile: artifacts/peeronq/Dockerfile
+      args:
+        BASE_PATH: /
+        VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL: https://${PEERONQ_DOWNLOAD_HOST:-download.dev.localhost}:${PEERONQ_HTTPS_PORT:-8443}
+        VITE_PEERONQ_WINDOWS_DOWNLOADS_AVAILABLE: ${PEERONQ_WINDOWS_DOWNLOADS_AVAILABLE:-false}
+        VITE_PEERONQ_MACOS_DOWNLOAD_URL: ${PEERONQ_MACOS_DOWNLOAD_URL:-}
+        VITE_PEERONQ_LINUX_X64_DOWNLOAD_URL: ${PEERONQ_LINUX_X64_DOWNLOAD_URL:-}
+        VITE_PEERONQ_LINUX_ARM64_DOWNLOAD_URL: ${PEERONQ_LINUX_ARM64_DOWNLOAD_URL:-}
+        VITE_PEERONQ_ANDROID_DOWNLOAD_URL: ${PEERONQ_ANDROID_DOWNLOAD_URL:-}
+        VITE_PEERONQ_IOS_DOWNLOAD_URL: ${PEERONQ_IOS_DOWNLOAD_URL:-}
+        VITE_PEERONQ_ACCOUNT_PORTAL_URL: https://${PEERONQ_PORTAL_HOST:-portal.dev.localhost}:${PEERONQ_HTTPS_PORT:-8443}
+    expose: ["8080"]
+    networks: [control]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8080/health/live]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  release-storage-init:
+    image: alpine:3.22.1
+    command:
+      - sh
+      - -ec
+      - >-
+        mkdir -p /releases/.staging /releases/stable/x64 /releases/stable/arm64 /releases/beta/x64 /releases/beta/arm64;
+        chown 1654:1654 /releases /releases/.staging /releases/stable /releases/stable/x64 /releases/stable/arm64 /releases/beta /releases/beta/x64 /releases/beta/arm64;
+        chmod 0755 /releases /releases/.staging /releases/stable /releases/stable/x64 /releases/stable/arm64 /releases/beta /releases/beta/x64 /releases/beta/arm64
+    volumes:
+      - release-artifacts:/releases
+    networks: [control]
+    restart: "no"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+
+  diagnostic-storage-init:
+    image: alpine:3.22.1
+    command:
+      - sh
+      - -ec
+      - >-
+        mkdir -p /diagnostics;
+        chown 1654:1654 /diagnostics;
+        chmod 0700 /diagnostics
+    volumes:
+      - diagnostic-artifacts:/diagnostics
+    networks: [control]
+    restart: "no"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+
+  customer-storage-init:
+    image: alpine:3.22.1
+    command:
+      - sh
+      - -ec
+      - >-
+        mkdir -p /customer-data-protection /customer-mail;
+        chown 1654:1654 /customer-data-protection /customer-mail;
+        chmod 0700 /customer-data-protection /customer-mail
+    volumes:
+      - customer-data-protection:/customer-data-protection
+      - customer-mail:/customer-mail
+    networks: [control]
+    restart: "no"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+
+  website-storage-init:
+    image: alpine:3.22.1
+    command:
+      - sh
+      - -ec
+      - >-
+        mkdir -p /website/.staging /website/releases;
+        chown 1654:1654 /website /website/.staging /website/releases;
+        chmod 0755 /website /website/.staging /website/releases
+    volumes:
+      - website-releases:/website
+    networks: [control]
+    restart: "no"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+
+  website-platform-state:
+    profiles: [operations]
+    image: alpine:3.22.1
+    entrypoint: [sh, /usr/local/bin/peeronq-website-platform-state.sh]
+    environment:
+      PEERONQ_WEBSITE_PLATFORM_ACTION: ""
+    volumes:
+      - ./scripts/website-platform-state.sh:/usr/local/bin/peeronq-website-platform-state.sh:ro
+      - website-releases:/website
+    network_mode: none
+    user: "1654:1654"
+    restart: "no"
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  migrations:
+    profiles: [operations]
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Infrastructure.Deployment/Dockerfile.migrations
+    environment:
+      PEERONQ_MIGRATIONS_POSTGRES: Host=postgres;Port=5432;Database=peeronq_cloud;Username=peeronq_migrator;Password=${PEERONQ_POSTGRES_MIGRATOR_PASSWORD:?set PEERONQ_POSTGRES_MIGRATOR_PASSWORD}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [control]
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  database-permissions:
+    profiles: [operations]
+    image: postgres:17.6-alpine
+    command: [sh, /permissions/apply-runtime-permissions.sh]
+    environment:
+      POSTGRES_USER: peeronq_migrator
+      POSTGRES_PASSWORD: ${PEERONQ_POSTGRES_MIGRATOR_PASSWORD:?set PEERONQ_POSTGRES_MIGRATOR_PASSWORD}
+      RETENTION_POLICY_VERSION: ${PEERONQ_RETENTION_POLICY_VERSION:-phase6-v1}
+      AUDIT_RETENTION_DAYS: ${PEERONQ_AUDIT_RETENTION_DAYS:-365}
+      AUDIT_RETENTION_ENABLED: ${PEERONQ_AUDIT_RETENTION_ENABLED:-false}
+      AUDIT_LEGAL_HOLD: ${PEERONQ_AUDIT_LEGAL_HOLD:-false}
+      ALERT_RETENTION_DAYS: ${PEERONQ_ALERT_RETENTION_DAYS:-365}
+      ALERT_RETENTION_ENABLED: ${PEERONQ_ALERT_RETENTION_ENABLED:-true}
+      ALERT_LEGAL_HOLD: ${PEERONQ_ALERT_LEGAL_HOLD:-false}
+    volumes:
+      - ./postgres/apply-runtime-permissions.sh:/permissions/apply-runtime-permissions.sh:ro
+      - ./postgres/apply-runtime-permissions.sql:/permissions/apply-runtime-permissions.sql:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [control]
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: peeronq_cloud
+      POSTGRES_USER: peeronq_bootstrap
+      POSTGRES_PASSWORD: ${PEERONQ_POSTGRES_BOOTSTRAP_PASSWORD:?set PEERONQ_POSTGRES_BOOTSTRAP_PASSWORD}
+      PEERONQ_POSTGRES_MIGRATOR_PASSWORD: ${PEERONQ_POSTGRES_MIGRATOR_PASSWORD:?set PEERONQ_POSTGRES_MIGRATOR_PASSWORD}
+      PEERONQ_CLOUD_DB_PASSWORD: ${PEERONQ_CLOUD_DB_PASSWORD:?set PEERONQ_CLOUD_DB_PASSWORD}
+      PEERONQ_PRESENCE_DB_PASSWORD: ${PEERONQ_PRESENCE_DB_PASSWORD:?set PEERONQ_PRESENCE_DB_PASSWORD}
+      PEERONQ_ADMIN_DB_PASSWORD: ${PEERONQ_ADMIN_DB_PASSWORD:?set PEERONQ_ADMIN_DB_PASSWORD}
+      PEERONQ_DOWNLOADS_DB_PASSWORD: ${PEERONQ_DOWNLOADS_DB_PASSWORD:?set PEERONQ_DOWNLOADS_DB_PASSWORD}
+      PEERONQ_POSTGRES_BACKUP_PASSWORD: ${PEERONQ_POSTGRES_BACKUP_PASSWORD:?set PEERONQ_POSTGRES_BACKUP_PASSWORD}
+      PEERONQ_POSTGRES_RESTORE_PASSWORD: ${PEERONQ_POSTGRES_RESTORE_PASSWORD:?set PEERONQ_POSTGRES_RESTORE_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/10-peeronq-roles.sh:/docker-entrypoint-initdb.d/10-peeronq-roles.sh:ro
+    networks: [control]
+    restart: unless-stopped
+    shm_size: 256m
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U peeronq_bootstrap -d peeronq_cloud]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    # Redis 8.4.4 fixes ACL re-check failures that could skip MULTI/EXEC writes while replaying AOF.
+    image: redis:8.4.4-alpine
+    environment:
+      PEERONQ_REDIS_CLOUD_PASSWORD: ${PEERONQ_REDIS_CLOUD_PASSWORD:?set PEERONQ_REDIS_CLOUD_PASSWORD}
+      PEERONQ_REDIS_PRESENCE_PASSWORD: ${PEERONQ_REDIS_PRESENCE_PASSWORD:?set PEERONQ_REDIS_PRESENCE_PASSWORD}
+      PEERONQ_REDIS_PRESENCE_TOKEN_READER_PASSWORD: ${PEERONQ_REDIS_PRESENCE_TOKEN_READER_PASSWORD:?set PEERONQ_REDIS_PRESENCE_TOKEN_READER_PASSWORD}
+      PEERONQ_REDIS_ADMIN_PASSWORD: ${PEERONQ_REDIS_ADMIN_PASSWORD:?set PEERONQ_REDIS_ADMIN_PASSWORD}
+      PEERONQ_REDIS_DOWNLOADS_PASSWORD: ${PEERONQ_REDIS_DOWNLOADS_PASSWORD:?set PEERONQ_REDIS_DOWNLOADS_PASSWORD}
+      PEERONQ_REDIS_SIGNALING_PASSWORD: ${PEERONQ_REDIS_SIGNALING_PASSWORD:?set PEERONQ_REDIS_SIGNALING_PASSWORD}
+      PEERONQ_REDIS_HEALTH_PASSWORD: ${PEERONQ_REDIS_HEALTH_PASSWORD:?set PEERONQ_REDIS_HEALTH_PASSWORD}
+    command: [sh, /usr/local/bin/peeronq-redis-entrypoint.sh]
+    volumes:
+      - redis-data:/data
+      - ./redis/entrypoint.sh:/usr/local/bin/peeronq-redis-entrypoint.sh:ro
+    networks: [control]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'redis-cli --user peeronq_health --pass "$${PEERONQ_REDIS_HEALTH_PASSWORD}" --no-auth-warning ping | grep -q PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    command: [--config=/etc/otelcol-contrib/config.yml]
+    environment:
+      PEERONQ_ENVIRONMENT: Development
+      PEERONQ_REGION: ${PEERONQ_REGION:-local-dev}
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro
+    ports:
+      - "127.0.0.1:${PEERONQ_FLUENT_FORWARD_PORT:-24224}:24224"
+      - "127.0.0.1:${PEERONQ_COTURN_FLUENT_FORWARD_PORT:-24225}:24225"
+    depends_on: [loki, tempo]
+    networks:
+      observability:
+        ipv4_address: 172.29.61.10
+        aliases: [otel-collector]
+      management:
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=15d, --web.enable-lifecycle, "--web.external-url=https://${PEERONQ_PROMETHEUS_HOST:-prometheus.dev.localhost}/"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alert-rules.yml:/etc/prometheus/rules/peeronq.yml:ro
+      - ./observability/cloud-api-targets.json:/etc/prometheus/targets/cloud-api.json:ro
+      - ./observability/presence-targets.json:/etc/prometheus/targets/presence.json:ro
+      - ./observability/downloads-targets.json:/etc/prometheus/targets/downloads.json:ro
+      - ./observability/signaling-targets.json:/etc/prometheus/targets/signaling.json:ro
+      - ./observability/local-phase3-targets.empty.json:/etc/prometheus/targets/local-phase3.json:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PEERONQ_PROMETHEUS_PORT:-9090}:9090"
+    depends_on: [otel-collector, alertmanager, blackbox-exporter]
+    networks:
+      observability:
+        aliases: [prometheus]
+      management:
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.27.0
+    command: [--config.file=/etc/blackbox_exporter/config.yml]
+    volumes:
+      - ./observability/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    networks:
+      control:
+      observability:
+        aliases: [blackbox-exporter]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command: [--config.file=/etc/alertmanager/alertmanager.yml, --storage.path=/alertmanager]
+    volumes:
+      - ./observability/alertmanager.development.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    secrets:
+      - peeronq_alertmanager_webhook_token
+    networks:
+      observability:
+        aliases: [alertmanager]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  loki:
+    image: grafana/loki:3.5.3
+    command: [-config.file=/etc/loki/local-config.yaml]
+    volumes:
+      - ./observability/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    networks:
+      observability:
+        aliases: [loki]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    command: [-config.file=/etc/tempo.yml]
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    networks:
+      observability:
+        aliases: [tempo]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: peeronq-operator
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/peeronq_grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SERVER_DOMAIN: ${PEERONQ_GRAFANA_HOST:-grafana.dev.localhost}
+      GF_SERVER_ROOT_URL: https://${PEERONQ_GRAFANA_HOST:-grafana.dev.localhost}:${PEERONQ_HTTPS_PORT:-8443}/
+      GF_SERVER_ENFORCE_DOMAIN: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    secrets:
+      - peeronq_grafana_admin_password
+    ports:
+      - "127.0.0.1:${PEERONQ_GRAFANA_PORT:-3000}:3000"
+    depends_on: [prometheus, loki, tempo]
+    networks:
+      observability:
+        aliases: [grafana]
+      management:
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+      - --collector.textfile.directory=/var/lib/node_exporter/textfile_collector
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - node-exporter-textfile:/var/lib/node_exporter/textfile_collector:ro
+    networks:
+      observability:
+        aliases: [node-exporter]
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  backup:
+    image: postgres:17.6-alpine
+    profiles: [operations]
+    command: [sh, /scripts/backup-postgres.sh]
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: peeronq_cloud
+      PGUSER: peeronq_backup
+      PGPASSFILE: /run/secrets/peeronq_postgres_pgpass
+      PEERONQ_BACKUP_DIR: /backups
+      PEERONQ_TEXTFILE_DIR: /metrics
+      PEERONQ_BACKUP_RETENTION_DAYS: ${PEERONQ_BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${PEERONQ_BACKUP_DIR:?set PEERONQ_BACKUP_DIR}:/backups
+      - node-exporter-textfile:/metrics
+    secrets:
+      - source: peeronq_postgres_backup_pgpass
+        target: peeronq_postgres_pgpass
+        mode: 0400
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [control]
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  restore-test:
+    image: postgres:17.6-alpine
+    profiles: [acceptance]
+    command: [sh, /scripts/test-restore-postgres.sh]
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: peeronq_restore_operator
+      PGPASSFILE: /run/secrets/peeronq_postgres_pgpass
+      PEERONQ_BACKUP_FILE: ${PEERONQ_RESTORE_TEST_FILE:?set PEERONQ_RESTORE_TEST_FILE}
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${PEERONQ_BACKUP_DIR:?set PEERONQ_BACKUP_DIR}:/backups:ro
+    secrets:
+      - source: peeronq_postgres_restore_pgpass
+        target: peeronq_postgres_pgpass
+        mode: 0400
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [control]
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+secrets:
+  peeronq_tls_private_key:
+    file: ${PEERONQ_TLS_PRIVATE_KEY_FILE:?set PEERONQ_TLS_PRIVATE_KEY_FILE}
+  peeronq_postgres_backup_pgpass:
+    file: ${PEERONQ_POSTGRES_BACKUP_PGPASS_FILE:?set PEERONQ_POSTGRES_BACKUP_PGPASS_FILE}
+  peeronq_postgres_restore_pgpass:
+    file: ${PEERONQ_POSTGRES_RESTORE_PGPASS_FILE:?set PEERONQ_POSTGRES_RESTORE_PGPASS_FILE}
+  peeronq_alertmanager_webhook_token:
+    file: ${PEERONQ_ALERTMANAGER_WEBHOOK_TOKEN_FILE:?set PEERONQ_ALERTMANAGER_WEBHOOK_TOKEN_FILE}
+  peeronq_grafana_admin_password:
+    file: ${PEERONQ_GRAFANA_ADMIN_PASSWORD_FILE:?set PEERONQ_GRAFANA_ADMIN_PASSWORD_FILE}
+  peeronq_signaling_attestation_private_key:
+    file: ${PEERONQ_SIGNALING_ATTESTATION_PRIVATE_KEY_FILE:?set PEERONQ_SIGNALING_ATTESTATION_PRIVATE_KEY_FILE}
+  peeronq_signaling_attestation_public_key:
+    file: ${PEERONQ_SIGNALING_ATTESTATION_PUBLIC_KEY_FILE:?set PEERONQ_SIGNALING_ATTESTATION_PUBLIC_KEY_FILE}
+
+networks:
+  edge:
+  control:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.60.0/24
+          ip_range: 172.29.60.128/25
+  observability:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.61.0/24
+          ip_range: 172.29.61.128/25
+  management:
+
+volumes:
+  postgres-data:
+  redis-data:
+  signaling-data:
+  prometheus-data:
+  alertmanager-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
+  node-exporter-textfile:
+  downloads-verified-cache:
+  release-artifacts:
+  diagnostic-artifacts:
+  website-releases:
+  customer-data-protection:
+  customer-mail:

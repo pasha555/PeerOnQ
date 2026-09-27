@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/peeronq_background"
+    android:orientation="vertical">
+
+  <TextView
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:background="@color/peeronq_surface"
+      android:padding="@dimen/space_md"
+      android:text="@string/android_viewer"
+      android:textColor="@color/peeronq_text"
+      android:textSize="@dimen/title_text"
+      android:textStyle="bold" />
+
+  <LinearLayout
+      android:id="@+id/content_layout"
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1"
+      android:orientation="vertical">
+
+    <ScrollView
+        android:id="@+id/control_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fillViewport="true">
+
+      <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="vertical"
+          android:padding="@dimen/space_md">
+
+        <TextView style="@style/PeerOnQLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:labelFor="@id/local_id" android:text="@string/local_id_label" />
+        <TextView android:id="@+id/local_id" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingBottom="@dimen/space_md" android:textColor="@color/peeronq_text" android:textIsSelectable="true" android:textSize="@dimen/body_text" />
+
+        <TextView style="@style/PeerOnQLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:labelFor="@id/remote_id" android:text="@string/remote_id_label" />
+        <EditText
+            android:id="@+id/remote_id"
+            style="@style/PeerOnQInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints=""
+            android:hint="@string/remote_id_hint"
+            android:imeOptions="actionDone"
+            android:inputType="number"
+            android:maxLength="15"
+            android:singleLine="true" />
+
+        <TextView style="@style/PeerOnQLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_sm" android:labelFor="@id/session_mode" android:text="@string/session_mode_label" />
+        <Spinner android:id="@+id/session_mode" android:layout_width="match_parent" android:layout_height="wrap_content" android:contentDescription="@string/session_mode_label" android:minHeight="@dimen/touch_target" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+          <Button android:id="@+id/connect_button" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="@dimen/touch_target" android:text="@string/connect" />
+          <Space android:layout_width="@dimen/space_sm" android:layout_height="1dp" />
+          <Button android:id="@+id/end_button" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:minHeight="@dimen/touch_target" android:text="@string/end_session" />
+        </LinearLayout>
+
+        <Button android:id="@+id/retry_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_sm" android:minHeight="@dimen/touch_target" android:text="@string/retry_server" android:visibility="gone" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_sm" android:gravity="center_vertical" android:orientation="horizontal">
+          <ProgressBar android:id="@+id/progress" style="?android:attr/progressBarStyleSmall" android:layout_width="32dp" android:layout_height="32dp" android:layout_marginEnd="@dimen/space_sm" />
+          <TextView android:id="@+id/status" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:accessibilityLiveRegion="polite" android:textColor="@color/peeronq_text" android:textSize="@dimen/body_text" />
+        </LinearLayout>
+        <TextView android:id="@+id/error" android:layout_width="match_parent" android:layout_height="wrap_content" android:accessibilityLiveRegion="assertive" android:paddingTop="@dimen/space_sm" android:textColor="@color/peeronq_error" android:textSize="@dimen/body_text" android:visibility="gone" />
+
+        <Switch android:id="@+id/input_switch" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_sm" android:minHeight="@dimen/touch_target" android:text="@string/input_control" android:textColor="@color/peeronq_text" />
+        <TextView style="@style/PeerOnQLabel" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/input_safety_hint" />
+
+        <TextView style="@style/PeerOnQLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_sm" android:labelFor="@id/text_input" android:text="@string/text_input_label" />
+        <EditText android:id="@+id/text_input" style="@style/PeerOnQInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="@string/text_input_hint" android:imeOptions="actionDone" android:maxLength="256" android:singleLine="true" />
+        <Button android:id="@+id/send_text_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="@dimen/touch_target" android:text="@string/send_text" />
+      </LinearLayout>
+    </ScrollView>
+
+    <FrameLayout
+        android:id="@+id/viewport"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_margin="@dimen/space_sm"
+        android:layout_weight="1"
+        android:background="@color/peeronq_viewport"
+        android:contentDescription="@string/remote_screen"
+        android:focusable="true"
+        android:focusableInTouchMode="true">
+      <SurfaceView android:id="@+id/remote_surface" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="@string/remote_screen" />
+      <TextView android:id="@+id/empty_viewport" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:padding="@dimen/space_lg" android:text="@string/waiting_for_screen" android:textColor="@color/peeronq_text_muted" android:textSize="@dimen/body_text" />
+    </FrameLayout>
+  </LinearLayout>
+</LinearLayout>

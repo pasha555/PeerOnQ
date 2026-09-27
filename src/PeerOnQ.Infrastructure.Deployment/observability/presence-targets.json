@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["presence:8080"],
+    "labels": { "replica": "presence-1" }
+  }
+]

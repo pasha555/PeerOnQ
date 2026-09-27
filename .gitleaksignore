@@ -1,0 +1,9 @@
+# Reviewed false positives. Keep these entries fingerprint-specific so new findings still fail CI.
+507cc0ef333f9792ee6a9c548e336fc674326609:src/PeerOnQ.Application/Security/PostQuantumCryptography.cs:generic-api-key:196
+b31e736fbf1d4d2b7c69fc03082f5828a69add54:artifacts/test-results/r0-baseline/dotnet/r0-baseline_net10.0_20260812174525.trx:private-key:15
+b31e736fbf1d4d2b7c69fc03082f5828a69add54:artifacts/test-results/r0-final/dotnet/r0-final_net10.0_20260812181942.trx:private-key:32
+e64bcaf6cc4d6b1bd161c6c9f8a5ab0eca3a2356:artifacts/peeronq-admin/src/pages/ResourcePage.tsx:generic-api-key:63
+e64bcaf6cc4d6b1bd161c6c9f8a5ab0eca3a2356:src/Linkora.Infrastructure.Deployment/.env.example:generic-api-key:9
+e64bcaf6cc4d6b1bd161c6c9f8a5ab0eca3a2356:tests/Linkora.Signaling.Tests/TurnAndResumeTests.cs:generic-api-key:232
+d7082048bc3d38afa26d5679619115505f3091b9:src/Linkora.App/obj/Release/net10.0-windows10.0.22621.0/win-x64/MsixContent/MSIX/main_license.xml:generic-api-key:1
+d7082048bc3d38afa26d5679619115505f3091b9:src/Linkora.App/obj/Release/net10.0-windows10.0.22621.0/win-x64/MsixContent/MSIX/singleton_license.xml:generic-api-key:1

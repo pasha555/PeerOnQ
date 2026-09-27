@@ -1,0 +1,38 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze-csharp:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          global-json-file: global.json
+      - uses: github/codeql-action/init@f116a11b3d2ec2f382b4a6530d51b8f4cf136fee # v4.32.1
+        with:
+          languages: csharp
+          build-mode: manual
+      - run: dotnet restore PeerOnQ.slnx
+      - run: dotnet build PeerOnQ.slnx --no-restore -c Release
+      - uses: github/codeql-action/analyze@f116a11b3d2ec2f382b4a6530d51b8f4cf136fee # v4.32.1
+
+  analyze-javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: github/codeql-action/init@f116a11b3d2ec2f382b4a6530d51b8f4cf136fee # v4.32.1
+        with:
+          languages: javascript-typescript
+          build-mode: none
+      - uses: github/codeql-action/analyze@f116a11b3d2ec2f382b4a6530d51b8f4cf136fee # v4.32.1

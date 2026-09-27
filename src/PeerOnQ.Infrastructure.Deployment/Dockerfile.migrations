@@ -1,0 +1,20 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0.302@sha256:72dd743782f2ae7e5476fd64f6a460045e3998dc862218b80e6944cba79a01b0 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet tool install --tool-path /tools dotnet-ef --version 10.0.10
+RUN dotnet restore src/PeerOnQ.Cloud.Infrastructure/PeerOnQ.Cloud.Infrastructure.csproj --disable-parallel
+RUN /tools/dotnet-ef migrations bundle \
+    --project src/PeerOnQ.Cloud.Infrastructure/PeerOnQ.Cloud.Infrastructure.csproj \
+    --startup-project src/PeerOnQ.Cloud.Infrastructure/PeerOnQ.Cloud.Infrastructure.csproj \
+    --configuration Release \
+    --output /out/peeronq-migrate \
+    --force
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.10@sha256:f1126d438ccc359f51cc6d4701a8deae513856cf10f5fe645d29ea6403dcac6b AS final
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build --chown=$APP_UID:$APP_UID /out/peeronq-migrate ./peeronq-migrate
+USER $APP_UID
+ENTRYPOINT ["./peeronq-migrate"]

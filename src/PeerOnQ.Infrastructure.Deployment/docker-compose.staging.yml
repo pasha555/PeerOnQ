@@ -1,0 +1,363 @@
+name: peeronq-phase6-staging
+
+x-extends-development: &extends-development
+  file: ./docker-compose.development.yml
+
+services:
+  proxy:
+    extends:
+      <<: *extends-development
+      service: proxy
+    environment:
+      NGINX_ENVSUBST_FILTER: ^PEERONQ_
+      PEERONQ_API_HOST: ${PEERONQ_API_HOST:?set PEERONQ_API_HOST}
+      PEERONQ_ADMIN_HOST: ${PEERONQ_ADMIN_HOST:?set PEERONQ_ADMIN_HOST}
+      PEERONQ_PORTAL_HOST: ${PEERONQ_PORTAL_HOST:?set PEERONQ_PORTAL_HOST}
+      PEERONQ_GRAFANA_HOST: ${PEERONQ_GRAFANA_HOST:?set PEERONQ_GRAFANA_HOST}
+      PEERONQ_PROMETHEUS_HOST: ${PEERONQ_PROMETHEUS_HOST:?set PEERONQ_PROMETHEUS_HOST}
+      PEERONQ_ADMIN_ALLOWED_CIDR: ${PEERONQ_ADMIN_ALLOWED_CIDR:?set PEERONQ_ADMIN_ALLOWED_CIDR}
+      PEERONQ_DOWNLOAD_HOST: ${PEERONQ_DOWNLOAD_HOST:?set PEERONQ_DOWNLOAD_HOST}
+      PEERONQ_WEB_HOST: ${PEERONQ_WEB_HOST:?set PEERONQ_WEB_HOST}
+      PEERONQ_WEB_WWW_HOST: ${PEERONQ_WEB_WWW_HOST:?set PEERONQ_WEB_WWW_HOST}
+      PEERONQ_UPDATE_HOST: ${PEERONQ_UPDATE_HOST:?set PEERONQ_UPDATE_HOST}
+      PEERONQ_PRESENCE_HOST: ${PEERONQ_PRESENCE_HOST:?set PEERONQ_PRESENCE_HOST}
+      PEERONQ_SIGNAL_HOST: ${PEERONQ_SIGNAL_HOST:?set PEERONQ_SIGNAL_HOST}
+    ports:
+      - "${PEERONQ_HTTPS_BIND_ADDRESS:-0.0.0.0}:443:443"
+    restart: always
+
+  cloud-api:
+    extends:
+      <<: *extends-development
+      service: cloud-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      Region__Id: ${PEERONQ_REGION:?set PEERONQ_REGION}
+      PeerOnQ__SignalingAttestation__Issuer: ${PEERONQ_SIGNALING_ATTESTATION_ISSUER:?set PEERONQ_SIGNALING_ATTESTATION_ISSUER}
+      PeerOnQ__SignalingAttestation__Audience: ${PEERONQ_SIGNALING_ATTESTATION_AUDIENCE:-peeronq-signaling}
+      PeerOnQ__SignalingAttestation__PrivateKeyFile: /run/secrets/peeronq_signaling_attestation_private_key
+      PeerOnQ__CustomerPortal__RegistrationMode: ${PEERONQ_CUSTOMER_REGISTRATION_MODE:-Closed}
+      PeerOnQ__CustomerPortal__RequireEmailVerification: ${PEERONQ_CUSTOMER_REQUIRE_EMAIL_VERIFICATION:-false}
+      PeerOnQ__CustomerPortal__JwtIssuer: https://${PEERONQ_API_HOST:?set PEERONQ_API_HOST}
+      PeerOnQ__CustomerPortal__JwtAudience: peeronq-customer-portal
+      PeerOnQ__CustomerPortal__JwtSigningKey: ${PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY:?set PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY}
+      PeerOnQ__CustomerPortal__PortalBaseUrl: https://${PEERONQ_PORTAL_HOST:?set PEERONQ_PORTAL_HOST}
+      PeerOnQ__CustomerPortal__Mail__Provider: ${PEERONQ_CUSTOMER_MAIL_PROVIDER:-Disabled}
+      PeerOnQ__CustomerPortal__Mail__SmtpHost: ${PEERONQ_CUSTOMER_SMTP_HOST:-}
+      PeerOnQ__CustomerPortal__Mail__SmtpPort: ${PEERONQ_CUSTOMER_SMTP_PORT:-587}
+      PeerOnQ__CustomerPortal__Mail__SmtpUseTls: "true"
+      PeerOnQ__CustomerPortal__Mail__SmtpUsername: ${PEERONQ_CUSTOMER_SMTP_USERNAME:-}
+      PeerOnQ__CustomerPortal__Mail__SmtpPassword: ${PEERONQ_CUSTOMER_SMTP_PASSWORD:-}
+    restart: always
+
+  presence:
+    extends:
+      <<: *extends-development
+      service: presence
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      Region__Id: ${PEERONQ_REGION:?set PEERONQ_REGION}
+    restart: always
+
+  admin-api:
+    extends:
+      <<: *extends-development
+      service: admin-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      Region__Id: ${PEERONQ_REGION:?set PEERONQ_REGION}
+      PeerOnQ__AdminInfrastructureMetrics__PrometheusEndpoint: ${PEERONQ_ADMIN_PROMETHEUS_ENDPOINT:-}
+      PeerOnQ__AdminInfrastructureMetrics__AllowedHosts__0: ${PEERONQ_ADMIN_PROMETHEUS_ALLOWED_HOST:-}
+      PeerOnQ__AdminTokens__AllowMfaBypassForDevelopment: "false"
+      PeerOnQ__ReleasePublication__Enabled: "true"
+      PeerOnQ__ReleasePublication__PublicBaseUrl: https://${PEERONQ_UPDATE_HOST:?set PEERONQ_UPDATE_HOST}/
+      PeerOnQ__ReleasePublication__KeyId: ${PEERONQ_RELEASE_SIGNING_KEY_ID:?set PEERONQ_RELEASE_SIGNING_KEY_ID}
+      PeerOnQ__ReleasePublication__PublicKeySpkiBase64: ${PEERONQ_RELEASE_SIGNING_PUBLIC_KEY_SPKI_BASE64:?set PEERONQ_RELEASE_SIGNING_PUBLIC_KEY_SPKI_BASE64}
+      PeerOnQ__WebsitePublication__Enabled: "true"
+      PeerOnQ__WebsitePublication__KeyId: ${PEERONQ_WEBSITE_SIGNING_KEY_ID:?set PEERONQ_WEBSITE_SIGNING_KEY_ID}
+      PeerOnQ__WebsitePublication__PublicKeySpkiBase64: ${PEERONQ_WEBSITE_SIGNING_PUBLIC_KEY_SPKI_BASE64:?set PEERONQ_WEBSITE_SIGNING_PUBLIC_KEY_SPKI_BASE64}
+      PeerOnQ__PlatformUpgrade__Enabled: ${PEERONQ_PLATFORM_UPGRADE_ENABLED:-false}
+      PeerOnQ__PlatformUpgrade__RequestSpoolDirectory: /var/lib/peeronq/platform-upgrade/inbox
+      PeerOnQ__PlatformUpgrade__StatusDirectory: /var/lib/peeronq/platform-upgrade/status
+      PeerOnQ__PlatformUpgrade__MaximumBundleBytes: ${PEERONQ_PLATFORM_UPGRADE_MAXIMUM_BUNDLE_BYTES:-268435456}
+      AdminBootstrap__Enabled: ${PEERONQ_ADMIN_BOOTSTRAP_ENABLED:-false}
+      AdminBootstrap__Email: ${PEERONQ_ADMIN_BOOTSTRAP_EMAIL:-}
+      AdminBootstrap__Password: ${PEERONQ_ADMIN_BOOTSTRAP_PASSWORD:-}
+      AdminBootstrap__TotpSecretBase32: ${PEERONQ_ADMIN_BOOTSTRAP_TOTP_SECRET_BASE32:-}
+      AdminBootstrap__RecoveryCodes__0: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_1:-}
+      AdminBootstrap__RecoveryCodes__1: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_2:-}
+      AdminBootstrap__RecoveryCodes__2: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_3:-}
+      AdminBootstrap__RecoveryCodes__3: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_4:-}
+      AdminBootstrap__RecoveryCodes__4: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_5:-}
+      AdminBootstrap__RecoveryCodes__5: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_6:-}
+      AdminBootstrap__RecoveryCodes__6: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_7:-}
+      AdminBootstrap__RecoveryCodes__7: ${PEERONQ_ADMIN_BOOTSTRAP_RECOVERY_CODE_8:-}
+      PeerOnQ__AdminDataProtection__AllowUnprotectedKeysForDevelopment: "false"
+      PeerOnQ__AdminDataProtection__CertificatePath: /run/secrets/peeronq_admin_data_protection_certificate
+      PeerOnQ__AdminDataProtection__CertificatePasswordFile: /run/secrets/peeronq_admin_data_protection_password
+    secrets:
+      - peeronq_alertmanager_webhook_token
+      - peeronq_admin_data_protection_certificate
+      - peeronq_admin_data_protection_password
+    volumes:
+      - /var/lib/peeronq/platform-upgrade/inbox:/var/lib/peeronq/platform-upgrade/inbox
+      - /var/lib/peeronq/platform-upgrade/status:/var/lib/peeronq/platform-upgrade/status:ro
+    restart: always
+
+  downloads:
+    extends:
+      <<: *extends-development
+      service: downloads
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      Region__Id: ${PEERONQ_REGION:?set PEERONQ_REGION}
+    restart: always
+
+  signaling:
+    extends:
+      <<: *extends-development
+      service: signaling
+    environment:
+      ASPNETCORE_ENVIRONMENT: Staging
+      AllowedHosts: ${PEERONQ_SIGNAL_HOST:?set PEERONQ_SIGNAL_HOST};signaling
+      Signaling__ServerId: ${PEERONQ_SIGNAL_SERVER_ID:?set PEERONQ_SIGNAL_SERVER_ID}
+      Signaling__Turn__Region: ${PEERONQ_REGION:?set PEERONQ_REGION}
+      Signaling__Turn__ServerId: ${PEERONQ_TURN_SERVER_ID:?set PEERONQ_TURN_SERVER_ID}
+      Signaling__Turn__SharedSecret: ""
+      Signaling__Turn__SharedSecretFile: /run/secrets/peeronq_turn_shared_secret
+      Signaling__Turn__TurnUrls__2: turns:${PEERONQ_TURN_PUBLIC_HOST:?set PEERONQ_TURN_PUBLIC_HOST}:5349?transport=tcp
+      Signaling__Attestation__Required: "true"
+      Signaling__Attestation__AllowDevelopmentTofuFallback: "false"
+      Signaling__Attestation__Issuer: ${PEERONQ_SIGNALING_ATTESTATION_ISSUER:?set PEERONQ_SIGNALING_ATTESTATION_ISSUER}
+      Signaling__Attestation__Audience: ${PEERONQ_SIGNALING_ATTESTATION_AUDIENCE:-peeronq-signaling}
+    secrets:
+      - peeronq_turn_shared_secret
+      - peeronq_signaling_attestation_public_key
+    group_add:
+      - "65534"
+    restart: always
+
+  signaling-metrics:
+    extends:
+      <<: *extends-development
+      service: signaling-metrics
+    restart: always
+
+  turn:
+    extends:
+      <<: *extends-development
+      service: turn
+    environment:
+      PEERONQ_TURN_EXTERNAL_IP: ${PEERONQ_TURN_EXTERNAL_IP:?set PEERONQ_TURN_EXTERNAL_IP}
+      PEERONQ_TURN_SHARED_SECRET: ""
+      PEERONQ_TURN_ALLOW_PRIVATE_PEERS: "false"
+      PEERONQ_TURN_REQUIRE_TLS: "true"
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49160-49200:49160-49200/udp"
+    volumes:
+      - ${PEERONQ_TURN_CERT_DIR:?set PEERONQ_TURN_CERT_DIR}:/certs:ro
+    secrets:
+      - peeronq_turn_shared_secret
+    restart: always
+
+  admin-ui:
+    extends:
+      <<: *extends-development
+      service: admin-ui
+    restart: always
+
+  portal-ui:
+    extends:
+      <<: *extends-development
+      service: portal-ui
+    restart: always
+
+  web-ui:
+    extends:
+      <<: *extends-development
+      service: web-ui
+    restart: always
+
+  release-storage-init:
+    extends:
+      <<: *extends-development
+      service: release-storage-init
+
+  diagnostic-storage-init:
+    extends:
+      <<: *extends-development
+      service: diagnostic-storage-init
+
+  customer-storage-init:
+    extends:
+      <<: *extends-development
+      service: customer-storage-init
+
+  website-storage-init:
+    extends:
+      <<: *extends-development
+      service: website-storage-init
+
+  website-platform-state:
+    extends:
+      <<: *extends-development
+      service: website-platform-state
+
+  migrations:
+    extends:
+      <<: *extends-development
+      service: migrations
+
+  database-permissions:
+    extends:
+      <<: *extends-development
+      service: database-permissions
+
+  postgres:
+    extends:
+      <<: *extends-development
+      service: postgres
+    restart: always
+
+  redis:
+    extends:
+      <<: *extends-development
+      service: redis
+    restart: always
+
+  otel-collector:
+    extends:
+      <<: *extends-development
+      service: otel-collector
+    environment:
+      PEERONQ_ENVIRONMENT: Staging
+      PEERONQ_REGION: ${PEERONQ_REGION:?set PEERONQ_REGION}
+    restart: always
+
+  prometheus:
+    extends:
+      <<: *extends-development
+      service: prometheus
+    ports:
+      - "127.0.0.1:${PEERONQ_PROMETHEUS_PORT:-9090}:9090"
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=30d, --web.enable-lifecycle, "--web.external-url=https://${PEERONQ_PROMETHEUS_HOST:?set PEERONQ_PROMETHEUS_HOST}/"]
+    restart: always
+
+  blackbox-exporter:
+    extends:
+      <<: *extends-development
+      service: blackbox-exporter
+    restart: always
+
+  alertmanager:
+    extends:
+      <<: *extends-development
+      service: alertmanager
+    volumes:
+      - ${PEERONQ_ALERTMANAGER_CONFIG:?set PEERONQ_ALERTMANAGER_CONFIG}:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    group_add:
+      - "1654"
+    restart: always
+
+  loki:
+    extends:
+      <<: *extends-development
+      service: loki
+    restart: always
+
+  tempo:
+    extends:
+      <<: *extends-development
+      service: tempo
+    restart: always
+
+  grafana:
+    extends:
+      <<: *extends-development
+      service: grafana
+    environment:
+      GF_SERVER_ROOT_URL: https://${PEERONQ_GRAFANA_HOST:?set PEERONQ_GRAFANA_HOST}/
+    ports:
+      - "127.0.0.1:${PEERONQ_GRAFANA_PORT:-3000}:3000"
+    restart: always
+
+  node-exporter:
+    extends:
+      <<: *extends-development
+      service: node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro,rslave
+      - node-exporter-textfile:/var/lib/node_exporter/textfile_collector:ro
+    restart: always
+
+  backup:
+    extends:
+      <<: *extends-development
+      service: backup
+
+  restore-test:
+    extends:
+      <<: *extends-development
+      service: restore-test
+
+secrets:
+  peeronq_tls_private_key:
+    file: ${PEERONQ_TLS_PRIVATE_KEY_FILE:?set PEERONQ_TLS_PRIVATE_KEY_FILE}
+  peeronq_postgres_backup_pgpass:
+    file: ${PEERONQ_POSTGRES_BACKUP_PGPASS_FILE:?set PEERONQ_POSTGRES_BACKUP_PGPASS_FILE}
+  peeronq_postgres_restore_pgpass:
+    file: ${PEERONQ_POSTGRES_RESTORE_PGPASS_FILE:?set PEERONQ_POSTGRES_RESTORE_PGPASS_FILE}
+  peeronq_alertmanager_webhook_token:
+    file: ${PEERONQ_ALERTMANAGER_WEBHOOK_TOKEN_FILE:?set PEERONQ_ALERTMANAGER_WEBHOOK_TOKEN_FILE}
+  peeronq_grafana_admin_password:
+    file: ${PEERONQ_GRAFANA_ADMIN_PASSWORD_FILE:?set PEERONQ_GRAFANA_ADMIN_PASSWORD_FILE}
+  peeronq_turn_shared_secret:
+    file: ${PEERONQ_TURN_SHARED_SECRET_FILE:?set PEERONQ_TURN_SHARED_SECRET_FILE}
+  peeronq_admin_data_protection_certificate:
+    file: ${PEERONQ_ADMIN_DATA_PROTECTION_CERTIFICATE_FILE:?set PEERONQ_ADMIN_DATA_PROTECTION_CERTIFICATE_FILE}
+  peeronq_admin_data_protection_password:
+    file: ${PEERONQ_ADMIN_DATA_PROTECTION_PASSWORD_FILE:?set PEERONQ_ADMIN_DATA_PROTECTION_PASSWORD_FILE}
+  peeronq_signaling_attestation_private_key:
+    file: ${PEERONQ_SIGNALING_ATTESTATION_PRIVATE_KEY_FILE:?set PEERONQ_SIGNALING_ATTESTATION_PRIVATE_KEY_FILE}
+  peeronq_signaling_attestation_public_key:
+    file: ${PEERONQ_SIGNALING_ATTESTATION_PUBLIC_KEY_FILE:?set PEERONQ_SIGNALING_ATTESTATION_PUBLIC_KEY_FILE}
+
+networks:
+  edge:
+  control:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.60.0/24
+          ip_range: 172.29.60.128/25
+  observability:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.61.0/24
+          ip_range: 172.29.61.128/25
+  management:
+
+volumes:
+  postgres-data:
+  redis-data:
+  signaling-data:
+  prometheus-data:
+  alertmanager-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
+  node-exporter-textfile:
+  downloads-verified-cache:
+  release-artifacts:
+  diagnostic-artifacts:
+  website-releases:
+  customer-data-protection:
+  customer-mail:
