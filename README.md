@@ -196,7 +196,7 @@ Double-click these in Explorer, or run them from a terminal with the `.\` prefix
 
 | Script | What it does |
 | --- | --- |
-| `peeronq-start.bat` | Starts/rebuilds Phase 6, applies migrations/grants, starts <http://localhost:5555>, then opens the preview and Admin console |
+| `peeronq-start.bat` | Starts/rebuilds the configured LAN stack and Phase 6, applies migrations/grants, starts <http://localhost:5555>, then opens all six development interfaces |
 | `peeronq-stop.bat` | Stops the scoped preview and Phase 6 containers while preserving PostgreSQL/Redis volumes |
 | `peeronq-restart.bat` | Restarts and rebuilds the complete development workspace |
 | `peeronq-status.bat` | Shows preview ownership, Admin/API and observability readiness, plus all Phase 6 containers |
@@ -205,6 +205,11 @@ All four invoke [scripts/windows/peeronq-workspace-dev.ps1](scripts/windows/peer
 which keeps the scoped web controller and Phase 6 Compose controller separate. Run
 `scripts/windows/peeronq-dev.ps1` directly only when intentionally working on the offline preview
 without Docker.
+
+After the services are ready, `start` and `restart` open the public website, desktop UI preview
+(`/desktop-preview`), Admin console, account portal, Grafana and Prometheus in the default browser.
+The configured Phase 6 HTTPS and Prometheus ports are used, including quoted values in `.env`.
+If startup fails, `peeronq-start.bat` keeps its window open so the error can be read.
 
 **Scope guarantees — these scripts never touch anything outside this folder:**
 
@@ -226,8 +231,8 @@ Other notes:
   so a bare `peeronq-start.bat` is not found from the current directory.
 - The `peeronq-` prefix is deliberate: a plain `stop.bat` collides with
   `C:\Program Files\ConfigCure Lens\stop.bat`, which is on PATH.
-- The dev server runs in a minimized `cmd` window; its output is the place to look if a start
-  attempt times out.
+- The dev server runs in the background. Startup output is written to
+  `.peeronq-run/dev-server.stdout.log` and `.peeronq-run/dev-server.stderr.log`.
 
 Frontend env vars (`artifacts/peeronq/.env.example`):
 

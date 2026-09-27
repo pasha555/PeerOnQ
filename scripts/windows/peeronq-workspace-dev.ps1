@@ -42,11 +42,14 @@ function Get-ConfiguredPort([string]$name, [int]$defaultValue) {
     if (-not (Test-Path -LiteralPath $Phase6EnvironmentFile)) { return $defaultValue }
     $escapedName = [Regex]::Escape($name)
     foreach ($line in [IO.File]::ReadAllLines($Phase6EnvironmentFile)) {
-        if ($line -notmatch "^\s*$escapedName\s*=\s*(\d+)\s*$") { continue }
+        if ($line -notmatch "^\s*$escapedName\s*=\s*(.*)$") { continue }
+        $raw = $Matches[1].Trim().Trim('"').Trim("'")
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $defaultValue }
         $parsed = 0
-        if ([int]::TryParse($Matches[1], [ref]$parsed) -and $parsed -ge 1024 -and $parsed -le 65535) {
+        if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -ge 1024 -and $parsed -le 65535) {
             return $parsed
         }
+        throw "$name must be a port from 1024 through 65535."
     }
     return $defaultValue
 }
@@ -178,6 +181,7 @@ function Open-WorkspacePages {
     $prometheusPort = Get-ConfiguredPort 'PEERONQ_PROMETHEUS_PORT' 9090
     $pages = @(
         [pscustomobject]@{ Name = 'Public website'; Url = 'http://localhost:5555/' },
+        [pscustomobject]@{ Name = 'Desktop UI preview'; Url = 'http://localhost:5555/desktop-preview' },
         [pscustomobject]@{ Name = 'Admin console'; Url = "https://admin.dev.localhost:$httpsPort/" },
         [pscustomobject]@{ Name = 'Account portal'; Url = "https://portal.dev.localhost:$httpsPort/" },
         [pscustomobject]@{ Name = 'Grafana'; Url = "https://grafana.dev.localhost:$httpsPort/" },

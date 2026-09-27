@@ -465,6 +465,7 @@ function Invoke-Start {
     if (-not (Wait-ForUrl 'Cloud API' $CloudHealthUrl 30)) { return 1 }
     if (-not (Wait-ForUrl 'Account portal' $PortalUrl 30)) { return 1 }
     if (-not (Wait-ForUrl 'Grafana' "$GrafanaUrl/api/health" 30)) { return 1 }
+    if (-not (Wait-ForUrl 'Prometheus' "$PrometheusUrl/-/ready" 30)) { return 1 }
 
     Write-Host ''
     Write-Host "Admin console : $AdminUrl" -ForegroundColor Green

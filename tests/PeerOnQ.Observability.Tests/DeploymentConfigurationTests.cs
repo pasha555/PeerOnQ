@@ -162,6 +162,7 @@ public sealed class DeploymentConfigurationTests
         Assert.Contains("WaitForExit($timeoutMilliseconds)", workspace, StringComparison.Ordinal);
         Assert.Contains("-ConfigureFirewall", workspace, StringComparison.Ordinal);
         Assert.Contains("http://localhost:5555/", workspace, StringComparison.Ordinal);
+        Assert.Contains("http://localhost:5555/desktop-preview", workspace, StringComparison.Ordinal);
         Assert.Contains("https://admin.dev.localhost:$httpsPort/", workspace, StringComparison.Ordinal);
         Assert.Contains("https://portal.dev.localhost:$httpsPort/", workspace, StringComparison.Ordinal);
         Assert.Contains("https://grafana.dev.localhost:$httpsPort/", workspace, StringComparison.Ordinal);
@@ -174,6 +175,7 @@ public sealed class DeploymentConfigurationTests
         Assert.Contains("label=com.docker.compose.project", phase6, StringComparison.Ordinal);
         Assert.Contains("PEERONQ_SIGNALING_ATTESTATION_PUBLIC_KEY_FILE", phase6, StringComparison.Ordinal);
         Assert.Contains("Wait-ForUrl 'Grafana' \"$GrafanaUrl/api/health\"", phase6, StringComparison.Ordinal);
+        Assert.Contains("Wait-ForUrl 'Prometheus' \"$PrometheusUrl/-/ready\"", phase6, StringComparison.Ordinal);
         Assert.Contains(
             "$env:VITE_PEERONQ_GRAFANA_URL = \"https://grafana.dev.localhost:$phase6HttpsPort\"",
             preview,

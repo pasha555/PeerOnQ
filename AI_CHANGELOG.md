@@ -30,6 +30,38 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Open every development interface from the Windows launcher
+
+Task:
+- Make peeronq-start.bat open the website, Admin and all existing development interfaces.
+Files changed:
+- Start BAT; workspace, Phase 6 and preview controllers; deployment regression checks;
+  README, PROJECT_MAP and this record.
+Reason:
+- The workspace already opened five interfaces after startup, but omitted the desktop UI preview.
+  It now opens six distinct pages and waits for Prometheus readiness alongside the other services.
+- Workspace/preview URLs now accept the same quoted custom ports as Phase 6 and reject invalid
+  values instead of opening an unrelated default port. Startup errors remain visible on double-click.
+- The preview runs hidden with stdout/stderr under ignored .peeronq-run; its tracked launcher exits
+  if pnpm exits, allowing the existing readiness/ownership guard to report failure promptly.
+Validation:
+- PowerShell syntax checks and all 16 deployment-configuration tests passed.
+- Both port readers passed 18 isolated cases covering defaults, quoted/plain ports and invalid
+  values. Browser failure continuation was reviewed statically.
+- Actual peeronq-start.bat completed with exit code 0 and launched all six browser URLs after
+  readiness checks. All six returned HTTP 200 with normal redirects followed and TLS verification
+  enabled. The tracked preview remained healthy after the launcher exited.
+- Live testing caught an inherited-pipe stall in an initial logging implementation; moving log
+  redirection inside the detached cmd process fixed it, and the complete launcher was rerun successfully.
+- Working-tree secret scanning and git diff whitespace checks passed. No application version or
+  installer was changed.
+Risk:
+- Full startup retains the existing Docker rebuild, migration and required local configuration
+  behavior; browser pages open only after successful service startup. Admin authentication remains required.
+Rollback:
+- Revert this task's launcher/controller, regression-check and documentation changes together;
+  local databases, certificates, credentials and client packages are unchanged by the source patch.
+
 ## 2026-09-27 - Publish the open-source repository on GitHub
 
 Task:

@@ -41,6 +41,8 @@ $Port       = 5555
 $Url        = "http://localhost:$Port"
 $StateDir   = Join-Path $RepoRoot '.peeronq-run'
 $PidFile    = Join-Path $StateDir 'dev-server.pid'
+$StdoutLog  = Join-Path $StateDir 'dev-server.stdout.log'
+$StderrLog  = Join-Path $StateDir 'dev-server.stderr.log'
 $DownloadReleaseStateFile = Join-Path $StateDir 'windows-download-release.json'
 $DevCommand = 'pnpm --filter @workspace/peeronq run dev'
 $Marker     = '@workspace/peeronq'
@@ -49,12 +51,15 @@ $Phase6EnvironmentFile = Join-Path $RepoRoot 'src\PeerOnQ.Infrastructure.Deploym
 function Get-Phase6Port([string]$name, [int]$defaultValue) {
     if (-not (Test-Path -LiteralPath $Phase6EnvironmentFile)) { return $defaultValue }
     $escapedName = [Regex]::Escape($name)
-    foreach ($line in [IO.File]::ReadLines($Phase6EnvironmentFile)) {
-        if ($line -notmatch "^\s*$escapedName\s*=\s*(\d+)\s*$") { continue }
+    foreach ($line in [IO.File]::ReadAllLines($Phase6EnvironmentFile)) {
+        if ($line -notmatch "^\s*$escapedName\s*=\s*(.*)$") { continue }
+        $raw = $Matches[1].Trim().Trim('"').Trim("'")
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $defaultValue }
         $parsed = 0
-        if ([int]::TryParse($Matches[1], [ref]$parsed) -and $parsed -ge 1024 -and $parsed -le 65535) {
+        if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -ge 1024 -and $parsed -le 65535) {
             return $parsed
         }
+        throw "$name must be a port from 1024 through 65535."
     }
     return $defaultValue
 }
@@ -310,10 +315,13 @@ function Invoke-Start {
     Write-Host "Phase 6 Admin console: $env:VITE_PEERONQ_ADMIN_PANEL_URL"
 
     Write-Host 'Launching the dev server ...'
+    # Redirect inside the detached cmd process. Start-Process -RedirectStandardOutput would
+    # inherit the controller's pipeline handles and keep the workspace waiting after we exit.
+    $launchArguments = '/d /s /c "' + $DevCommand + ' 1>"' + $StdoutLog + '" 2>"' + $StderrLog + '""'
     $proc = Start-Process -FilePath "$env:SystemRoot\System32\cmd.exe" `
-                          -ArgumentList '/k', $DevCommand `
+                          -ArgumentList $launchArguments `
                           -WorkingDirectory $RepoRoot `
-                          -WindowStyle Minimized `
+                          -WindowStyle Hidden `
                           -PassThru
 
     Set-Content -Path $PidFile -Value $proc.Id -Encoding ascii
@@ -325,7 +333,7 @@ function Invoke-Start {
         Start-Sleep -Seconds 1
 
         if ($proc.HasExited) {
-            Write-Host '[ERROR] The dev server window exited. Check the minimized cmd window.' -ForegroundColor Red
+            Write-Host "[ERROR] The dev server exited. Check $StdoutLog and $StderrLog." -ForegroundColor Red
             Remove-PidFile
             return 1
         }
@@ -357,7 +365,7 @@ function Invoke-Start {
     }
 
     Write-Host '[ERROR] The server did not start within 90 seconds.' -ForegroundColor Red
-    Write-Host '        Check the minimized "cmd" window for the pnpm output.' -ForegroundColor Red
+    Write-Host "        Check $StdoutLog and $StderrLog for the pnpm output." -ForegroundColor Red
     return 1
 }
 

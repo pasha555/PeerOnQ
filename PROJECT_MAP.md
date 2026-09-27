@@ -235,7 +235,7 @@ scripts/              Workspace scripts (post-merge.sh, src/hello.ts)
 .agents/skills/      Repository-scoped Codex skills: production engineering and UI/UX design intelligence
 .vscode/settings.json Workspace Fallow integration: loads the repository config and omits historical Git-churn candidates from the live editor health view
 .fallowrc.json        Fallow analysis boundaries: excludes throwaway/vendored/generated noise
-peeronq-start.bat     Windows: start a configured Phase 3 LAN stack, build/start Phase 6 plus the preview, then open the public site, Admin, Portal, Grafana and Prometheus UIs
+peeronq-start.bat     Windows: start a configured Phase 3 LAN stack, build/start Phase 6 plus the preview, then open the public site, desktop preview, Admin, Portal, Grafana and Prometheus UIs; retain startup errors on double-click
 peeronq-stop.bat      Windows: stop scoped preview/Phase 6/configured Phase 3 processes while preserving their state and volumes
 peeronq-restart.bat   Windows: restart the complete development workspace
 peeronq-status.bat    Windows: report preview, Phase 6 endpoints and container health
