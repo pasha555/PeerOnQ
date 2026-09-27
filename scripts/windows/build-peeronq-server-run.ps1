@@ -20,6 +20,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 . (Join-Path $PSScriptRoot 'PeerOnQ.ClientVersion.ps1')
+[void](Assert-PeerOnQClientVersion -Version ([version]$Version) -RepositoryRoot $repoRoot -Context 'Server bundle')
 if (-not $OutputDirectory) {
     $OutputDirectory = Join-Path $repoRoot 'dist\server'
 }
@@ -129,7 +130,7 @@ try {
         }
 
         & (Join-Path $PSScriptRoot 'test-phase5-installer.ps1') `
-            -MsiPath $windowsMsi -Architecture x64 -SkipAdministrativeExtraction
+            -MsiPath $windowsMsi -Architecture x64 -ExpectedVersion ([version]$Version) -SkipAdministrativeExtraction
 
         if (-not $WindowsClientVersion) {
             $versionMatch = [regex]::Match([IO.Path]::GetFileName($windowsMsi), '(?<![0-9])(?<version>[0-9]+\.[0-9]+\.[0-9]+)(?![0-9])')

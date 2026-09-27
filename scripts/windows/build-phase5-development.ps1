@@ -222,6 +222,7 @@ foreach ($architecture in $architecturesToBuild) {
     & (Join-Path $PSScriptRoot 'test-phase5-installer.ps1') `
         -MsiPath $builtMsi `
         -Architecture $architecture `
+        -ExpectedVersion $Version `
         -ExpectedPublishDirectory $publish
     if ($LASTEXITCODE -ne 0) { throw 'Installer payload validation failed.' }
     Copy-Item -LiteralPath $builtMsi `

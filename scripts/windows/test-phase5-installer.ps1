@@ -3,6 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$MsiPath,
     [Parameter(Mandatory)][ValidateSet('x64', 'arm64')][string]$Architecture,
+    [version]$ExpectedVersion,
     [string]$ExpectedPublishDirectory,
     [switch]$RequireTrustedSignature,
     [switch]$SkipAdministrativeExtraction
@@ -110,6 +111,9 @@ $database = New-Object WixToolset.Dtf.WindowsInstaller.Database(
 try {
     $properties = @{}
     foreach ($row in Read-Rows $database 'SELECT `Property`,`Value` FROM `Property`') { $properties[$row[0]] = $row[1] }
+    if ($ExpectedVersion -and $properties['ProductVersion'] -cne $ExpectedVersion.ToString(3)) {
+        throw "MSI ProductVersion $($properties['ProductVersion']) does not match expected release version $ExpectedVersion."
+    }
     if ($properties['ALLUSERS'] -ne '1' -or $properties.ContainsKey('MSIINSTALLPERUSER')) {
         throw 'MSI must use an explicit per-machine installation context.'
     }

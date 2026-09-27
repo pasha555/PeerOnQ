@@ -24,6 +24,9 @@ jobs:
       - name: Canonical Windows client version invariant
         shell: pwsh
         run: ./scripts/windows/test-peeronq-client-version-invariant.ps1
+      - name: Server and client release version invariant
+        shell: pwsh
+        run: ./scripts/windows/test-peeronq-server-run-invariant.ps1
       - name: Canonical Linux viewer version invariant
         shell: bash
         run: bash ./scripts/linux/test-peeronq-linux-viewer-version.sh

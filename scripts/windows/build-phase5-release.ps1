@@ -116,6 +116,7 @@ foreach ($architecture in @('x64', 'arm64')) {
         -MsiPath $packagePath `
         -Architecture $architecture `
         -ExpectedPublishDirectory $publishRoot `
+        -ExpectedVersion $Version `
         -RequireTrustedSignature
 
     $packageUrl = [uri]"$($UpdateBaseUrl.AbsoluteUri.TrimEnd('/'))/$Channel/$architecture/$packageName"

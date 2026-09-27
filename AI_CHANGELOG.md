@@ -30,6 +30,40 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Build matching server and Windows client release 0.9.68
+
+Task:
+- Apply the shared-version policy to actual server and client packages, not only documentation.
+Files changed:
+- Directory.Build.props; server/development/release builders; MSI validator and server invariant;
+  Quality workflow; PROJECT_MAP, CURRENT_STATE, DEPLOYMENT, deployment RELEASE_NOTES and this entry.
+Reason:
+- Advance the canonical version to 0.9.68 and Android/Apple codes to 9068. Reject a noncanonical
+  server version before staging and compare the actual MSI ProductVersion with the release version.
+  Run the server invariant in CI. Native behavior, endpoint metadata and protocols are unchanged.
+Validation:
+- Regression failed before the guard and passed afterward; actual 0.9.67 MSI rejected for 0.9.68.
+  Windows/Linux/Android/Apple version checks, native UI guard, 18 deployment tests, 86 public-site
+  tests, public-site typecheck/build and workflow formatting passed.
+- Fresh x64/ARM64 self-contained builds and MSI administrative extraction/payload hash validation
+  passed; both compiled app assemblies resolve to 0.9.68.0. Local website restarted with the matching
+  unsigned-public-pilot pair. Both complete HTTP downloads returned 200 and matched SHA256SUMS.txt;
+  both MSI ProductVersion values are 0.9.68.
+- Built dist/server/peeronq-server-0.9.68.run (79241812 bytes), with byte-exact release notes and
+  the validated x64 client. Verified 680 safe payload files, canonical source/embedded versions,
+  MSI/payload/bundle hashes and installer header bash -n.
+  Bundle SHA256: 9e8892705c78b38faa140a8b2b05ece4d2126eae0e4c9ae11182e818ac104fdd.
+- Repository secret scan (1105 files) and git diff --check passed. Generated packages and checksums
+  remain ignored; only source, tests and documentation are committed.
+Risk:
+- Controlled pilot candidate only: server GPG and client Authenticode signatures remain unavailable.
+  The prior two GitHub WebRTC latency failures are not resolved by version alignment. No production
+  deployment, DNS/TLS/reachability or physical-device testing; full .NET/Admin/portal/performance
+  suites were not repeated for this packaging change. Installed devices do not update automatically.
+Rollback:
+- Revert this source change and restore the retained verified download pair, then restart the local
+  preview. Retain immutable artifacts; production hosts and databases were not modified.
+
 ## 2026-09-27 - Record unified server and client release versions
 
 Task:

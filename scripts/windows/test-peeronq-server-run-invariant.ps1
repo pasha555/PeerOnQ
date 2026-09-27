@@ -1,9 +1,12 @@
-<# Verifies that a server bundle cannot be built without an explicit Windows MSI. #>
+<# Verifies canonical server/client versions, mandatory MSI and safe bundle publication. #>
 [CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
 $builder = Join-Path $PSScriptRoot 'build-peeronq-server-run.ps1'
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+. (Join-Path $PSScriptRoot 'PeerOnQ.ClientVersion.ps1')
+$canonicalVersion = Get-PeerOnQClientVersion -RepositoryRoot $repoRoot
 $tokens = $null
 $parseErrors = $null
 [void][Management.Automation.Language.Parser]::ParseFile($builder, [ref]$tokens, [ref]$parseErrors)
@@ -39,7 +42,17 @@ try {
         }
     }
 
-    $result = Invoke-BuilderProbe '0.0.0' $temporary
+    foreach ($mismatchedVersion in @('0.0.0', "$($canonicalVersion.Major).$($canonicalVersion.Minor).$($canonicalVersion.Build + 1)")) {
+        $result = Invoke-BuilderProbe $mismatchedVersion $temporary '-WindowsClientMsiPath missing.msi'
+        if ($result.ExitCode -eq 0 -or $result.Output -notmatch 'Server bundle version .* does not match canonical Windows client version') {
+            throw "Server/client version mismatch did not fail before staging or MSI access: $($result.Output)"
+        }
+    }
+    if (Get-ChildItem -LiteralPath $temporary -Force) {
+        throw 'A rejected server/client version mismatch must not create output files or staging directories.'
+    }
+
+    $result = Invoke-BuilderProbe $canonicalVersion.ToString(3) $temporary
     if ($result.ExitCode -eq 0) {
         throw 'Server bundle builder unexpectedly succeeded without -WindowsClientMsiPath.'
     }
@@ -50,7 +63,7 @@ try {
         throw 'A failed version or mandatory-MSI invariant check must not leave a server bundle artifact.'
     }
 
-    $result = Invoke-BuilderProbe '0.0.0' $temporary '-RequireSignature'
+    $result = Invoke-BuilderProbe $canonicalVersion.ToString(3) $temporary '-RequireSignature'
     if ($result.ExitCode -eq 0 -or $result.Output -notmatch 'GPG key ID is required') {
         throw "-RequireSignature did not fail closed before publication: $($result.Output)"
     }
@@ -59,6 +72,9 @@ try {
     }
 
     $builderText = [IO.File]::ReadAllText($builder)
+    if ($builderText.IndexOf('-ExpectedVersion ([version]$Version)', [StringComparison]::Ordinal) -lt 0) {
+        throw 'The embedded MSI ProductVersion must be validated against the server release version.'
+    }
     foreach ($payloadEntry in @(
         'artifacts/peeronq-portal',
         'scripts/linux/peeronq-platform-upgrade-agent.sh',

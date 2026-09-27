@@ -10,16 +10,16 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <Product>PeerOnQ</Product>
     <Company>PeerOnQ</Company>
-    <!-- Single source of truth for every distributable Windows client surface. -->
-    <PeerOnQWindowsClientVersion>0.9.67</PeerOnQWindowsClientVersion>
+    <!-- Single source of truth for server bundles and every distributable client surface. -->
+    <PeerOnQWindowsClientVersion>0.9.68</PeerOnQWindowsClientVersion>
     <!-- Linux preview builds share the product source version but retain an independent release gate. -->
     <PeerOnQLinuxClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQLinuxClientVersion>
     <!-- Android preview builds share the source version and use a monotonic Play-compatible code. -->
     <PeerOnQAndroidClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQAndroidClientVersion>
-    <PeerOnQAndroidClientVersionCode>9067</PeerOnQAndroidClientVersionCode>
+    <PeerOnQAndroidClientVersionCode>9068</PeerOnQAndroidClientVersionCode>
     <!-- Apple source previews share the source version and use one monotonic App Store bundle code. -->
     <PeerOnQAppleClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQAppleClientVersion>
-    <PeerOnQAppleClientVersionCode>9067</PeerOnQAppleClientVersionCode>
+    <PeerOnQAppleClientVersionCode>9068</PeerOnQAppleClientVersionCode>
   </PropertyGroup>
 
 </Project>

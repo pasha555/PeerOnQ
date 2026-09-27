@@ -475,7 +475,9 @@ that value once and advance the server and derived client versions together, eve
 website or portal behavior changed. Build and validate matching Windows x64/ARM64 packages and
 embed the validated x64 MSI in a server bundle with the same version. Release notes must distinguish
 client behavior changes from a version-only rebuild. Reject mismatched versions before publication;
-do not rename an older artifact to make it appear current. Historical packages retain their original
+the server builder checks its `-Version` against the canonical version before any payload staging.
+It also verifies the MSI's internal `ProductVersion`, so an older MSI with a renamed filename fails.
+Do not rename an older artifact to make it appear current. Historical packages retain their original
 versions. An explicitly scoped website-only patch remains version-neutral. This policy does not
 waive signing, physical-device or other release gates, or require a version bump for each source commit.
 
