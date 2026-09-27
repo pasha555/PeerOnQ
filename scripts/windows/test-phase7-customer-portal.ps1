@@ -6,7 +6,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$BaseUrl = 'https://127.0.0.1:8443',
+    [string]$BaseUrl = 'https://portal.dev.localhost:8443',
     [string]$VirtualHost = 'portal.dev.localhost',
     [string]$CloudContainer = 'peeronq-phase6-development-cloud-api-1',
     [switch]$SkipDataProtectionRestart

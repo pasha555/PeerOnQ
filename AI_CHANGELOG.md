@@ -30,6 +30,40 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Public customer portal ingress and operator boundary validation
+
+Task:
+- Reconcile production customer Portal exposure with existing authentication and verify ingress isolation.
+Files changed:
+- Nginx default/template and validator; bootstrap help, env example, Phase 7 harness default;
+  deployment/customer-security tests; DEPLOYMENT, PROJECT_MAP and this record. No API routes changed.
+Reason:
+- Main cdc8742 already removed the portal CIDR restriction, but deployment guidance, bootstrap help
+  and the CIDR map still classified Portal as an operator-only host.
+- Added missing HTTPS default-host rejection and blocked public metrics proxying through the existing
+  API/Presence/Downloads catch-all routes. Website/Portal also reject metrics paths. Internal scrapes,
+  three operator CIDR rules, Prometheus GET/HEAD restriction and all customer auth behavior remain.
+- Documented public Portal DNS/TLS/operator acceptance; bootstrap/import/renewal already include Portal.
+  The local Phase 7 harness now uses a named HTTPS origin compatible with the strict SNI boundary.
+Validation:
+- DeploymentConfigurationTests 18/18 and CustomerPortalSecurityTests 12/12 passed in Release.
+  The new ingress regression first failed on the missing HTTPS default server before the fix.
+- Pinned Nginx 1.28.3-alpine syntax and runtime fixture checks passed: trusted certificate verification,
+  public apex/www/Portal, same-origin API path/method/Host forwarding and 401 propagation, security
+  headers, forbidden operator access/spoofed X-Forwarded-For, read-only Prometheus, public metrics
+  denial and unknown HTTP Host/TLS SNI rejection. No certificate-validation bypass remains in this test.
+- Production Compose merge validated with disposable example inputs: only HTTPS/TURN public ports,
+  internal data/telemetry networks, correct portal origin and preserved registration mode. Missing
+  Portal host or Admin CIDR rejected. Bootstrap/production Compose contract (including TLS) passed.
+- Phase 7 PowerShell syntax, git diff check and repository secret scan passed.
+Risk:
+- Local fixtures do not prove Internet DNS/TLS/reachability or real production account flows. No public
+  DNS, live deployment, registration policy, credentials or installed packages changed. External
+  operator rollout/acceptance remains required; publish portal.peeronq.com to the public TLS ingress.
+Rollback:
+- Revert this commit and redeploy the previous verified configuration; no schema/data rollback.
+  The preceding commit already exposes Portal; reverting this change does not privatize it.
+
 ## 2026-09-27 - Unify public website and customer portal presentation
 
 Task:

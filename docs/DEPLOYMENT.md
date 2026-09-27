@@ -75,18 +75,52 @@ The `api` host serves the client Cloud API. The `portal` host serves the custome
 only `/portal/v1/*` to Cloud, preserving same-origin customer cookies. The `admin` host serves both
 the Admin SPA and its same-origin `/admin/v1` API through the management proxy; do not point the
 Admin SPA at the Cloud API host. Publish the client-facing names to the TLS ingress only after it
-accepts TCP 443 and presents a certificate covering them. Keep `admin`, `portal`, `grafana`, and
-`prometheus` access private with split DNS and the shared proxy source-CIDR allowlist. Production
-internal DNS should map these names to the server LAN address:
+accepts TCP 443 and presents a certificate covering them. `peeronq.com`, `www`, `portal`, `api`,
+`download`, `updates`, `presence`, `signal`, and the required TURN endpoints are public user/client
+surfaces. Keep only `admin`, `grafana`, and `prometheus` access private with split DNS and the
+shared proxy source-CIDR allowlist. Production internal DNS should map these operator names to
+the server LAN address:
 
 | Internal name | LAN target | Public HTTPS behavior |
 | --- | --- | --- |
 | `admin.peeronq.com` | PeerOnQ server LAN IP | `403` outside the configured internal CIDR |
-| `portal.peeronq.com` | PeerOnQ server LAN IP | `403` outside the configured internal CIDR |
 | `grafana.peeronq.com` | PeerOnQ server LAN IP | `403` outside the configured internal CIDR; Grafana login still required |
 | `prometheus.peeronq.com` | PeerOnQ server LAN IP | `403` outside the configured internal CIDR; proxied access is read-only |
 
 A DNS record by itself does not deploy or expose a service.
+
+**DNS operator requirement:** publish `portal.peeronq.com` as an A record to the production public
+TLS ingress IPv4 address, or a CNAME to a hostname on that ingress. Do not leave it as a LAN-only
+record. Publish an AAAA record only when the same ingress is reachable and verified over IPv6.
+Set `PEERONQ_PORTAL_HOST=portal.peeronq.com`; route public TCP 443 to Nginx and deploy the current
+configuration. These source changes do not update public DNS, issue a certificate, or deploy a server.
+
+Customer requests stay at `https://portal.peeronq.com/portal/v1/*`. The existing
+`__Host-peeronq_customer_access`, `__Host-peeronq_customer_refresh`, and `__Host-peeronq_customer_csrf`
+cookies remain Secure, SameSite=Strict, Path=/ and host-only; access/refresh remain HttpOnly.
+The public website only navigates to the portal and neither reads nor shares those cookies.
+Customer/Admin identities, CSRF validation and rate limits remain separate and unchanged. No parent
+domain cookie, broad CORS rule or direct application port is needed. Public ingress does not change
+`Closed`, `InvitationOnly` or `Open` registration policy: existing accounts can sign in while the
+configured registration/mail/startup validation still applies.
+
+Bootstrap HTTP-01 requests `portal.$BASE_DOMAIN` in its SAN list; certificate import and renewal
+validate `PEERONQ_PORTAL_HOST` with every other configured name. An imported certificate must cover
+`portal.peeronq.com` explicitly or through the valid `*.peeronq.com` wildcard. Do not bypass TLS
+verification. After deployment, test from a separate Internet connection outside the operator CIDR:
+
+```bash
+dig +short portal.peeronq.com
+curl --fail --show-error --head https://portal.peeronq.com/
+curl --silent --show-error --output /dev/null --write-out '%{http_code}\n' \
+  https://portal.peeronq.com/portal/v1/account/profile
+```
+
+Verify the DNS answer belongs to the intended ingress, certificate trust/name/expiry pass, the SPA
+returns 200, and the unauthenticated profile API returns 401. Then test login/logout, the configured
+registration mode, CSRF rejection and MFA with a controlled customer account. Confirm Admin,
+Grafana and Prometheus still return 403 from that external connection. Local fixture tests are not
+proof of public DNS, certificate issuance, Internet reachability or a real account login.
 
 Production also needs `www.peeronq.com`. Diagnostics use the authenticated Cloud API at
 `api.peeronq.com`; signed artifacts use `updates.peeronq.com`. Use short DNS TTLs during first
@@ -106,7 +140,7 @@ certificate-ignore switch to a client or browser build.
 
 ## Firewall
 
-- Forward public TCP 443 to the management-plane proxy. The website, Cloud API, Presence,
+- Forward public TCP 443 to the management-plane proxy. The website, customer Account Portal, Cloud API, Presence,
   Signaling WebSocket, downloads, and updates share this listener through TLS SNI/HTTP host routing.
 - Forward public TCP 80 to the same host when using the bundled Let's Encrypt HTTP-01 bootstrap and
   renewal flow. The production Compose stack does not publish this port continuously; standalone
@@ -131,12 +165,16 @@ certificate-ignore switch to a client or browser build.
 - A router rule label such as `peeronq.com` is descriptive unless the firewall explicitly provides
   an application-aware host/SNI filter. Ordinary NAT matches the public IP, protocol and port, so
   every HTTPS hostname on TCP 443 reaches Nginx. Nginx routes only the configured virtual hosts and
-  rejects `admin`, `portal`, `grafana`, and `prometheus` requests whose direct source is outside
+  rejects `admin`, `grafana`, and `prometheus` requests whose direct source is outside
   `PEERONQ_ADMIN_ALLOWED_CIDR`.
+- Unknown HTTP Host headers are closed without an application response; unknown TLS SNI names
+  are rejected during the handshake. Public web/portal/API/presence/download hosts reject `/metrics`
+  (including trailing paths and case variants); signaling/updates allow no such route. Internal
+  service metrics remain available only on the isolated service/observability networks.
 - Website-only exposure is not a functional remote-access deployment. Native clients require the
-  public API, Presence, Signaling, Downloads/Updates and TURN endpoints. Admin, Account Portal,
-  Grafana, Prometheus, PostgreSQL, Redis and the remaining observability/application listeners stay
-  private.
+  public API, Presence, Signaling, Downloads/Updates and TURN endpoints; customer accounts need
+  the public Account Portal. Admin, Grafana, Prometheus, PostgreSQL, Redis and the remaining direct
+  observability/application listeners stay private.
 - A timeout when the Ubuntu host itself curls `https://*.peeronq.com` does not prove that the public
   NAT rule is closed: many routers do not support NAT hairpin/loopback. Test public DNS/TLS from a
   separate Internet connection (for example a phone hotspot). On the server, use the installer's
@@ -546,9 +584,10 @@ timer only after public verification. Any failed deployment restores the previou
 renewal state, and edge services. After this one-time conversion, normal later platform bundles use
 the signed Admin upgrade flow without carrying the private key.
 
-The bundled HTTP-01 flow validates every certificate name, including the four internal surfaces;
+The bundled HTTP-01 flow validates every certificate name, including the three operator surfaces;
 those names must therefore resolve to `31.171.38.28` while issuance and renewal run. External HTTPS
-requests are still denied by the source-CIDR rule. If the management names must never exist in public
+requests to those three operator hosts are still denied by the source-CIDR rule. The customer Portal
+remains public. If the management names must never exist in public
 DNS, import a trusted SAN/wildcard certificate issued through DNS-01 or another external certificate
 workflow; then keep only their internal split-DNS records pointing to `10.20.10.46`.
 
@@ -558,10 +597,10 @@ codes only in `/etc/peeronq/admin-onboarding.txt` with mode `0600`. Read it as r
 secret, verify login at `https://admin.peeronq.com`, protect the recovery codes offline, then delete
 the onboarding file. The generated pilot update private key is not mounted into any container; move
 it to the offline Windows release workstation and remove the server copy before a real launch.
-The Admin, Portal, Grafana, and Prometheus virtual hosts evaluate the direct TCP source address and
+The Admin, Grafana, and Prometheus virtual hosts evaluate the direct TCP source address and
 return `403` outside `PEERONQ_ADMIN_ALLOWED_CIDR`; they never trust `X-Forwarded-For`. Configure split
-LAN DNS (or local hosts entries) so all four names resolve to `10.20.10.46` on internal devices.
-Public web, API, Presence, Signaling, Downloads, Updates, and TURN hosts remain reachable because the
+LAN DNS (or local hosts entries) so all three names resolve to `10.20.10.46` on internal devices.
+Public web, Account Portal, API, Presence, Signaling, Downloads, Updates, and TURN hosts remain reachable because the
 clients need them. Grafana remains authenticated, and the Prometheus proxy permits only GET/HEAD.
 
 The installer verifies its embedded payload, rejects symlink/path-traversal entries, and fails before

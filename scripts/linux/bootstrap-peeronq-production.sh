@@ -31,7 +31,7 @@ Required TLS choice (select one):
                            used unless --spaceship-dns-credentials is supplied.
                            Every certificate DNS name, including the internal surfaces,
                            must resolve to the public IP and TCP 80 must reach this server
-                           during issuance and renewal. Nginx still restricts them by CIDR.
+                           during issuance and renewal. Admin/Grafana/Prometheus stay CIDR-restricted.
   --tls-cert PATH --tls-key PATH
                             Import an existing full certificate chain and private key.
   --spaceship-dns-credentials DIR
@@ -45,7 +45,7 @@ Options:
   --base-domain DOMAIN     Default: peeronq.com
   --public-ip IPV4         Default: 31.171.38.28
   --local-ip IPV4          Server LAN IP; detected from the default route when omitted.
-  --admin-allowed-cidr CIDR Internal Admin/Portal/monitoring source allowlist.
+  --admin-allowed-cidr CIDR Internal Admin/Grafana/Prometheus source allowlist; Portal is public.
                            Default: the local IP's /24 LAN.
   --region REGION          Default: az-1
   --admin-email EMAIL      Initial Admin Panel login email.

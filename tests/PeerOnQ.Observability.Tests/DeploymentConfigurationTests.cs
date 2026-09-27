@@ -328,6 +328,12 @@ public sealed class DeploymentConfigurationTests
         Assert.Contains("PEERONQ_HTTPS_BIND_ADDRESS=0.0.0.0", bootstrap, StringComparison.Ordinal);
         Assert.DoesNotContain("PEERONQ_HTTPS_PORT=8443", bootstrap, StringComparison.Ordinal);
         Assert.Contains("-d \"portal.$BASE_DOMAIN\"", bootstrap, StringComparison.Ordinal);
+        foreach (var script in new[] { "peeronq-server-installer.sh", "renew-peeronq-tls.sh" })
+        {
+            var tls = Read($"scripts/linux/{script}");
+            Assert.Contains("PEERONQ_WEB_HOST PEERONQ_WEB_WWW_HOST PEERONQ_API_HOST PEERONQ_PORTAL_HOST", tls, StringComparison.Ordinal);
+            Assert.Contains("-verify_hostname", tls, StringComparison.Ordinal);
+        }
         Assert.Contains("PEERONQ_PORTAL_HOST: ${PEERONQ_PORTAL_HOST:?set PEERONQ_PORTAL_HOST}", staging, StringComparison.Ordinal);
         Assert.Contains("${PEERONQ_HTTPS_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_HTTPS_PORT:-8443}:443", development, StringComparison.Ordinal);
         Assert.Contains("- \"${PEERONQ_HTTPS_BIND_ADDRESS:-0.0.0.0}:443:443\"", staging, StringComparison.Ordinal);
@@ -352,6 +358,76 @@ public sealed class DeploymentConfigurationTests
         Assert.Contains("location /portal/v1/ { proxy_pass http://cloud_api; include /etc/nginx/proxy_params; }", portal, StringComparison.Ordinal);
         Assert.Contains("location / { proxy_pass http://portal_ui; include /etc/nginx/proxy_params; }", portal, StringComparison.Ordinal);
         Assert.Contains("server_name ${PEERONQ_WEB_HOST} ${PEERONQ_WEB_WWW_HOST};", nginx, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PublicIngress_RejectsUnknownHostsAndInternalMetrics()
+    {
+        var defaults = Read("src/PeerOnQ.Infrastructure.Deployment/nginx/default.conf");
+        var nginx = Normalize(Read("src/PeerOnQ.Infrastructure.Deployment/nginx/peeronq.conf.template"));
+        Assert.Contains("listen 80 default_server;", defaults, StringComparison.Ordinal);
+        Assert.Contains("listen 443 ssl default_server;", defaults, StringComparison.Ordinal);
+        Assert.Contains("ssl_reject_handshake on;", defaults, StringComparison.Ordinal);
+        Assert.Equal(2, defaults.Split("return 444;", StringSplitOptions.None).Length - 1);
+        var validator = Read("src/PeerOnQ.Infrastructure.Deployment/scripts/validate-nginx.sh");
+        Assert.Contains("--cacert /certs/fullchain.pem", validator, StringComparison.Ordinal);
+        Assert.DoesNotContain("--no-check-certificate", validator, StringComparison.Ordinal);
+        Assert.DoesNotContain("--insecure", validator, StringComparison.Ordinal);
+
+        foreach (var host in new[] { "WEB", "PORTAL", "API", "PRESENCE", "DOWNLOAD" })
+        {
+            var server = Assert.Single(nginx.Split("\nserver {", StringSplitOptions.None),
+                block => block.Contains($"server_name ${{PEERONQ_{host}_HOST}}", StringComparison.Ordinal)
+                    && block.Contains("listen 443 ssl;", StringComparison.Ordinal));
+            Assert.DoesNotContain("PEERONQ_ADMIN_ALLOWED_CIDR", server, StringComparison.Ordinal);
+            Assert.Contains("location ~* ^/metrics(?:/|$) { return 403; }", server, StringComparison.Ordinal);
+            Assert.Contains("ssl_protocols TLSv1.2 TLSv1.3;", server, StringComparison.Ordinal);
+            Assert.Contains("ssl_session_tickets off;", server, StringComparison.Ordinal);
+            Assert.Contains("add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;", server, StringComparison.Ordinal);
+            Assert.Contains("add_header X-Content-Type-Options \"nosniff\" always;", server, StringComparison.Ordinal);
+            Assert.DoesNotContain("Access-Control-Allow-Origin", server, StringComparison.Ordinal);
+            Assert.DoesNotContain("proxy_cookie_domain", server, StringComparison.Ordinal);
+        }
+
+        var prometheus = Assert.Single(nginx.Split("\nserver {", StringSplitOptions.None),
+            block => block.Contains("server_name ${PEERONQ_PROMETHEUS_HOST};", StringComparison.Ordinal));
+        Assert.Contains("limit_except GET { deny all; }", prometheus, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProductionCompose_KeepsApplicationDataAndTelemetryPortsInternal()
+    {
+        foreach (var file in new[] { "development", "staging", "production" })
+        {
+            var compose = Normalize(Read($"src/PeerOnQ.Infrastructure.Deployment/docker-compose.{file}.yml"));
+            foreach (var service in new[]
+                     {
+                         "cloud-api", "portal-ui", "admin-api", "admin-ui", "web-ui", "presence",
+                         "downloads", "signaling", "signaling-metrics", "postgres", "redis",
+                         "loki", "tempo", "blackbox-exporter", "node-exporter", "alertmanager",
+                     })
+            {
+                if (!compose.Contains($"  {service}:\n", StringComparison.Ordinal)) continue;
+                Assert.DoesNotContain("\n    ports:", ExtractService(compose, service), StringComparison.Ordinal);
+            }
+            foreach (var service in new[] { "otel-collector", "grafana", "prometheus" })
+            {
+                var block = ExtractService(compose, service);
+                var ports = block.IndexOf("\n    ports:\n", StringComparison.Ordinal);
+                if (ports < 0) continue;
+                // Only the list lines belong to ports; no telemetry listener may bind publicly.
+                var lines = block[(ports + "\n    ports:\n".Length)..].Split('\n');
+                foreach (var line in lines.TakeWhile(line => line.StartsWith("      - ", StringComparison.Ordinal)))
+                    Assert.StartsWith("      - \"127.0.0.1:", line, StringComparison.Ordinal);
+            }
+        }
+
+        var staging = Read("src/PeerOnQ.Infrastructure.Deployment/docker-compose.staging.yml");
+        Assert.Contains("PeerOnQ__CustomerPortal__RegistrationMode: ${PEERONQ_CUSTOMER_REGISTRATION_MODE:-Closed}", staging, StringComparison.Ordinal);
+        Assert.Contains("PeerOnQ__CustomerPortal__PortalBaseUrl: https://${PEERONQ_PORTAL_HOST:?set PEERONQ_PORTAL_HOST}", staging, StringComparison.Ordinal);
+        Assert.Contains("PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY:?set PEERONQ_CUSTOMER_TOKEN_SIGNING_KEY", staging, StringComparison.Ordinal);
+        Assert.Contains("control:\n    internal: true", Normalize(staging), StringComparison.Ordinal);
+        Assert.Contains("observability:\n    internal: true", Normalize(staging), StringComparison.Ordinal);
     }
 
     [Fact]

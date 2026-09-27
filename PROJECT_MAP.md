@@ -777,6 +777,7 @@ preserves the older update-disabled connectivity-test kit.
 - `src/PeerOnQ.Observability/ServiceDefaults.cs` - common health, low-cardinality metrics, logs and OTel
 - `src/PeerOnQ.Observability/ServiceDrain.cs` - application-stop traffic admission and retryable drain response
 - `src/PeerOnQ.Infrastructure.Deployment/` - Compose, proxy, monitoring, backup/restore and runbooks
+- `src/PeerOnQ.Infrastructure.Deployment/nginx/default.conf` and `nginx/peeronq.conf.template` - public customer portal with same-origin API, operator-only CIDR hosts, unknown HTTP/TLS host rejection and public metrics denial; `scripts/validate-nginx.sh` exercises these boundaries with locally trusted fixture TLS
 - `src/PeerOnQ.Infrastructure.Deployment/scripts/website-platform-state.sh` - constrained website-overlay deactivate/restore/commit helper used transactionally by full-platform upgrades; stored website releases are retained
 - `src/PeerOnQ.Infrastructure.Deployment/docker-compose.local-phase3-observability.yml` - development-only Prometheus bridge/target override; staging and production inherit empty local targets
 - `src/PeerOnQ.Realtime.Deployment/docker-compose.local.yml` - Phase 3 metrics and async redacted logs bridged to Phase 6 over an internal Docker network
@@ -1012,7 +1013,7 @@ append-only audit triggers or legal-hold policy.
 | `PEERONQ_API_BASE_URL` / `PEERONQ_PRESENCE_URL` / `PEERONQ_DOWNLOADS_BASE_URL` / `PEERONQ_DIAGNOSTICS_BASE_URL` / `PEERONQ_UPDATES_BASE_URL` | Development-only desktop cloud endpoint overrides; official Release uses compiled metadata | unset | high |
 | `PEERONQ_DEPLOYMENT_ENVIRONMENT` / `PEERONQ_REGION` | Desktop endpoint environment and deployment region | unset | high |
 | `PEERONQ_REGION` / `PEERONQ_WEB_HOST` / `PEERONQ_WEB_WWW_HOST` / `PEERONQ_API_HOST` / `PEERONQ_PORTAL_HOST` / `PEERONQ_ADMIN_HOST` / `PEERONQ_GRAFANA_HOST` / `PEERONQ_PROMETHEUS_HOST` / `PEERONQ_DOWNLOAD_HOST` / `PEERONQ_UPDATE_HOST` / `PEERONQ_PRESENCE_HOST` | Phase 6 deployment region and exact proxy host allowlists | development values only | high |
-| `PEERONQ_ADMIN_ALLOWED_CIDR` | Nginx direct-source allowlist shared by Admin, Portal, Grafana, and read-only Prometheus hosts; production bootstrap derives the server LAN `/24` unless explicitly supplied | open in development / required outside development | critical |
+| `PEERONQ_ADMIN_ALLOWED_CIDR` | Nginx direct-source allowlist for Admin, Grafana, and read-only Prometheus only; customer Portal is public. Production bootstrap derives the server LAN `/24` unless explicitly supplied | open in development / required outside development | critical |
 | `PEERONQ_RELEASE_PUBLICATION_ENABLED` / `PEERONQ_RELEASE_SIGNING_KEY_ID` / `PEERONQ_RELEASE_SIGNING_PUBLIC_KEY_SPKI_BASE64` | Admin signed-release publication gate and offline signer public trust | disabled / none | critical |
 | `PEERONQ_RELEASE_ARTIFACT_HOST` / `PEERONQ_RELEASE_MAXIMUM_PACKAGE_BYTES` | Exact HTTPS update origin allowlist and bounded Admin MSI upload size | none / 96 MiB | high |
 | `PEERONQ_PLATFORM_UPGRADE_ENABLED` / `PEERONQ_PLATFORM_UPGRADE_MAXIMUM_BUNDLE_BYTES` | Fail-closed host-updater gate and bounded whole-platform upload size; request/status binds use fixed installer-owned host paths | disabled / 256 MiB | critical |

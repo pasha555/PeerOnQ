@@ -6,7 +6,8 @@ export PEERONQ_ADMIN_HOST=admin-staging.peeronq.invalid
 export PEERONQ_PORTAL_HOST=portal-staging.peeronq.invalid
 export PEERONQ_GRAFANA_HOST=grafana-staging.peeronq.invalid
 export PEERONQ_PROMETHEUS_HOST=prometheus-staging.peeronq.invalid
-export PEERONQ_ADMIN_ALLOWED_CIDR=10.20.10.0/24
+# Separate loopback sources exercise both sides of the operator allowlist without host networking.
+export PEERONQ_ADMIN_ALLOWED_CIDR=127.0.0.2/32
 export PEERONQ_DOWNLOAD_HOST=download-staging.peeronq.invalid
 export PEERONQ_WEB_HOST=peeronq.invalid
 export PEERONQ_WEB_WWW_HOST=www.peeronq.invalid
@@ -35,6 +36,7 @@ if [ ! -s /certs/fullchain.pem ] || [ ! -s /run/secrets/peeronq_tls_private_key 
     apk add --no-cache openssl >/dev/null
   fi
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=peeronq.invalid' \
+    -addext 'subjectAltName=DNS:peeronq.invalid,DNS:www.peeronq.invalid,DNS:*.peeronq.invalid' \
     -keyout /run/secrets/peeronq_tls_private_key -out /certs/fullchain.pem >/dev/null 2>&1
 fi
 cp /workspace/nginx/nginx.conf /etc/nginx/nginx.conf
@@ -90,7 +92,7 @@ grep -Fq 'resolver 127.0.0.11 valid=10s ipv6=off;' /etc/nginx/conf.d/peeronq.con
 test "$(grep -Ec 'server [a-z-]+:8080 resolve' /etc/nginx/conf.d/peeronq.conf)" -eq 8
 grep -Fq 'server grafana:3000 resolve;' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'server prometheus:9090 resolve;' /etc/nginx/conf.d/peeronq.conf
-test "$(grep -Fxc '  allow 10.20.10.0/24;' /etc/nginx/conf.d/peeronq.conf)" -eq 3
+test "$(grep -Fxc "  allow $PEERONQ_ADMIN_ALLOWED_CIDR;" /etc/nginx/conf.d/peeronq.conf)" -eq 3
 grep -Fq 'server_name grafana-staging.peeronq.invalid;' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'proxy_pass http://grafana_server;' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'server_name prometheus-staging.peeronq.invalid;' /etc/nginx/conf.d/peeronq.conf
@@ -115,11 +117,24 @@ printf '%s\n' 'base server pilot notice' > "$base_root/downloads/UNSIGNED-PILOT-
 # Route the runtime fixture directly after the production DNS assertions above. The route ownership
 # test must not depend on a Compose network or Docker's embedded resolver being present.
 sed -i 's/server [a-z-][a-z-]*:8080 resolve;/server 127.0.0.1:8080;/g' /etc/nginx/conf.d/peeronq.conf
+sed -i 's/server [a-z-][a-z-]*:8080 resolve max_fails=[12] fail_timeout=[0-9]*s;/server 127.0.0.1:8082;/g' /etc/nginx/conf.d/peeronq.conf
+sed -i 's/server prometheus:9090 resolve;/server 127.0.0.1:8082;/g' /etc/nginx/conf.d/peeronq.conf
+sed -i 's/server grafana:3000 resolve;/server 127.0.0.1:8082;/g' /etc/nginx/conf.d/peeronq.conf
 cat >> /etc/nginx/conf.d/peeronq.conf <<'EOF'
 server {
   listen 127.0.0.1:8080;
+  access_log off;
   root /tmp/peeronq-base-web;
   location / { try_files $uri $uri/ /index.html; }
+}
+server {
+  listen 127.0.0.1:8082;
+  access_log off;
+  # This fixture proves route ownership, not customer authentication implementation.
+  location = /portal/v1/account/profile { return 401 'customer authentication required'; }
+  location = /portal/v1/auth/login { return 200 "customer-api:$request_method:$uri:$http_host:$http_x_forwarded_proto"; }
+  location = /metrics { return 200 'internal metrics fixture'; }
+  location / { return 200 'internal backend fixture'; }
 }
 EOF
 cleanup() {
@@ -128,9 +143,21 @@ cleanup() {
 trap cleanup EXIT
 nginx
 
+https_request() {
+  request_host=$1
+  request_path=$2
+  shift 2
+  curl --noproxy '*' --silent --show-error --connect-timeout 2 --max-time 5 \
+    --cacert /certs/fullchain.pem --resolve "$request_host:443:127.0.0.1" \
+    "$@" "https://$request_host$request_path"
+}
+
 fetch_status() {
-  wget -O /dev/null --no-check-certificate --server-response --header="Host: $1" \
-    https://127.0.0.1/ 2>&1 | awk '/^  HTTP\// { status = $2 } END { print status }'
+  status_host=$1
+  status_path=${2:-/}
+  shift
+  [ "$#" -eq 0 ] || shift
+  https_request "$status_host" "$status_path" --output /dev/null --write-out '%{http_code}' "$@"
 }
 
 for internal_host in \
@@ -138,15 +165,15 @@ for internal_host in \
   "$PEERONQ_GRAFANA_HOST" "$PEERONQ_PROMETHEUS_HOST"
 do
   test "$(fetch_status "$internal_host")" = 403
+  test "$(fetch_status "$internal_host" / --header 'X-Forwarded-For: 127.0.0.2')" = 403
 done
 
 fetch_public() {
-  wget -qO- --no-check-certificate --header='Host: peeronq.invalid' "https://127.0.0.1$1"
+  https_request "$PEERONQ_WEB_HOST" "$1" --fail
 }
 
 assert_public_no_store() {
-  wget -O /dev/null --no-check-certificate --server-response \
-    --header='Host: peeronq.invalid' "https://127.0.0.1$1" 2>&1 \
+  https_request "$PEERONQ_WEB_HOST" "$1" --dump-header - --output /dev/null \
     | tr -d '\r' \
     | grep -Eqi '^[[:space:]]*Cache-Control:.*no-store'
 }
@@ -158,6 +185,59 @@ until [ "$(fetch_public /downloads 2>/dev/null || true)" = 'base downloads page'
   sleep 1
 done
 test "$(fetch_status "$PEERONQ_PORTAL_HOST")" = 200
+test "$(fetch_status "$PEERONQ_WEB_HOST")" = 200
+test "$(fetch_status "$PEERONQ_WEB_WWW_HOST")" = 200
+test "$(fetch_status "$PEERONQ_PORTAL_HOST" /portal/v1/account/profile)" = 401
+test "$(https_request "$PEERONQ_PORTAL_HOST" /portal/v1/auth/login --request POST)" = \
+  "customer-api:POST:/portal/v1/auth/login:$PEERONQ_PORTAL_HOST:https"
+
+# Check both success and backend error responses; same-origin customer cookies need no CORS.
+for header_target in "$PEERONQ_WEB_HOST:/" "$PEERONQ_WEB_WWW_HOST:/" \
+  "$PEERONQ_PORTAL_HOST:/" "$PEERONQ_PORTAL_HOST:/portal/v1/account/profile"
+do
+  headers=$(https_request "${header_target%%:*}" "${header_target#*:}" --dump-header - --output /dev/null | tr -d '\r')
+  printf '%s\n' "$headers" | grep -Eqi '^Strict-Transport-Security: max-age=31536000; includeSubDomains$'
+  printf '%s\n' "$headers" | grep -Eqi '^X-Content-Type-Options: nosniff$'
+  printf '%s\n' "$headers" | grep -Eqi '^X-Frame-Options: DENY$'
+  printf '%s\n' "$headers" | grep -Eqi '^Referrer-Policy: (no-referrer|strict-origin-when-cross-origin)$'
+  ! printf '%s\n' "$headers" | grep -Eqi '^Access-Control-Allow-Origin:'
+  case "$header_target" in
+    "$PEERONQ_WEB_HOST:/"|"$PEERONQ_WEB_WWW_HOST:/")
+      printf '%s\n' "$headers" | grep -Eqi "^Content-Security-Policy:.*connect-src 'self';.*frame-ancestors 'none'" ;;
+  esac
+done
+
+# The internal listener remains scrapeable; no public hostname can publish its metrics.
+test "$(curl --noproxy '*' --silent --fail http://127.0.0.1:8082/metrics)" = 'internal metrics fixture'
+for public_host in "$PEERONQ_WEB_HOST" "$PEERONQ_WEB_WWW_HOST" "$PEERONQ_PORTAL_HOST" \
+  "$PEERONQ_API_HOST" "$PEERONQ_PRESENCE_HOST" "$PEERONQ_DOWNLOAD_HOST" \
+  "$PEERONQ_UPDATE_HOST" "$PEERONQ_SIGNAL_HOST"
+do
+  for metrics_path in /metrics /metrics/ /METRICS /metrics/nested '/metrics?format=prometheus'; do
+    metrics_status=$(fetch_status "$public_host" "$metrics_path")
+    test "$metrics_status" = 403 || test "$metrics_status" = 404
+  done
+done
+
+# Allowed operators may read Prometheus but cannot mutate it, including with a spoofed header.
+test "$(fetch_status "$PEERONQ_PROMETHEUS_HOST" / --interface 127.0.0.2)" = 200
+test "$(fetch_status "$PEERONQ_PROMETHEUS_HOST" / --interface 127.0.0.2 --head)" = 200
+test "$(fetch_status "$PEERONQ_PROMETHEUS_HOST" / --interface 127.0.0.2 --request POST)" = 403
+
+# Unknown SNI fails the handshake; known SNI plus an unknown Host receives no application response.
+unknown_exit=0
+https_request unknown.peeronq.invalid / --output /dev/null 2>/dev/null || unknown_exit=$?
+test "$unknown_exit" = 35
+unknown_exit=0
+unknown_status=$(https_request "$PEERONQ_PORTAL_HOST" / --http1.1 --header 'Host: unknown.peeronq.invalid' \
+  --output /dev/null --write-out '%{http_code}' 2>/dev/null) || unknown_exit=$?
+test "$unknown_status" = 000
+# A TLS 444 close is reported as an empty reply or receive reset, depending on the curl TLS build.
+case "$unknown_exit" in 52|56) ;; *) exit 1 ;; esac
+unknown_exit=0
+curl --noproxy '*' --silent --max-time 5 --header 'Host: unknown.peeronq.invalid' \
+  http://127.0.0.1/ --output /dev/null 2>/dev/null || unknown_exit=$?
+test "$unknown_exit" = 52
 # Only releases created by the current builder contain the Admin-verified, byte-identical UI entry.
 # Its presence switches the page, but never any client artifact, to the active website release.
 cp "$patch_root/index.html" "$patch_root/peeronq-downloads-ui-v1.html"
@@ -180,3 +260,4 @@ done
 if fetch_public /downloads/Other.msi >/dev/null 2>&1; then
   exit 1
 fi
+printf '%s\n' 'Nginx local ingress checks passed: verified TLS, public portal/API, operator isolation, private metrics and unknown-host rejection.'

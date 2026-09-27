@@ -55,6 +55,35 @@ public sealed class CustomerPortalSecurityTests
             Assert.Contains("path=/", value!, StringComparison.OrdinalIgnoreCase);
         });
         Assert.DoesNotContain(cookies, value => value!.Contains("domain=", StringComparison.OrdinalIgnoreCase));
+        foreach (var name in new[] { "__Host-peeronq_customer_access", "__Host-peeronq_customer_refresh" })
+        {
+            var cookie = Assert.Single(cookies, value => value!.StartsWith(name + "=", StringComparison.Ordinal));
+            Assert.Contains("httponly", cookie!, StringComparison.OrdinalIgnoreCase);
+        }
+        var csrf = Assert.Single(cookies, value => value!.StartsWith("__Host-peeronq_customer_csrf=", StringComparison.Ordinal));
+        Assert.DoesNotContain("httponly", csrf!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("example-csrf", null)]
+    [InlineData(null, "example-csrf")]
+    [InlineData("example-csrf", "different-csrf")]
+    public void CustomerCsrfRejectsMissingOrMismatchedDoubleSubmitTokens(string? cookie, string? header)
+    {
+        var context = new DefaultHttpContext();
+        if (cookie is not null) context.Request.Headers.Cookie = $"__Host-peeronq_customer_csrf={cookie}";
+        if (header is not null) context.Request.Headers["X-CSRF-Token"] = header;
+        Assert.Throws<UnauthorizedAccessException>(() => CustomerPortalAuthentication.ValidateCsrf(context));
+    }
+
+    [Fact]
+    public void CustomerCsrfAcceptsMatchingHostCookieAndHeader()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.Cookie = "__Host-peeronq_customer_csrf=example-csrf";
+        context.Request.Headers["X-CSRF-Token"] = "example-csrf";
+        CustomerPortalAuthentication.ValidateCsrf(context);
     }
 
     [Fact]
