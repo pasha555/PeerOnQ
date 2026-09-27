@@ -7,3 +7,10 @@ e64bcaf6cc4d6b1bd161c6c9f8a5ab0eca3a2356:src/Linkora.Infrastructure.Deployment/.
 e64bcaf6cc4d6b1bd161c6c9f8a5ab0eca3a2356:tests/Linkora.Signaling.Tests/TurnAndResumeTests.cs:generic-api-key:232
 d7082048bc3d38afa26d5679619115505f3091b9:src/Linkora.App/obj/Release/net10.0-windows10.0.22621.0/win-x64/MsixContent/MSIX/main_license.xml:generic-api-key:1
 d7082048bc3d38afa26d5679619115505f3091b9:src/Linkora.App/obj/Release/net10.0-windows10.0.22621.0/win-x64/MsixContent/MSIX/singleton_license.xml:generic-api-key:1
+
+# Public source snapshot: the same reviewed source matches, remapped to the new root commit.
+# UI metric metadata; class declaration; empty example setting followed by a boolean; loopback TURN fixture.
+b8216e2a7f951f2b0f6348548758c50f6b55e4e7:artifacts/peeronq-admin/src/pages/ResourcePage.tsx:generic-api-key:140
+b8216e2a7f951f2b0f6348548758c50f6b55e4e7:src/PeerOnQ.Application/Security/PostQuantumCryptography.cs:generic-api-key:196
+b8216e2a7f951f2b0f6348548758c50f6b55e4e7:src/PeerOnQ.Realtime.Deployment/.env.example:generic-api-key:9
+b8216e2a7f951f2b0f6348548758c50f6b55e4e7:tests/PeerOnQ.Signaling.Tests/TurnAndResumeTests.cs:generic-api-key:251

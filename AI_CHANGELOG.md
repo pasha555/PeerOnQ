@@ -35,7 +35,7 @@ Rollback:
 Task:
 - Publish PeerOnQ under the user's GitHub account and keep subsequent commits synchronized.
 Files changed:
-- .gitignore, AGENTS.md, README.md, PROJECT_MAP.md and this record; generated packages, historical
+- .gitignore, .gitleaksignore, AGENTS.md, README.md, PROJECT_MAP.md and this record; generated packages, historical
   test reports and attached local input are removed from the public source index, retained on disk.
 Reason:
 - No GitHub origin was configured. Existing local history includes generated Linux packages and
@@ -43,6 +43,13 @@ Reason:
 - Record the public pasha555/PeerOnQ MIT repository and the user's standing commit/push instruction.
 Validation:
 - GitHub account ownership was verified through existing credential-manager authentication.
+- The working-tree secret scan passed for 1,101 source files. Four Gitleaks source matches were
+  independently compared with existing reviewed false positives: UI metric metadata, a class
+  declaration, an empty example setting and a loopback-only TURN fixture. Only their exact public
+  root-commit fingerprints are excluded; new findings remain blocking.
+- Original local main was preserved as local-history/main-before-publication-20260927; the feature
+  branch also retains its history. 538 generated package files, 31 test reports and one attached
+  local input were removed from the public index without deleting working files.
 - Publication checks and remote commit verification are recorded after the final push.
 - No application behavior changes in this publication step; the preceding development change's
   known 35 ms latency gate failure remains documented and is not waived.
