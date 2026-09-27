@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.71`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9071`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.72`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9072`. A source
   version does not establish that a matching signed package has been built or published.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.
@@ -55,6 +55,14 @@ production approval or a fresh execution of the historical tests farther down th
   profile endpoint returned the expected 401; those checks did not validate an account login.
   Source release 0.9.71 fixes the inherited portal/download URLs. Its production activation and
   real-account sign-in still require operator verification; no public 8443 forwarding is needed.
+
+- The long-session blur report exposed a separate client measurement bug: frame/render latency
+  percentiles retained 120 samples without an age limit, and sparse new input samples prolonged
+  earlier input spikes. A deterministic quiet-desktop reproduction reached quality rung 4 and
+  stayed there after one transient delay. Source 0.9.72 expires individual latency samples after
+  five seconds, retaining real congestion protection and fresh-network recovery requirements.
+  This is a measured controller fix, not physical-session/4K validation. Both endpoint clients
+  need updating; installing a server bundle alone cannot replace their running media code.
 
 ## Current investigation boundaries — 2026-09-27
 

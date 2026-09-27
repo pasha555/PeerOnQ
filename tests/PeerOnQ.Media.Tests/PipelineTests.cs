@@ -346,6 +346,56 @@ public class MediaStatisticsCollectorTests
     }
 
     [Fact]
+    public void Quiet_desktop_latency_expires_without_erasing_session_totals()
+    {
+        var time = new ManualTimeProvider();
+        var stats = new MediaStatisticsCollector(timeProvider: time);
+        stats.FrameEncoded(1_000, 1920, 1080, captureToEncodeLatencyMs: 150);
+        stats.FrameDecoded(1_000, 1920, 1080);
+        stats.FrameRendered(80, 1920, 1080, captureToPresentLatencyMs: 250, clockUncertaintyMs: 2);
+
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(250, stats.Snapshot().CaptureToPresentLatencyP95Ms);
+        time.Advance(TimeSpan.FromMilliseconds(1));
+
+        var snapshot = stats.Snapshot();
+        Assert.Equal(0, snapshot.CaptureToEncodeLatencyP99Ms);
+        Assert.Equal(0, snapshot.DecodeToRenderLatencyP95Ms);
+        Assert.Equal(0, snapshot.CaptureToPresentLatencyP95Ms);
+        Assert.Equal(0, snapshot.FrameAgeClockUncertaintyMs);
+        Assert.Equal(1, snapshot.FramesEncoded);
+        Assert.Equal(1, snapshot.FramesRendered);
+        Assert.Equal(1920, snapshot.RenderedWidth);
+    }
+
+    [Fact]
+    public void Sparse_fresh_samples_do_not_keep_an_old_latency_spike_alive()
+    {
+        var time = new ManualTimeProvider();
+        var stats = new MediaStatisticsCollector(timeProvider: time);
+        stats.FrameEncoded(1_000, 1920, 1080, captureToEncodeLatencyMs: 150);
+        stats.FrameRendered(80, captureToPresentLatencyMs: 250, clockUncertaintyMs: 2);
+        stats.InputInjected(120, 2);
+
+        // A quiet desktop/click every few seconds must not need 120 new samples to recover.
+        for (var second = 0; second < 6; second++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            stats.FrameEncoded(1_000, 1920, 1080, captureToEncodeLatencyMs: 8);
+            stats.FrameRendered(5, captureToPresentLatencyMs: 25, clockUncertaintyMs: 1);
+            stats.InputInjected(10, 1);
+        }
+
+        var snapshot = stats.Snapshot();
+        Assert.Equal(8, snapshot.CaptureToEncodeLatencyP99Ms);
+        Assert.Equal(5, snapshot.DecodeToRenderLatencyP99Ms);
+        Assert.Equal(25, snapshot.CaptureToPresentLatencyP99Ms);
+        Assert.Equal(10, snapshot.InputToInjectionLatencyP99Ms);
+        Assert.Equal(1, snapshot.FrameAgeClockUncertaintyMs);
+        Assert.Equal(1, snapshot.InputClockUncertaintyMs);
+    }
+
+    [Fact]
     public void Rates_decay_once_the_window_moves_on()
     {
         var time = new ManualTimeProvider();

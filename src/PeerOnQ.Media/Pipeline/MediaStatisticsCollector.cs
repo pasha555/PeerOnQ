@@ -8,7 +8,9 @@ namespace PeerOnQ.Media.Pipeline;
 /// </summary>
 public sealed class MediaStatisticsCollector
 {
-    private static readonly TimeSpan InputLatencyRetention = TimeSpan.FromSeconds(5);
+    // Feedback messages are periodic even when capture is idle. Age the measurements,
+    // not just the messages, so one old stall cannot keep degrading a static desktop.
+    private static readonly TimeSpan LatencyRetention = TimeSpan.FromSeconds(5);
 
     private readonly TimeSpan _window;
     private readonly TimeProvider _time;
@@ -19,10 +21,10 @@ public sealed class MediaStatisticsCollector
     private readonly Queue<DateTimeOffset> _recentDecode = new();
     private readonly Queue<DateTimeOffset> _recentRender = new();
     private readonly Queue<(DateTimeOffset At, int Bytes)> _recentBytes = new();
-    private readonly Queue<double> _captureToEncodeLatency = new();
-    private readonly Queue<double> _decodeToRenderLatency = new();
-    private readonly Queue<double> _captureToPresentLatency = new();
-    private readonly Queue<double> _inputToInjectionLatency = new();
+    private readonly Queue<(DateTimeOffset At, double Value)> _captureToEncodeLatency = new();
+    private readonly Queue<(DateTimeOffset At, double Value)> _decodeToRenderLatency = new();
+    private readonly Queue<(DateTimeOffset At, double Value)> _captureToPresentLatency = new();
+    private readonly Queue<(DateTimeOffset At, double Value)> _inputToInjectionLatency = new();
 
     private long _framesCaptured;
     private long _framesEncoded;
@@ -48,7 +50,6 @@ public sealed class MediaStatisticsCollector
     private double _availableOutgoingBitrateKbps;
     private double _frameAgeClockUncertaintyMs;
     private double _inputClockUncertaintyMs;
-    private DateTimeOffset? _lastInputLatencySampleAt;
     private ConnectionPath _connectionPath = ConnectionPath.UnknownNegotiating;
     private string? _relayServerId;
     private string? _relayRegion;
@@ -179,7 +180,6 @@ public sealed class MediaStatisticsCollector
 
             TrackLatency(_inputToInjectionLatency, latencyMs);
             _inputClockUncertaintyMs = clockUncertaintyMs;
-            _lastInputLatencySampleAt = _time.GetUtcNow();
         }
     }
 
@@ -189,7 +189,7 @@ public sealed class MediaStatisticsCollector
         {
             var now = _time.GetUtcNow();
             Trim(now);
-            ExpireInputLatency(now);
+            ExpireLatencySamples(now);
 
             var seconds = _window.TotalSeconds;
             var encodeFps = Rate(_recentEncode, seconds);
@@ -277,17 +277,14 @@ public sealed class MediaStatisticsCollector
             _recentBytes.Dequeue();
     }
 
-    private void ExpireInputLatency(DateTimeOffset now)
+    private void ExpireLatencySamples(DateTimeOffset now)
     {
-        if (_lastInputLatencySampleAt is not { } lastSampleAt
-            || now - lastSampleAt <= InputLatencyRetention)
-        {
-            return;
-        }
-
-        _inputToInjectionLatency.Clear();
-        _inputClockUncertaintyMs = 0;
-        _lastInputLatencySampleAt = null;
+        TrimLatency(_captureToEncodeLatency, now);
+        TrimLatency(_decodeToRenderLatency, now);
+        TrimLatency(_captureToPresentLatency, now);
+        TrimLatency(_inputToInjectionLatency, now);
+        if (_captureToPresentLatency.Count == 0) _frameAgeClockUncertaintyMs = 0;
+        if (_inputToInjectionLatency.Count == 0) _inputClockUncertaintyMs = 0;
     }
 
     private void Trim(Queue<DateTimeOffset> queue, DateTimeOffset now)
@@ -298,19 +295,27 @@ public sealed class MediaStatisticsCollector
     private static double Rate(Queue<DateTimeOffset> queue, double seconds) =>
         seconds > 0 ? queue.Count / seconds : 0;
 
-    private static void TrackLatency(Queue<double> samples, double value)
+    private void TrackLatency(Queue<(DateTimeOffset At, double Value)> samples, double value)
     {
         // Zero is the compatibility sentinel for callers without a correlated frame timestamp;
         // it is not a real latency sample and must not pull p50/p95 down.
         if (!double.IsFinite(value) || value <= 0 || value > 60_000) return;
+        var now = _time.GetUtcNow();
+        TrimLatency(samples, now);
         while (samples.Count >= 120) samples.Dequeue();
-        samples.Enqueue(value);
+        samples.Enqueue((now, value));
     }
 
-    private static double Percentile(Queue<double> samples, double percentile)
+    private static void TrimLatency(Queue<(DateTimeOffset At, double Value)> samples, DateTimeOffset now)
+    {
+        while (samples.Count > 0 && now - samples.Peek().At > LatencyRetention)
+            samples.Dequeue();
+    }
+
+    private static double Percentile(Queue<(DateTimeOffset At, double Value)> samples, double percentile)
     {
         if (samples.Count == 0) return 0;
-        var ordered = samples.Order().ToArray();
+        var ordered = samples.Select(sample => sample.Value).Order().ToArray();
         return ordered[(int)Math.Ceiling(ordered.Length * percentile) - 1];
     }
 }

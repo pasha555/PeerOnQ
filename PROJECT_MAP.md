@@ -15,7 +15,7 @@ retained on `feat/phase1-remote-view` and is not pushed because it contains gene
 Commits on the publication branch are pushed to `origin` and verified; installers and deployment
 remain subject to the separate release gates.
 
-Current source contract: canonical server/client version `0.9.71` comes from `Directory.Build.props`;
+Current source contract: canonical server/client version `0.9.72` comes from `Directory.Build.props`;
 Linux/Android/Apple versions derive from it. Signaling accepts exactly v3. Native non-Windows
 projects are attended viewer/controller previews with separate physical-device/release gates;
 see `docs/CURRENT_STATE.md` and `docs/CROSS_PLATFORM_CAPABILITIES.md`. Dated phase reports retain
@@ -560,6 +560,10 @@ Local encoder/render pressure, packet loss, high RTT and jitter still reduce pro
 latency still throttles bulk first. RTCP reports expire after ten seconds and reset on connection
 changes/ICE restart. Missing reports hold video recovery and keep bulk conservative until fresh
 feedback arrives; they are never interpreted as newly recovered bandwidth.
+`MediaStatisticsCollector` retains at most 120 latency samples per metric within five seconds.
+Each sample expires independently: periodic feedback messages or sparse new frames cannot keep
+an old render/frame-age/input spike alive and continuously reduce a quiet desktop's quality.
+Fresh congestion still degrades normally, and recovery still requires healthy network feedback.
 Desktop VP8 decoding retains ordered prediction state and identical BGR pixels, while full-screen
 color conversion uses a bounded half-CPU worker budget (maximum eight). Platform decoder sinks
 remain separate; local loopback timings do not establish physical-device or WAN latency.

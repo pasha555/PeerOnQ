@@ -30,6 +30,44 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Expire stale media pressure for quiet-desktop recovery (0.9.72)
+
+Task:
+- Investigate the user's later report that a connected desktop becomes blurred over time.
+Files changed:
+- MediaStatisticsCollector, PipelineTests, AdaptiveQualityTests, canonical version, release notes,
+  PROJECT_MAP, CURRENT_STATE and this entry. The previously committed portal fix is retained.
+Reason:
+- Frame/render latency queues retained 120 values without time expiry; periodic feedback kept
+  reporting a historic stall. Sparse input samples also refreshed the lifetime of older spikes.
+  Three new tests failed before the fix, including a quiet desktop stuck at quality rung 4 after
+  a single transient delay. Individual samples now expire after five seconds, with the same
+  120-sample cap. Fresh slow frames still degrade and recovery still requires healthy network data.
+Validation:
+- Complete Media suite: 143 passed, 1 existing live-TURN test skipped without its external fixture.
+  New coverage exercises expiry boundaries, sparse healthy samples, preserved totals, simulated
+  one-minute recovery and ongoing genuine pressure. Native UI and all platform/server version
+  guards passed for 0.9.72 (Android/Apple codes 9072).
+- Cumulative portal checks in the preceding entry remain applicable; its pushed Quality run
+  36344033758 passed production-ingress, all web images, web-workspace and secret-history. Its .NET
+  job failed the two existing interactive-input p95 gates (36.9/37.1 ms versus 35 ms); the thresholds
+  are unchanged. Local Media success does not establish remote CI or physical-device performance.
+- Fresh 0.9.72 self-contained x64/ARM64 builds and MSI payload validation passed. The restarted
+  website selects the new unsigned-public-pilot pair; both complete HTTP GETs returned 200 with
+  matching checksums, and both application assemblies are 0.9.72.0.
+- Built the immutable 79250908-byte server bundle with the exact matching x64 client; verified
+  payload/header hashes, canonical version, release notes and shell syntax. Built its extracted
+  website using the merged production arguments and verified HTTP-served portless portal/download
+  URLs plus the complete embedded MSI hash. Source secret scan and git diff --check passed.
+Risk:
+- A deterministic controller reproduction is not proof of the exact cause on the user's devices.
+  No physical two-device/4K/WAN, browser sign-in or new production deployment was tested. Update
+  both endpoint clients: installing the server alone does not change their running media pipeline.
+  Encryption, consent, protocol and accountless LAN behavior are unchanged; packages remain pilots.
+Rollback:
+- Restore a retained client/server release through the existing procedure; preserve data volumes.
+  Reverting this measurement change can reintroduce persistent false quality pressure.
+
 ## 2026-09-27 - Correct public portal navigation in release 0.9.71
 
 Task:

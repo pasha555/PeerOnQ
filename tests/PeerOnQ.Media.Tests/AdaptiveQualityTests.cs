@@ -407,6 +407,44 @@ public class AdaptiveQualityControllerTests
         Assert.Equal(0, controller.Current.Index);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Presentation_pressure_expires_only_when_slow_frames_stop_arriving(bool sustainedDelay)
+    {
+        var time = new ManualTimeProvider();
+        var viewer = new MediaStatisticsCollector(timeProvider: time);
+        var controller = new AdaptiveQualityController(timeProvider: time);
+        viewer.FrameRendered(80, captureToPresentLatencyMs: 250, clockUncertaintyMs: 2);
+
+        for (var second = 0; second < 60; second++)
+        {
+            // Fresh network feedback alone must not refresh an old latency sample. Actual
+            // slow frames still need to trigger the existing congestion protection.
+            if (sustainedDelay)
+                viewer.FrameRendered(80, captureToPresentLatencyMs: 250, clockUncertaintyMs: 2);
+            var feedback = viewer.Snapshot();
+            controller.Evaluate(new QualitySample
+            {
+                NetworkFeedbackAvailable = true,
+                PacketLossFraction = 0,
+                RttMs = 10,
+                QueueDrops = 0,
+                FramesEncoded = 0,
+                ReceiverFeedbackAvailable = true,
+                ReceiverDecodeToRenderLatencyP95Ms = feedback.DecodeToRenderLatencyP95Ms,
+                ReceiverCaptureToPresentLatencyP95Ms = feedback.CaptureToPresentLatencyP95Ms,
+                ReceiverFrameAgeClockUncertaintyMs = feedback.FrameAgeClockUncertaintyMs,
+            });
+            if (second == 0) Assert.Equal(1, controller.Current.Index);
+            time.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Equal(sustainedDelay ? 4 : 0, controller.Current.Index);
+        Assert.Equal(sustainedDelay ? 4 : 1, controller.Current.DownscaleFactor);
+        if (!sustainedDelay) Assert.Equal(30, controller.Current.TargetFps);
+    }
+
     [Fact]
     public void Recovery_needs_sustained_health_and_climbs_one_rung_at_a_time()
     {
