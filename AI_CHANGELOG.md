@@ -30,6 +30,43 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Fix production web Docker Node mismatch in release 0.9.69
+
+Task:
+- Fix the operator's 0.9.68 installation failure during the production stack build.
+Files changed:
+- Three web Dockerfiles, package.json, Directory.Build.props, deployment tests, Quality workflow,
+  DEPENDENCIES, PROJECT_MAP, CURRENT_STATE, DEPLOYMENT, deployment RELEASE_NOTES and this entry.
+Reason:
+- Admin/Portal failed with ERR_PNPM_UNSUPPORTED_ENGINE: pinned Node 24.4.1 was below locked jsdom
+  30.0.1's minimum. The operator's status still pointed to 0.6.28 after the attempted upgrade.
+- Pin official Node 24.21.0 images by verified registry digest, retain Debian/Alpine variants,
+  declare >=24.15.0 <25, and build all three actual production web images in CI. Preserve engineStrict,
+  frozen installs and minimumReleaseAge. Advance server/client version to 0.9.69 and mobile codes 9069.
+Validation:
+- All three new regression cases failed on 24.4.1 before the fix; all 21 deployment tests then passed.
+  Strict deployment test-project build passed with zero warnings/errors. The three complete Docker
+  builds passed; isolated runtime containers were healthy and served /health/live as non-root nginx.
+- Workspace typecheck, 169 frontend tests, workflow/package formatting, native UI and all platform
+  version guards passed. Fresh x64/ARM64 MSI extraction matched publish payloads by SHA-256; app
+  versions are 0.9.69.0. Local website restarted and selected 0.9.69 unsigned-public-pilot; both full
+  HTTP downloads returned 200 and matched the published checksums.
+- Built dist/server/peeronq-server-0.9.69.run (79253737 bytes), containing 680 safe payload files,
+  byte-exact release notes and the matching validated x64 MSI. Verified canonical/embedded versions,
+  payload/bundle hashes and installer header bash -n. Built the website image from the actual bundle
+  payload; its isolated container passed health, served the complete MSI with its expected SHA-256
+  and reported embedded version 0.9.69. Built download URL/cache-busting checks passed.
+  Bundle SHA256: 93e7a2055744aa7852b1acfc090c02f2fbf0cde4e150d059d62aa0f3b0216dc2.
+- Repository secret scan (1105 files) and git diff --check passed. Packages and checksums remain
+  ignored; only source, tests and documentation are committed.
+Risk:
+- No production rollout or external DNS/TLS/physical-device validation. Existing GPG/Authenticode
+  signing and WebRTC CI latency gates remain open; these are controlled pilot candidates. Full .NET
+  and transport performance suites were not repeated for this Docker/build change.
+Rollback:
+- Restore a retained verified server release without removing data volumes. Reverting to the old
+  Docker Node pin reintroduces the known build failure; previous immutable artifacts remain intact.
+
 ## 2026-09-27 - Build matching server and Windows client release 0.9.68
 
 Task:

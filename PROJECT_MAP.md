@@ -15,7 +15,7 @@ retained on `feat/phase1-remote-view` and is not pushed because it contains gene
 Commits on the publication branch are pushed to `origin` and verified; installers and deployment
 remain subject to the separate release gates.
 
-Current source contract: canonical server/client version `0.9.68` comes from `Directory.Build.props`;
+Current source contract: canonical server/client version `0.9.69` comes from `Directory.Build.props`;
 Linux/Android/Apple versions derive from it. Signaling accepts exactly v3. Native non-Windows
 projects are attended viewer/controller previews with separate physical-device/release gates;
 see `docs/CURRENT_STATE.md` and `docs/CROSS_PLATFORM_CAPABILITIES.md`. Dated phase reports retain
@@ -28,6 +28,9 @@ retain their original versions; publication still requires validation and the ex
 The server builder rejects a noncanonical bundle version before staging or accessing the MSI.
 Server embedding and Windows package builders also validate the MSI's internal ProductVersion;
 the server/client version invariant runs in GitHub Quality.
+
+Web builds require Node >=24.15.0 and <25. Public, Admin and Portal Docker builders pin Node
+24.21.0 by digest; GitHub Quality builds all three production web images against the frozen lockfile.
 
 **Main purpose:** secure remote-access / remote-desktop platform — "Connect securely. Work anywhere."
 The repo contains an offline **frontend prototype** (`artifacts/peeronq`), an API skeleton

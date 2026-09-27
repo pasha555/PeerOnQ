@@ -53,8 +53,13 @@ The audit records migration options and the required compatibility/security chec
 
 ## 2026-09-27 Node 24 contract and JavaScript review
 
-The supported runtime is Node 24: root `engines.node` is `24.x`, `.nvmrc` selects `24`,
+The supported runtime is Node 24.15.0 or later on the 24 line: root `engines.node` is
+`>=24.15.0 <25`, `.nvmrc` selects `24`,
 and `pnpm-workspace.yaml` enforces `engineStrict: true`. CI and Replit already select Node 24.
+Public, Admin and Portal Docker builders pin official Node 24.21.0 images by digest. The former
+24.4.1 images failed production installation because locked jsdom 30.0.1 requires at least 24.15.0.
+CI now also builds these exact Dockerfiles with frozen dependencies; host-only frontend checks
+cannot establish that a separate container Node version is compatible.
 The prior `@types/node` 25.9.5 lock did not demonstrate a Node 25 runtime requirement;
 targeted API inspection and the complete checks below found no such requirement.
 The catalog now requests `^24.19.0`, and a normal `pnpm install --lockfile-only` resolves

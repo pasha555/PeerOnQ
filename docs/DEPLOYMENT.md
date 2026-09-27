@@ -462,6 +462,11 @@ docker compose --env-file <staging-env> `
 
 ## Single-node production bundle
 
+The public website, Admin and Portal Docker builds use digest-pinned Node 24.21.0 images.
+The frozen dependencies require Node >=24.15.0 and <25 on the supported line. Updating Node on
+the Linux host does not change a Dockerfile's build image. Keep `engineStrict` and the package
+release-age policy enabled; GitHub Quality builds all three web Dockerfiles to catch drift.
+
 A requested product patch includes the full versioned server bundle, unless explicitly scoped to
 a website-only or client-only deliverable. Its operator release notes live at
 `src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md` and are included by the existing source

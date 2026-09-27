@@ -4,6 +4,25 @@ public sealed class DeploymentConfigurationTests
 {
     private static readonly string RepositoryRoot = FindRepositoryRoot();
 
+    [Theory]
+    [InlineData("artifacts/peeronq/Dockerfile")]
+    [InlineData("artifacts/peeronq-admin/Dockerfile")]
+    [InlineData("artifacts/peeronq-portal/Dockerfile")]
+    public void WebDockerBuilds_UsePinnedNodeCompatibleWithLockedDependencies(string dockerfile)
+    {
+        var image = System.Text.RegularExpressions.Regex.Match(
+            Read(dockerfile),
+            @"^FROM node:(?<version>\d+\.\d+\.\d+)-(?:alpine|bookworm-slim)@sha256:[a-f0-9]{64} AS build",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        Assert.True(image.Success, $"{dockerfile} must pin its Node build image by version and digest.");
+
+        // jsdom 30 requires at least 24.15.0 on the repository's supported Node 24 line.
+        var version = Version.Parse(image.Groups["version"].Value);
+        Assert.Equal(24, version.Major);
+        Assert.True(version >= new Version(24, 15, 0), $"{dockerfile} uses incompatible Node {version}.");
+        Assert.Contains("pnpm install --frozen-lockfile", Read(dockerfile), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void DevelopmentCompose_UsesSupportedRedisAndSingleAspNetBindingSetting()
     {
