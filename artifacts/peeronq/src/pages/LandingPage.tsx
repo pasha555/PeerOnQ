@@ -103,7 +103,7 @@ export function LandingPage() {
         { icon: Network, title: "Direct & relay paths", text: "Use an available direct path or a configured relay for remote viewing and control. The client reports the selected connection path." },
         { icon: RefreshCw, title: "Connection recovery", text: "Input pauses when a session is interrupted. The client attempts authenticated recovery and a fresh connection negotiation; reconnection is not guaranteed." },
         { icon: Activity, title: "Useful diagnostics", text: "Inspect the connection path and session diagnostics in the client. Bring reproducible details to a support report without sharing credentials." },
-        { icon: Download, title: "Verified updates", text: "The Windows updater checks signed update metadata and package integrity. Invalid or unverifiable updates are rejected; installer signing is a separate release gate." },
+        { icon: Download, title: "Verified Updates", text: "The Windows updater checks signed update metadata and package integrity. Invalid or unverifiable updates are rejected; installer signing is a separate release gate." },
       ].map(({ icon: Icon, title, text }) => <div key={title}><Icon className="h-5 w-5 text-primary" aria-hidden="true" /><h3 className="mt-5 font-semibold">{title}</h3><p className="mt-3 text-sm leading-7 text-muted-foreground">{text}</p></div>)}</div>
       <p className="mt-5 max-w-3xl text-sm leading-7 text-muted-foreground">Implementation is documented in public. Real-world NAT coverage, sustained 4K performance, and latency targets require validation on the devices and networks you use.</p>
     </div></section>

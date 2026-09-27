@@ -138,11 +138,45 @@ Assert-NotContains $permissionHost 'CreateProtectionNotice' 'Permission dialog s
 Assert-Contains $permissionHost 'DefaultButton = ContentDialogButton.Secondary' 'Permission dialog must default to decline.'
 Assert-Contains $permissionHost 'accessChoices = new RadioButtons { SelectedIndex = -1 };' 'Attended access must require an explicit host scope choice.'
 Assert-Contains $permissionHost 'IsPrimaryButtonEnabled = accessChoices is null' 'Attended access can be accepted before the host chooses a scope.'
-Assert-Contains $permissionHost '1 => "Allow Full control"' 'The permission dialog does not name the exact Full Control grant on its action.'
+Assert-Contains $permissionHost '1 => "Allow Full Control"' 'The permission dialog does not name the exact Full Control grant on its action.'
 Assert-NotContains $permissionHost 'accessChoices.Items.Add(new RadioButton' 'Access choices must use RadioButtons-owned containers so SelectedIndex stays authoritative.'
 Assert-Contains $permissionHost 'dispatcher.CreateTimer()' 'Permission countdown must stay on the UI dispatcher.'
 Assert-NotContains $permissionHost 'Task.Run(' 'Permission countdown must not marshal WinUI objects from a background task.'
 $mainCode = Read-RepositoryFile 'src\PeerOnQ.App\MainWindow.xaml.cs'
+$appProject = Read-RepositoryFile 'src\PeerOnQ.App\PeerOnQ.App.csproj'
+$appServices = Read-RepositoryFile 'src\PeerOnQ.App\AppServices.cs'
+$endpointConfiguration = Read-RepositoryFile 'src\PeerOnQ.Infrastructure\Configuration\CloudEndpointConfiguration.cs'
+Assert-Contains $mainXaml 'Content="Open Account Portal"' 'Settings must expose optional Account Portal navigation.'
+Assert-Contains $mainXaml 'LAN connections remain accountless.' 'Account Portal must not be presented as a LAN sign-in requirement.'
+Assert-Contains $mainXaml 'Account sign-in is separate from device enrollment.' 'Account and device identities must remain distinct.'
+Assert-Contains $appProject '<AssemblyMetadata Include="PeerOnQAccountPortalUrl"' 'Portal must reuse compiled deployment metadata.'
+Assert-Contains $endpointConfiguration 'https://portal.peeronq.com' 'The default Account Portal host is missing.'
+$portalAction = [regex]::Match($mainCode, '(?s)private async void OnOpenAccountPortal\(.*?(?=\r?\n    private )').Value
+Assert-Contains $portalAction 'CloudEndpointConfiguration.ResolveAccountPortalUri(' 'Browser navigation must validate the compiled portal URL.'
+Assert-Contains $portalAction 'Windows.System.Launcher.LaunchUriAsync(portalUri)' 'Account Portal must open the system browser with only the validated URI.'
+if ($portalAction -notmatch '#else\s+const bool AllowDevelopmentLoopback = false;') { throw 'Release builds must require HTTPS.' }
+foreach ($forbidden in @('_services', 'Token', 'Credential', 'WebView', 'HttpClient', 'UriBuilder')) {
+    Assert-NotContains $portalAction $forbidden "Portal navigation must not depend on identity or mutate its URI: $forbidden"
+}
+foreach ($nativeSource in @($mainCode, $appServices)) {
+    Assert-NotContains $nativeSource '/portal/v1/auth' 'Native session startup must not introduce customer authentication.'
+    Assert-NotContains $nativeSource '__Host-peeronq_customer' 'Customer cookies must stay in the browser.'
+}
+if ($appServices -notmatch 'var cloudEndpoints = lanDevelopmentClient\s+\? null') { throw 'LAN builds must retain optional cloud enrollment.' }
+Assert-Contains $appServices 'CloudEndpoints is null || Identity.PublicIdServerAssigned' 'Accountless routing must remain available without cloud enrollment.'
+Assert-Contains $mainCode 'typeof(App).Assembly.GetName().Version?.ToString(3)' 'Native visible versions must derive from the canonical assembly version.'
+Assert-Contains $appProject '<Version>$(PeerOnQWindowsClientVersion)</Version>' 'Native assembly version must remain canonical.'
+$installerProject = Read-RepositoryFile 'installer\PeerOnQ.Installer.wixproj'
+Assert-Contains $installerProject '>$(PeerOnQWindowsClientVersion)</ProductVersion>' 'Installer default must use the canonical client version.'
+Assert-Contains $installerProject 'Name="ValidateCanonicalClientVersion"' 'Installer must reject an explicit version mismatch.'
+if ($mainXaml -match 'Text="v?\d+\.\d+\.\d+(?:\.\d+)?"') { throw 'Native XAML must not hardcode a client version.' }
+foreach ($previewPath in @('artifacts\peeronq\src\pages\DashboardPage.tsx', 'artifacts\peeronq\src\pages\DevicesPage.tsx', 'artifacts\peeronq\src\components\Sidebar.tsx')) {
+    $previewSource = Read-RepositoryFile $previewPath
+    if ($previewSource -match '(?:>|appVersion:\s*")v?\d+\.\d+\.\d+(?:<|")') { throw "Preview must not hardcode a client version: $previewPath" }
+}
+foreach ($label in @('View Only', 'Full Control', 'File Transfer', 'Unattended Access', 'Remote Device ID', 'Verified Updates')) {
+    Assert-Contains $mainXaml $label "Canonical native terminology is missing: $label"
+}
 Assert-NotContains $mainCode 'OnClipboardToggled' 'The removed clipboard UI handler is still present.'
 Assert-NotContains $mainCode 'OnSaveSignalingServer' 'The removed Connection card still has a mutable endpoint handler.'
 Assert-Contains $mainCode 'CheckUpdateButton.IsEnabled = _services.Updates is not null;' 'Trusted client update configuration does not enable the Settings action.'

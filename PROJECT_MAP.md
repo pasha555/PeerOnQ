@@ -705,6 +705,16 @@ and Settings as one responsive product surface while keeping controls attached t
 Settings does not expose or mutate service endpoints; signaling remains internally resolved from
 environment/release metadata, and official release creation rejects IP, localhost, private-development,
 `sslip.io`, `nip.io`, and single-label hosts across the complete HTTPS/WSS service set.
+Settings/About offers an optional **Open Account Portal** action in the default system browser.
+`CloudEndpointConfiguration.ResolveAccountPortalUri` reads the existing assembly metadata system's
+`PeerOnQAccountPortalUrl` MSBuild value, defaulting to `https://portal.peeronq.com`. URLs must use HTTPS
+and exclude credentials, queries and fragments. HTTP is accepted only for explicit loopback URLs in
+Debug builds compiled with `PeerOnQDeploymentEnvironment=Development`; no runtime URL override is read.
+This browser action is independent of CloudPlatform device/service enrollment and never introduces
+customer authentication into accountless LAN startup. The portal owns customer credentials/cookies.
+Native version labels read the assembly version; the WiX ProductVersion now also defaults to the
+canonical `PeerOnQWindowsClientVersion` and rejects mismatches. Offline web preview device versions
+are shown as unreported, while download versions continue to use verified release metadata.
 Dashboard exclusively owns device identity and session initiation; signaling connects and retries
 automatically, and the primary capture target is selected safely without exposing technical setup cards.
 The Dashboard presents three explicit mode choices: view-only, full-control, and standalone file

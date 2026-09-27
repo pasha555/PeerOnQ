@@ -31,6 +31,24 @@ public static class CloudEndpointConfiguration
     private const string MetadataPrefix = "PeerOnQ";
     private const string EnvironmentPrefix = "PEERONQ_";
 
+    /// <summary>
+    /// Browser navigation only: independent of device enrollment and accountless LAN services.
+    /// Uses the same compiled endpoint metadata, never runtime credentials or environment URLs.
+    /// </summary>
+    public static Uri ResolveAccountPortalUri(Assembly assembly, bool allowDevelopmentLoopback)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        var metadata = assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        var configured = metadata.GetValueOrDefault("PeerOnQAccountPortalUrl");
+        var development = string.Equals(metadata.GetValueOrDefault("PeerOnQDeploymentEnvironment"),
+            "Development", StringComparison.OrdinalIgnoreCase);
+        return ParseHttpEndpoint(
+            string.IsNullOrWhiteSpace(configured) ? "https://portal.peeronq.com" : configured.Trim(),
+            "PeerOnQAccountPortalUrl",
+            allowLoopbackHttp: development && allowDevelopmentLoopback);
+    }
+
     public static CloudServiceEndpoints? TryCreate(
         Assembly assembly,
         bool allowDevelopmentEnvironmentOverrides)

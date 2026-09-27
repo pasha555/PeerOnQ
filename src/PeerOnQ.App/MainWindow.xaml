@@ -141,7 +141,7 @@
                                             <TextBlock x:Name="DashboardOsText" Grid.Row="0" Grid.Column="1" Text="Windows"
                                                        FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Grid.Row="2" Text="Version" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
-                                            <TextBlock x:Name="DashboardVersionText" Grid.Row="2" Grid.Column="1" Text="0.5.1"
+                                            <TextBlock x:Name="DashboardVersionText" Grid.Row="2" Grid.Column="1" Text="Loading..."
                                                        FontWeight="SemiBold" HorizontalAlignment="Right" />
                                         </Grid>
                                     </StackPanel>
@@ -234,7 +234,7 @@
                                         <Button x:Name="ConnectButton" Content="Start Session" Style="{StaticResource PeerOnQPrimaryButtonStyle}"
                                                 HorizontalAlignment="Stretch" Click="OnRequestSession" />
                                         <TextBlock x:Name="ConnectionConsentText"
-                                                   Text="The remote owner chooses View only or Full control. Full control includes screen control and file transfer."
+                                                   Text="The remote owner chooses View Only or Full Control. Full Control includes screen control and file transfer."
                                                    TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
                                     </StackPanel>
                                 </Border>
@@ -265,9 +265,9 @@
                                 <ComboBox x:Name="SessionModeFilter" Grid.Column="2" Header="Mode" SelectedIndex="0"
                                           SelectionChanged="OnSessionFilterChanged">
                                     <ComboBoxItem Content="All modes" Tag="All" />
-                                    <ComboBoxItem Content="View only" Tag="ViewOnly" />
-                                    <ComboBoxItem Content="Full control" Tag="FullControl" />
-                                    <ComboBoxItem Content="File transfer" Tag="FileTransferOnly" />
+                                    <ComboBoxItem Content="View Only" Tag="ViewOnly" />
+                                    <ComboBoxItem Content="Full Control" Tag="FullControl" />
+                                    <ComboBoxItem Content="File Transfer" Tag="FileTransferOnly" />
                                     <ComboBoxItem Content="Custom" Tag="Custom" />
                                 </ComboBox>
                                 <ComboBox x:Name="SessionTimeFilter" Grid.Column="4" Header="Time" SelectedIndex="0"
@@ -389,7 +389,7 @@
                                            Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <Button Content="Save current Remote ID" Click="OnSaveAddress" />
+                                <Button Content="Save current Remote Device ID" Click="OnSaveAddress" />
                                 <Button x:Name="EditAddressButton" Content="Edit selected" IsEnabled="False" Click="OnEditAddress" />
                                 <Button x:Name="RemoveAddressButton" Content="Remove selected" IsEnabled="False" Click="OnRemoveAddress" />
                                 <Button x:Name="TrustCurrentButton" Content="Trust current peer" IsEnabled="False" Click="OnTrustCurrent" />
@@ -430,7 +430,7 @@
                                                 VerticalAlignment="Center" Spacing="8">
                                         <FontIcon Glyph="&#xE77B;" FontSize="42" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
                                         <TextBlock Text="Address book is empty" FontSize="17" FontWeight="SemiBold" />
-                                        <TextBlock Text="Save a valid Remote ID to create your first encrypted local contact."
+                                        <TextBlock Text="Save a valid Remote Device ID to create your first encrypted local contact."
                                                    Foreground="{ThemeResource PeerOnQMutedTextBrush}" TextAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
@@ -544,9 +544,9 @@
                                               SelectedIndex="0"
                                               HorizontalAlignment="Stretch"
                                               AutomationProperties.HelpText="Requests outside this exact permission scope are rejected.">
-                                        <ComboBoxItem Content="View only (recommended)" Tag="ViewOnly" />
-                                        <ComboBoxItem Content="Full control (view and input)" Tag="FullControl" />
-                                        <ComboBoxItem Content="File transfer only" Tag="FileTransferOnly" />
+                                        <ComboBoxItem Content="View Only (recommended)" Tag="ViewOnly" />
+                                        <ComboBoxItem Content="Full Control (view and input)" Tag="FullControl" />
+                                        <ComboBoxItem Content="File Transfer only" Tag="FileTransferOnly" />
                                     </ComboBox>
                                     <ToggleSwitch x:Name="TrustedDeviceAuthCheck"
                                                   Header="Allow approved trusted devices without a password"
@@ -593,9 +593,9 @@
                                 <Grid ColumnDefinitions="*,14,*" RowDefinitions="Auto,12,Auto">
                                     <ComboBox x:Name="SupportInvitationModePicker" Grid.Row="0" Grid.Column="0"
                                               Header="Requested permission profile" SelectedIndex="0">
-                                        <ComboBoxItem Content="View only" Tag="ViewOnly" />
-                                        <ComboBoxItem Content="Full control" Tag="FullControl" />
-                                        <ComboBoxItem Content="File transfer only" Tag="FileTransferOnly" />
+                                        <ComboBoxItem Content="View Only" Tag="ViewOnly" />
+                                        <ComboBoxItem Content="Full Control" Tag="FullControl" />
+                                        <ComboBoxItem Content="File Transfer only" Tag="FileTransferOnly" />
                                     </ComboBox>
                                     <ComboBox x:Name="SupportInvitationLifetimePicker" Grid.Row="0" Grid.Column="2"
                                               Header="Expiry" SelectedIndex="1">
@@ -719,6 +719,13 @@
                                 <TextBlock x:Name="AboutVersionText" Text="PeerOnQ version is loading."
                                            AutomationProperties.Name="Installed PeerOnQ version" />
                                 <TextBlock Text="PeerOnQ is MIT-licensed open-source software. The installed client requires no license key, product activation, paid subscription, or online entitlement check."
+                                           TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                <TextBlock Text="Dependencies retain their own licenses; see the included THIRD_PARTY_NOTICES.md."
+                                           TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                <Button x:Name="OpenAccountPortalButton" Content="Open Account Portal"
+                                        HorizontalAlignment="Left" Click="OnOpenAccountPortal"
+                                        AutomationProperties.HelpText="Opens your account and organization settings in your default browser." />
+                                <TextBlock Text="Account Portal manages your account and organizations. Account sign-in is separate from device enrollment. LAN connections remain accountless."
                                            TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
                                 <TextBlock x:Name="LocalDataPathText" Text="Local data location is loading."
                                            TextWrapping="Wrap" IsTextSelectionEnabled="True"

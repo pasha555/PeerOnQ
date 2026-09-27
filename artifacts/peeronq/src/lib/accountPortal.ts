@@ -3,8 +3,8 @@ const defaultAccountPortalUrl = "https://portal.peeronq.com";
 export function getAccountPortalUrl(): string {
   const configured = import.meta.env.VITE_PEERONQ_ACCOUNT_PORTAL_URL?.trim() || defaultAccountPortalUrl;
   const parsed = new URL(configured);
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
-    throw new Error("VITE_PEERONQ_ACCOUNT_PORTAL_URL must be an HTTPS URL without credentials.");
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("VITE_PEERONQ_ACCOUNT_PORTAL_URL must be an HTTPS URL without credentials, a query, or a fragment.");
   }
   return configured.replace(/\/$/, "");
 }

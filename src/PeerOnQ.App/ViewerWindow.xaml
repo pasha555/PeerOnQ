@@ -10,7 +10,7 @@
             <CommandBar.PrimaryCommands>
                 <AppBarButton x:Name="FullScreenButton" Icon="FullScreen" Label="Fullscreen" Click="OnFullScreen"
                               ToolTipService.ToolTip="Fullscreen (F11 exits during Full Control)" />
-                <AppBarButton x:Name="FileTransferButton" Icon="OpenFile" Label="File transfer"
+                <AppBarButton x:Name="FileTransferButton" Icon="OpenFile" Label="File Transfer"
                               Click="OnChooseFiles" IsEnabled="False" Visibility="Collapsed"
                               AutomationProperties.Name="Choose files to send to the remote device"
                               ToolTipService.ToolTip="Choose one or more files to send" />

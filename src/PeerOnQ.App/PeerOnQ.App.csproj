@@ -54,6 +54,7 @@
     <AssemblyMetadata Include="PeerOnQReleaseChannel" Value="$(PeerOnQReleaseChannel)" />
     <AssemblyMetadata Include="PeerOnQSignalingUrl" Value="$(PeerOnQSignalingUrl)" />
     <AssemblyMetadata Include="PeerOnQApiBaseUrl" Value="$(PeerOnQApiBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQAccountPortalUrl" Value="$(PeerOnQAccountPortalUrl)" />
     <AssemblyMetadata Include="PeerOnQPresenceUrl" Value="$(PeerOnQPresenceUrl)" />
     <AssemblyMetadata Include="PeerOnQUpdatesBaseUrl" Value="$(PeerOnQUpdatesBaseUrl)" />
     <AssemblyMetadata Include="PeerOnQDownloadsBaseUrl" Value="$(PeerOnQDownloadsBaseUrl)" />

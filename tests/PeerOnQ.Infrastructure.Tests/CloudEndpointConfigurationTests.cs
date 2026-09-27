@@ -58,6 +58,67 @@ public sealed class CloudEndpointConfigurationTests
             allowDevelopmentEnvironmentOverrides: false));
     }
 
+    [Fact]
+    public void Account_portal_defaults_to_official_host_without_enrollment_or_an_account()
+    {
+        var standalone = CreateManifest(new Dictionary<string, string>());
+
+        Assert.Null(CloudEndpointConfiguration.TryCreate(standalone, false));
+        var portal = CloudEndpointConfiguration.ResolveAccountPortalUri(standalone, false);
+        Assert.Equal("https://portal.peeronq.com/", portal.AbsoluteUri);
+        Assert.Empty(portal.UserInfo);
+        Assert.Empty(portal.Query);
+        Assert.Empty(portal.Fragment);
+    }
+
+    [Theory]
+    [InlineData("https://portal.example.com", "Production", false)]
+    [InlineData("https://portal.dev.localhost:5443", "Development", true)]
+    [InlineData("http://localhost:23588", "Development", true)]
+    [InlineData("http://127.0.0.1:23588", "Development", true)]
+    [InlineData("http://[::1]:23588", "Development", true)]
+    public void Account_portal_uses_compiled_deployment_metadata(string url, string environment, bool allowDevelopment)
+    {
+        var assembly = CreateManifest(new Dictionary<string, string>
+        {
+            ["PeerOnQAccountPortalUrl"] = url,
+            ["PeerOnQDeploymentEnvironment"] = environment,
+        });
+
+        Assert.Equal(url + "/", CloudEndpointConfiguration.ResolveAccountPortalUri(assembly, allowDevelopment).AbsoluteUri);
+        Assert.Null(CloudEndpointConfiguration.TryCreate(assembly, false));
+    }
+
+    [Theory]
+    [InlineData("http://portal.peeronq.com", "Development", true)]
+    [InlineData("http://localhost:23588", "Production", true)]
+    [InlineData("http://localhost:23588", "Staging", true)]
+    [InlineData("http://localhost:23588", "Development", false)]
+    [InlineData("http://localhost:23588", "", true)]
+    [InlineData("http://192.168.1.2:23588", "Development", true)]
+    [InlineData("http://localhost.example.com", "Development", true)]
+    [InlineData("https://user:password@portal.peeronq.com", "Production", false)]
+    [InlineData("https://portal.peeronq.com/?device_token=test-value", "Production", false)]
+    [InlineData("https://portal.peeronq.com/?installation_token=test-value", "Production", false)]
+    [InlineData("https://portal.peeronq.com/#access_token=test-value", "Production", false)]
+    [InlineData("https://portal.peeronq.com/?redirect=https://example.com", "Production", false)]
+    [InlineData("file:///portal.html", "Development", true)]
+    [InlineData("javascript:alert(1)", "Production", false)]
+    [InlineData("/portal", "Production", false)]
+    public void Account_portal_rejects_unsafe_metadata(string url, string environment, bool allowDevelopment)
+    {
+        var assembly = CreateManifest(new Dictionary<string, string>
+        {
+            ["PeerOnQAccountPortalUrl"] = url,
+            ["PeerOnQDeploymentEnvironment"] = environment,
+        });
+
+        Assert.Throws<InvalidOperationException>(() =>
+            CloudEndpointConfiguration.ResolveAccountPortalUri(assembly, allowDevelopment));
+        // An invalid optional browser link cannot stop accountless services from starting.
+        Assert.Null(CloudEndpointConfiguration.TryCreate(assembly, false));
+    }
+
     private static Assembly CreateManifest(IReadOnlyDictionary<string, string> values)
     {
         var assembly = AssemblyBuilder.DefineDynamicAssembly(

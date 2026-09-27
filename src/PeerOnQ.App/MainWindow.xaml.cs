@@ -9,6 +9,7 @@ using PeerOnQ.Infrastructure.Updates;
 using PeerOnQ.Shared.Contracts.V1;
 using PeerOnQ.Transport.Protocol;
 using PeerOnQ.Infrastructure.Cloud;
+using PeerOnQ.Infrastructure.Configuration;
 using PeerOnQ.Infrastructure.Diagnostics;
 using PeerOnQ.Infrastructure.Persistence;
 using System.Diagnostics;
@@ -247,6 +248,28 @@ public sealed partial class MainWindow : Window
         package.SetText(_services.Identity.PublicId.Display);
         Clipboard.SetContent(package);
         StatusText.Text = "Device ID copied.";
+    }
+
+    private async void OnOpenAccountPortal(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+#if DEBUG
+            const bool AllowDevelopmentLoopback = true;
+#else
+            const bool AllowDevelopmentLoopback = false;
+#endif
+            var portalUri = CloudEndpointConfiguration.ResolveAccountPortalUri(
+                typeof(App).Assembly, AllowDevelopmentLoopback);
+            if (await Windows.System.Launcher.LaunchUriAsync(portalUri))
+                StatusText.Text = "Opened Account Portal in your default browser.";
+            else
+                ShowError("Could not open Account Portal. Open it from peeronq.com in your browser.");
+        }
+        catch (Exception)
+        {
+            ShowError("Could not open Account Portal. Open it from peeronq.com in your browser.");
+        }
     }
 
     private void OnOpenLocalDataFolder(object sender, RoutedEventArgs e)
@@ -963,7 +986,7 @@ public sealed partial class MainWindow : Window
             : Visibility.Collapsed;
         ConnectionConsentText.Text = unattended
             ? "The remote computer must already have unattended access enabled for this mode. No Accept dialog is shown after the password or trusted-device proof succeeds."
-            : "The remote owner chooses View only or Full control. Full control includes screen control and file transfer.";
+            : "The remote owner chooses View Only or Full Control. Full Control includes screen control and file transfer.";
         if (!unattended)
             RemoteUnattendedPasswordBox.Password = string.Empty;
     }
@@ -978,7 +1001,7 @@ public sealed partial class MainWindow : Window
             : Visibility.Collapsed;
         ConnectionConsentText.Text = enabled
             ? "The invitation is verified against expiry, revocation, use count, identity restrictions, and exact permissions. The remote owner must still press Accept."
-            : "The remote owner chooses View only or Full control. Full control includes screen control and file transfer.";
+            : "The remote owner chooses View Only or Full Control. Full Control includes screen control and file transfer.";
         if (!enabled)
         {
             SupportInvitationPasswordBox.Password = string.Empty;

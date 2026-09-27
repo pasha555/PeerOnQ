@@ -121,12 +121,12 @@ public sealed class PermissionDialogHost(DispatcherQueue dispatcher, Func<XamlRo
             AutomationProperties.SetName(accessChoices, "Access level for this connection");
             viewOnlyChoice = CreateAccessChoice(
                 "\uE890",
-                "View only",
+                "View Only",
                 "Screen only",
                 "PeerOnQTrustBrush");
             fullControlChoice = CreateAccessChoice(
                 "\uE765",
-                "Full control",
+                "Full Control",
                 "Screen  \u2022  Mouse & keyboard  \u2022  Files",
                 "PeerOnQAccentBrush");
             accessChoices.Items.Add(viewOnlyChoice);
@@ -167,8 +167,8 @@ public sealed class PermissionDialogHost(DispatcherQueue dispatcher, Func<XamlRo
                 dialog.IsPrimaryButtonEnabled = accessChoices.SelectedIndex is 0 or 1;
                 dialog.PrimaryButtonText = accessChoices.SelectedIndex switch
                 {
-                    0 => "Allow View only",
-                    1 => "Allow Full control",
+                    0 => "Allow View Only",
+                    1 => "Allow Full Control",
                     _ => "Select access",
                 };
                 SetChoiceSelected(
@@ -478,11 +478,11 @@ public sealed class PermissionDialogHost(DispatcherQueue dispatcher, Func<XamlRo
 
     private static string Describe(SessionMode mode, SessionPermission permissions) => mode switch
     {
-        SessionMode.ViewOnly => "View only (no mouse or keyboard control)",
+        SessionMode.ViewOnly => "View Only (no mouse or keyboard control)",
         SessionMode.FullControl when permissions.HasFlag(SessionPermission.FileTransfer) =>
-            "Full control (screen, input, and file transfer)",
-        SessionMode.FullControl => "Full control (screen and input)",
-        SessionMode.FileTransferOnly => "File transfer only (no screen or input)",
+            "Full Control (screen, input, and file transfer)",
+        SessionMode.FullControl => "Full Control (screen and input)",
+        SessionMode.FileTransferOnly => "File Transfer only (no screen or input)",
         SessionMode.Custom => "Custom",
         _ => mode.ToString(),
     };

@@ -3,7 +3,7 @@
     <OutputType>Package</OutputType>
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
     <InstallerPlatform Condition="'$(InstallerPlatform)' == ''">$(Platform)</InstallerPlatform>
-    <ProductVersion Condition="'$(ProductVersion)' == ''">0.5.1</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">$(PeerOnQWindowsClientVersion)</ProductVersion>
     <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildThisFileDirectory)..\dist\PeerOnQ\win-$(InstallerPlatform)</PublishDir>
     <OutputName>PeerOnQ-$(ProductVersion)-$(InstallerPlatform)</OutputName>
     <ProductCode Condition="'$(ProductCode)' == ''">*</ProductCode>
@@ -17,6 +17,11 @@
     <BindPath Include="$(PublishDir)" BindName="Publish" />
     <PackageReference Include="WixToolset.UI.wixext" />
   </ItemGroup>
+
+  <Target Name="ValidateCanonicalClientVersion" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(PeerOnQWindowsClientVersion)' == '' or '$(ProductVersion)' != '$(PeerOnQWindowsClientVersion)'"
+           Text="Installer ProductVersion must match the canonical PeerOnQWindowsClientVersion." />
+  </Target>
 
   <Target Name="NormalizeWindowsAppSdkMsiLanguageMetadata" AfterTargets="Build">
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\windows\normalize-windows-app-sdk-msi-language.ps1&quot; -MsiPath &quot;$(TargetPath)&quot;" />

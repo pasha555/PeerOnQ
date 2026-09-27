@@ -30,6 +30,42 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Align native, public and customer portal product language
+
+Task:
+- Align existing product surfaces on origin/main b7f3a86 without redesigning session behavior.
+Files changed:
+- Native MainWindow, permission/viewer labels, App metadata and CloudEndpointConfiguration;
+  public preview/version/navigation helpers and landing copy; portal support/download guidance;
+  installer version default, endpoint/UI/frontend regression tests, brand compatibility manifest,
+  PROJECT_MAP, DESIGN_SYSTEM and this entry. No routes or API contracts changed.
+Reason:
+- Added optional Settings/About Open Account Portal navigation through the default system browser.
+  Existing compiled metadata resolves the official HTTPS portal, rejects credentials/query/fragment,
+  and permits HTTP only for explicit loopback Development metadata in Debug builds. Device enrollment
+  remains separate from customer identity; LAN startup and native protocols/consent remain unchanged.
+- Aligned View Only, Full Control, File Transfer, Remote Device ID and Verified Updates labels.
+  Retained canonical logos, typography, theme resources and platform controls. Portal support now
+  points to native Diagnostics/Verified Updates; MIT source and third-party licenses stay distinct.
+- Removed stale native/preview version literals, including old locally stored preview device display.
+  Native labels remain assembly-derived; download metadata is unchanged. WiX now defaults to the
+  canonical client version and rejects an override mismatch before PrepareForBuild.
+- Brand validation exposed historical original paths in the unchanged .gitleaksignore. Classified
+  that exact file as historical compatibility evidence; no secret-scan suppression/rule was changed.
+Validation:
+- Windows x64 Debug and Release builds: passed, zero warnings/errors. Native UI invariant passed.
+- Infrastructure tests: 106 passed (including 23 endpoint cases); installer property evaluation matched
+  the canonical version and a deliberate mismatch was rejected before preparation.
+- Node 24: public typecheck/lint/build and 84 tests passed; portal typecheck/build and 47 tests passed.
+  Initial new-test selector/type errors and the temporarily removed GitHub link were corrected.
+- Brand purity, repository secret scan and git diff --check passed. Browser enumeration returned no
+  available browser, so no interactive browser or physical native/default-browser/session test ran.
+Risk:
+- Source/build validation only; no production deployment, DNS/TLS reachability, MSI publication,
+  physical-device session, ARM64 runtime, 4K or latency acceptance is claimed. Client version unchanged.
+Rollback:
+- Revert this commit and rebuild the affected surfaces; no data or schema migration is involved.
+
 ## 2026-09-27 - Customer portal account UX and scoped organization forms
 
 Task:

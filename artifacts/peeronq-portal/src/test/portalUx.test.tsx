@@ -226,4 +226,25 @@ describe('customer portal product UX', () => {
     for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).not.toMatch(/admin|grafana|prometheus/);
     expect(fetchMock.mock.calls.every(([url]) => String(url).startsWith('/portal/v1/'))).toBe(true);
   });
+
+  it('connects support guidance to native Settings while keeping account sign-ins separate', async () => {
+    const fetchMock = mockApi(); open('/support');
+    expect(await screen.findByRole('heading', { name: 'Diagnostics' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Verified Updates' })).toBeVisible();
+    expect(screen.getByText(/Windows app, open Settings.*Advanced diagnostics/)).toBeVisible();
+    expect(screen.getByText(/Local LAN connections remain accountless/)).toBeVisible();
+    expect(screen.getByText(/Desktop installation identity is separate/)).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Sign-in sessions' })).toHaveAttribute('href', '/sessions');
+    expect(screen.queryByRole('link', { name: 'Sessions' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+  });
+
+  it('uses native mode names and distinguishes first-party from dependency licenses', async () => {
+    mockApi(); open('/downloads');
+    for (const name of ['View Only', 'Full Control', 'File Transfer'])
+      expect(await screen.findByRole('heading', { name })).toBeVisible();
+    expect(screen.getByText(/Unattended Access requires a separate setup/)).toBeVisible();
+    expect(screen.getByText(/Dependencies retain their own licenses/)).toBeVisible();
+    expect(screen.getByRole('link', { name: /Third-party notices/ })).toHaveAttribute('href', 'https://github.com/pasha555/PeerOnQ/blob/main/THIRD_PARTY_NOTICES.md');
+  });
 });

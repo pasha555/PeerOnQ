@@ -422,6 +422,23 @@ file, clipboard, unattended, updater or installer support.
 | No real connections | `<PermissionDialog />` on connect |
 | Demo data | `import.meta.env.VITE_ENABLE_DEMO_DATA` |
 | No API when unconfigured | `apiClient` returns `NotConfigured` |
+## Cross-surface product terminology
+
+Public pages, Account Portal and the Windows client use **View Only**, **Full Control**,
+**File Transfer**, **Unattended Access**, **Remote Device ID**, **Verified Updates** and **Diagnostics**
+for the same capabilities. **PeerOnQ ID** names the local/public device identifier. Portal account
+activity is **Sign-in sessions**; native **Sessions** and portal **Remote sessions** refer to remote
+connections. Account sign-in and trusted sign-in devices never imply device enrollment or unattended
+permission. **Open Account Portal** is optional external browser navigation from native Settings/About
+and the offline preview; LAN use remains accountless.
+
+Keep the existing canonical Q-link assets, Segoe/system typography, green primary action, semantic
+status colors and light/dark resources. Native controls retain WinUI spacing, icons, focus and high
+contrast behavior. The public and portal layouts retain their existing responsive web spacing and
+Lucide icons. MIT describes PeerOnQ's source; dependencies retain their own license terms.
+Native version labels use assembly metadata, download labels use verified package metadata, and
+offline preview devices show that their installed version is unknown.
+
 ## Native Android viewer mirror
 
 `src/PeerOnQ.App.Android/Resources/values/` is the Android-native mirror of the existing PeerOnQ

@@ -1,5 +1,6 @@
 # Repository-relative path or directory prefix | evidence-backed reason
 AI_CHANGELOG.md | immutable historical decision log
+.gitleaksignore | fingerprint-specific historical secret-scan findings retain original commit paths; not active product branding
 attached_assets/ | imported historical design inputs, never active product code
 artifacts/test-results/r0-baseline/ | immutable pre-migration evidence
 artifacts/test-results/r0-final/ | generated test evidence containing compatibility fixture names

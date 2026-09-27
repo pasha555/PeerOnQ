@@ -73,7 +73,7 @@ export function OpenAppButton({ children = "Open App", className }: OpenAppButto
               <Link href="/help"><LifeBuoy className="h-4 w-4" />Installation help</Link>
             </Button>
             <Button asChild variant="ghost">
-              <a href={getAccountPortalUrl()}><ExternalLink className="h-4 w-4" />Open web account portal</a>
+              <a href={getAccountPortalUrl()}><ExternalLink className="h-4 w-4" />Open Account Portal</a>
             </Button>
           </div>
         </DialogContent>

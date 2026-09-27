@@ -93,8 +93,8 @@ export function DashboardPage() {
                   <span className="font-medium">Windows 11 (simulated)</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Version</span>
-                  <span className="font-medium">0.5.1</span>
+                  <span className="text-muted-foreground">Client version</span>
+                  <span className="font-medium">Not connected</span>
                 </div>
               </div>
             </div>

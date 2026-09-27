@@ -45,7 +45,7 @@ const NAV_ITEMS: SidebarItemData[] = [
 
 const BOTTOM_ITEMS: SidebarItemData[] = [
   { label: "Visit public website", href: "/", icon: Globe2 },
-  { label: "Open account portal", href: getAccountPortalUrl(), icon: UserRound, external: true },
+  { label: "Open Account Portal", href: getAccountPortalUrl(), icon: UserRound, external: true },
   { label: "Exit desktop preview", href: "/", icon: LogOut },
 ];
 

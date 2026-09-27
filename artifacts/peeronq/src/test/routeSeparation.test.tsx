@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import { OpenAppButton } from "../components/OpenAppButton";
 import { DownloadsPage } from "../pages/DownloadsPage";
+import { DeviceDetailDrawer } from "../components/DeviceDetailDrawer";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -445,9 +446,14 @@ describe("route surface separation", () => {
     expect(screen.getByRole("link", { name: "Open Portal", exact: true })).toHaveAttribute("href", "https://portal.dev.localhost:8443");
   });
 
-  it.each(["http://portal.peeronq.com", "https://user:secret@portal.peeronq.com"])("rejects an unsafe portal URL %s", (url) => {
+  it.each([
+    "http://portal.peeronq.com", "https://user:secret@portal.peeronq.com",
+    "https://portal.peeronq.com/?device_token=test-value",
+    "https://portal.peeronq.com/?installation_token=test-value",
+    "https://portal.peeronq.com/#access_token=test-value",
+  ])("rejects an unsafe portal URL %s", (url) => {
     vi.stubEnv("VITE_PEERONQ_ACCOUNT_PORTAL_URL", url);
-    expect(() => render(<App />)).toThrow("VITE_PEERONQ_ACCOUNT_PORTAL_URL must be an HTTPS URL without credentials.");
+    expect(() => render(<App />)).toThrow("VITE_PEERONQ_ACCOUNT_PORTAL_URL must be an HTTPS URL without credentials, a query, or a fragment.");
   });
 
   it("does not expose a billing, subscription, or entitlement portal surface", () => {
@@ -491,11 +497,20 @@ describe("route surface separation", () => {
     expect(screen.getByRole("heading", { name: /Preview User/i })).toBeInTheDocument();
     expect(screen.getByText("Offline UI preview")).toBeInTheDocument();
     expect(screen.queryByText("v0.5.1")).not.toBeInTheDocument();
+    expect(screen.getByText("Client version")).toBeInTheDocument();
+    expect(screen.getByText("Client version").parentElement).toHaveTextContent("Not connected");
+    expect(screen.queryByText(/^v?\d+\.\d+\.\d+$/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Visit public website" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open account portal" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open account portal" })).toHaveAttribute("href", "https://portal.peeronq.com");
+    expect(screen.getByRole("link", { name: "Open Account Portal" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Account Portal" })).toHaveAttribute("href", "https://portal.peeronq.com");
     expect(screen.getByRole("link", { name: "Exit desktop preview" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Public website" })).not.toBeInTheDocument();
+  });
+
+  it("does not present a legacy preview device version as a reported client version", () => {
+    render(<DeviceDetailDrawer device={{ id: "preview", name: "Preview device", peerOnQId: "123-456-789-012", status: "unknown", os: "Windows", appVersion: "0.5.1", isPrototypeRecord: true }} open onOpenChange={vi.fn()} onRemove={vi.fn()} />);
+    expect(screen.getByText("Not reported (offline preview)")).toBeInTheDocument();
+    expect(screen.queryByText("0.5.1")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -534,6 +549,6 @@ describe("Open App", () => {
     expect(screen.getByRole("link", { name: "Download" })).toHaveAttribute("href", "/downloads");
     expectDownloadsLinksToUseDocumentNavigation();
     expect(screen.getByRole("link", { name: /Installation help/i })).toHaveAttribute("href", "/help");
-    expect(screen.getByRole("link", { name: /Open web account portal/i })).toHaveAttribute("href", "https://portal.peeronq.com");
+    expect(screen.getByRole("link", { name: /Open Account Portal/i })).toHaveAttribute("href", "https://portal.peeronq.com");
   });
 });

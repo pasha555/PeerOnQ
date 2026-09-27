@@ -68,7 +68,7 @@ export function DevicesPage() {
       name: values.name,
       peerOnQId: values.peerOnQId,
       os: values.os,
-      appVersion: "0.5.1"
+      appVersion: ""
     });
     setDialogOpen(false);
     form.reset();

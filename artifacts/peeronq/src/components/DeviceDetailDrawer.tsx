@@ -38,7 +38,7 @@ export function DeviceDetailDrawer({ device, open, onOpenChange, onRemove }: Dev
 
   const rows = [
     { label: "Operating system", value: device.os, icon: Monitor },
-    { label: "App version", value: device.appVersion, icon: Package },
+    { label: "App version", value: "Not reported (offline preview)", icon: Package },
     {
       label: "Last seen",
       value: device.lastSeen ? new Date(device.lastSeen).toLocaleString() : "Never — no agent has reported in",
