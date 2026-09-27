@@ -27,6 +27,17 @@ production approval or a fresh execution of the historical tests farther down th
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
 
+## Physical desktop sharpness investigation - 2026-09-28
+
+The current 0.9.73 source was audited against origin/main. Physical viewer/sharer/server versions
+and display/DPI measurements remain unverified; the requested Phase 0 gate blocks media edits
+until the operator supplies them. A deterministic probe reproduced a single 80 ms render sample
+reaching L3 at t=2 s and remaining there through t=60 s when RTCP feedback becomes unavailable,
+despite sample expiry. With fresh network feedback it recovers at t=20 s. Automatic still caps
+larger displays to 1080p; a real synthetic encode/decode probe shows that bitrate alone cannot
+restore 1 px detail removed at that boundary. See PERFORMANCE_REPORT.md for scope and limits.
+94 selected existing tests passed. No runtime changes, new release or physical blur-fix claim.
+
 ## Customer portal completion candidate - 2026-09-28
 
 - Source 0.9.73 adds auth capabilities, verification resend, authenticated password change,

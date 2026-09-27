@@ -3,6 +3,51 @@
 Measured on 2026-08-18 from the 0.9.21 x64 unsigned-development Portable Support publish.
 Host: Windows 10.0.26200, AMD Ryzen 7 3700X, 16 logical processors, 32 GiB RAM.
 
+## Physical sharpness investigation - 2026-09-28 (Phase 0 pending)
+
+Baseline: current `origin/main` `e831413d5d62303c8c66f9dc2ecdf256e1e14345`, canonical
+0.9.73. Physical viewer/sharer/server versions, display dimensions/DPI and selected path are
+**unverified**; the operator has been asked to supply them. No PeerOnQ App/Agent process was
+running on this workstation when checked. Existing 0.9.73 matching client packages are available,
+but their existence is not evidence that either physical endpoint was upgraded. The task explicitly
+requires version verification before media-code edits. No runtime correction or version bump was
+made in this investigation; the following findings do not prove the screenshot's root cause.
+
+An isolated temporary console probe referenced the current Media project and linked the unchanged
+FrameScaler source. A manual clock exercised the actual AdaptiveQualityController and
+MediaStatisticsCollector, without transport or a physical screen:
+
+- Begin with healthy feedback, then record ONE 80 ms decode-to-render sample. Re-evaluate once
+  per simulated second with zero encoder queue drops and an 8 ms RTT.
+- At t=2 s the controller reaches L3, downscale 2, reason `viewer_render_latency`. The same sample
+  remains in the five-second percentile window; these are not three independently slow frames.
+- At t=6 s the sample has expired and render p95 is zero. With fresh network reports, full recovery
+  occurs at t=20 s. If network reports are unavailable from t=6 onward, the controller remains
+  L3 at t=60 s with `awaiting_network_feedback`. This reproduces the missing-feedback HOLD case
+  in source; it does not establish that RTCP was missing in the user's physical session.
+- The unchanged scaler maps 2560x1440 and 3840x2160 Automatic requests to 1920x1080. Explicit
+  1440p/2160p requests retain the supported source size and never upscale a smaller source.
+- ActualSizeInDips preserves 3840x2160 physical pixels mathematically at 100/125/150/200% DPI.
+  This checks geometry, not XAML interpolation, UI dispatch, GPU presentation or physical sharpness.
+
+An additional synthetic probe used repeated glyph-like edges, 1 px stripes, colored icon blocks,
+window borders and checkerboards. It ran the real BGRA-to-I420 scaler, VP8 encoder and decoder at
+1080p/1440p/4K, Automatic/native size, and 4/12/36 Mbps targets: 18 cases, 12 static input frames
+per case. The 4K Automatic path eliminated the source 1 px stripe contrast (0.0) at every bitrate;
+native 4K retained contrast 217.0/221.0/219.0 on the decoded 0-255 scale. Raising bitrate cannot
+recover spatial detail already removed by capture downscaling. Post-scaler luma PSNR ranged
+24.30-26.18 dB and is not a source-resolution readability score. Native 4K/4 Mbps emitted 7/12
+frames; every other case emitted 12/12. The benchmark was unpaced, cold-start-inclusive and used
+a dense synthetic pattern. Its short timing distributions are not steady-state FPS or a measured
+reason to change production thresholds, force 4K, replace the renderer or add an idle keyframe boost.
+
+Targeted existing-source validation: Media adaptation/VP8/RTCP 60 passed, FrameScaler 24 passed,
+pointer/DPI geometry 10 passed; zero failures/skips in these selected tests. The previous unrelated
+full-suite latency failures have not been reclassified. No live TURN, physical two-device test,
+actual viewport/UI-render timing, source-capture screenshot comparison or production test ran.
+The expanded quality diagnostic, policy correction, regression gates and release remain pending
+the required endpoint/version evidence. Do not describe this audit as a blur fix.
+
 ## Measured evidence
 
 | Measurement | Run 1 | Run 2 |

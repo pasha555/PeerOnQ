@@ -30,6 +30,26 @@ Rollback:
 
 ## Entries
 
+## 2026-09-28 - Physical sharpness baseline; endpoint-version gate pending
+
+Task: Investigate the physical fullscreen blur without assuming the earlier latency fix solved it.
+Files inspected: Required maps/state/performance/protocol docs; Windows capture/scaler, VP8 codecs,
+WebRtcMediaSession/statistics/adaptation, connection policy, native viewer/main UI and relevant tests.
+Files changed: docs/PERFORMANCE_REPORT.md, docs/CURRENT_STATE.md, AI_CHANGELOG.md only.
+Reason: The user explicitly requires BOTH running client versions before media edits. Current
+origin/main is e831413, source 0.9.73; physical viewer/sharer/server versions and monitor/DPI are
+unknown and have been requested. Matching 0.9.73 MSI pair exists; installed versions are not inferred.
+Validation: Temporary probe using current code reproduced ONE 80 ms render sample causing L3 at
+t=2 s. Its latency expires at t=6; fresh network feedback recovers L0 at t=20, absent RTCP remains
+L3 through t=60. 18 real synthetic scaler/VP8 encode/decode cases show 4K->Automatic1080p loses
+1 px stripe detail even at higher bitrate. No physical source/capture/viewport or render timing claim.
+Existing targeted tests: Media 60/60, FrameScaler 24/24, pointer/DPI 10/10. Runtime unchanged;
+no full-suite rerun, version bump, MSI rebuild, server deployment or physical acceptance this task.
+Risk: These source reproductions do not establish the user's physical root cause. Diagnostic UI,
+evidence-backed correction and release remain pending Phase 0. Preserve all congestion/security
+limits and the previously confirmed fixes; do not treat missing RTCP as healthy networking.
+Rollback: Documentation-only entry can be reverted independently; no runtime/data change.
+
 
 ## 2026-09-28 - Customer email authentication and personal portal completion (0.9.73)
 
