@@ -60,6 +60,11 @@ Validation:
   after remediation; four previously documented moderate findings remain (qs and Vitest/mocker).
 - Full workspace build and OpenAPI generator smoke check passed with the patched build dependencies;
   checked-in generated API files are unchanged. Fallow, repository secret scan and diff checks passed.
+- GitHub Quality run 36335866350 for d3b653b confirmed web-workspace and secret-history success.
+  Windows: 873 passed, 2 failed, 5 skipped; signaling vectors and all 7 QUIC tests passed. The two
+  WebRTC input cases still exceeded 35 ms at baseline p95 37.4/37.2 ms. CI is NOT fully green.
+  The later GitHub 1 GiB/audit steps were skipped after that failure; their passing evidence above
+  is local execution only. Reordering tests is not a fix for the existing DTLS polling limitation.
 Risk:
 - This fixes test inputs/execution, not the documented production transport latency limitation.
   An initial isolated input test still reproduced a 39.7 ms baseline before the complete serial run
