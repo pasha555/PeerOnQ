@@ -1,4 +1,4 @@
-import { Route, Switch } from 'wouter';
+import { Redirect, Route, Switch, useLocation, useSearch } from 'wouter';
 import { useAuth } from './auth';
 import { LoadingState } from './components';
 import {
@@ -15,10 +15,20 @@ function NotFound() { return <section className="state"><h1>Page not found</h1><
 
 function PortalRoutes() {
   const { status } = useAuth();
-  if (location.pathname === '/verify-email') return <VerifyEmailPage />;
-  if (location.pathname === '/reset-password') return <ResetPasswordPage />;
+  const [path] = useLocation();
+  const search = useSearch();
+  const routeKey = `${path}?${search}`;
+  if (path === '/verify-email') return <VerifyEmailPage key={routeKey} />;
+  if (path === '/reset-password') return <ResetPasswordPage key={routeKey} />;
   if (status === 'loading') return <main className="standalone"><LoadingState label="Restoring your secure account session…" /></main>;
-  if (status !== 'authenticated') return <AuthPage />;
+  if (status !== 'authenticated') return <Switch>
+    <Route path="/"><AuthPage key={routeKey} /></Route>
+    <Route path="/register"><AuthPage key={routeKey} mode="register" /></Route>
+    <Route path="/forgot-password"><AuthPage key={routeKey} mode="forgot" /></Route>
+    <Route path="/resend-verification"><AuthPage key={routeKey} mode="resend" /></Route>
+    <Route><AuthPage key={routeKey} /></Route>
+  </Switch>;
+  if (['/register', '/forgot-password', '/resend-verification'].includes(path)) return <Redirect to="/" />;
   return <OrganizationProvider><Shell><Switch>
     <Route path="/" component={OverviewPage} />
     <Route path="/profile" component={ProfilePage} />

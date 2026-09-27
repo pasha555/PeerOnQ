@@ -30,6 +30,54 @@ Rollback:
 
 ## Entries
 
+## 2026-09-28 - Explicit customer auth navigation (0.9.74)
+
+Task: Fix ambiguous Sign in/Create account/Forgot password/Resend verification navigation.
+Files inspected: Required repository maps/contracts/state, canonical version/release tooling;
+Portal App/pages/auth/API/password fields/brand/styles/tests; existing customer endpoint/capability
+contracts and production SPA fallback. No authentication or media protocol rewrite.
+Files changed: Portal App/pages/uiStates/styles and auth tests; Directory.Build.props, project/route
+maps, CURRENT_STATE, release notes and this log.
+Reason: Local AuthMode buttons did not update browser history; successful recovery/resend/register
+immediately switched back to login, hiding which flow had completed.
+Changes: Real links/routes at /register, /forgot-password and /resend-verification; reactive token
+routes retained. Route-scoped state, first-field/success-heading focus, explicit button types,
+capability-gated direct entry, preserved invitation token, dedicated generic success screens and
+safe existing-account/mail errors. Real API endpoints/auth provider are reused unchanged.
+Security: Host-only __Host- cookies, CSRF/rate limits/email verification, customer MFA off, Admin MFA,
+organization authorization and native LAN accountless access are unchanged. No overlay was added;
+the existing authenticated navigation scrim is outside AuthFrame. SMTP was not provisioned: the
+operator has no provider, so Closed registration/mail Disabled remain required until SMTP is ready.
+Validation:
+- Before the fix, all three new link-navigation tests failed against the state-button implementation.
+- Node 24 Portal typecheck/build and 82/82 tests passed (24 new navigation cases); public website
+  typecheck and 86/86 tests passed. DOM click/keyboard/history/direct-entry, success, capability,
+  password/invitation, stale-request, /verify-email and /reset-password coverage passed.
+- Cloud.Infrastructure 56/56 and Admin 49/49 passed. Deployment configuration 21/21 passed using
+  the existing Release test binary with --no-build; merged Compose URL/private-port checks passed.
+- Canonical client/server version and native UI/accessibility invariants passed; repository secret
+  scan passed. Both Windows architectures built with zero warnings/errors and passed MSI payload
+  validation. The restarted local :5555 website selects 0.9.74 unsigned-public-pilot; full GETs of
+  both MSI URLs returned HTTP 200 and matched the published SHA256SUMS.txt.
+- Full .run checksum/payload/header/version/archive-path checks and embedded x64 MSI checks passed;
+  the generated header passed POSIX shell syntax validation. Portal and public-site production
+  Docker images built from the exact extracted bundle. All six auth routes returned the SPA over
+  loopback HTTP with security headers; deployed JS includes the new routes/success guidance.
+  The bundled public site serves the exact 0.9.74 x64 bytes and portless portal link. An initial
+  ad-hoc origin probe incorrectly expected the edge-only no-store header; after checking ownership,
+  origin bytes and existing ingress/bootstrap cache-policy contracts were verified separately.
+- New packages are unsigned public-pilot candidates; no server GPG signature was created. Native
+  behavior is unchanged (shared version stamp only); server installation does not update clients.
+- Server: dist/server/peeronq-server-0.9.74.run; SHA-256
+  17d7587da5067fbb8cf7f6d7f70f6ac1e647c09511b5f82395fddd5f4be61626.
+- Windows x64 SHA-256: 9a9a16e062d818433f8ca376f290da18c996d26b8fdbb5c9c938d23d5daa2e14;
+  ARM64: 477d090835db532efa49c3ee2c5da252156df0e467a481196545b5453f9a6d19.
+Risk: No connected browser was available, so visual/pointer-hit testing is not claimed. No live SMTP,
+physical Windows/ARM64 session, production install or desktop sharpness acceptance was performed.
+The full solution/media suite was not rerun; the previously documented media timing failures remain.
+Rollback: Use the retained verified server release via --rollback without deleting data/forward
+migrations. Revert the frontend change if needed; server rollback does not downgrade installed clients.
+
 ## 2026-09-28 - Physical sharpness baseline; endpoint-version gate pending
 
 Task: Investigate the physical fullscreen blur without assuming the earlier latency fix solved it.

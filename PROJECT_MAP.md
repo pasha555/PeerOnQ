@@ -15,7 +15,7 @@ retained on `feat/phase1-remote-view` and is not pushed because it contains gene
 Commits on the publication branch are pushed to `origin` and verified; installers and deployment
 remain subject to the separate release gates.
 
-Current source contract: canonical server/client version `0.9.72` comes from `Directory.Build.props`;
+Current source contract: canonical server/client version comes from `Directory.Build.props`;
 Linux/Android/Apple versions derive from it. Signaling accepts exactly v3. Native non-Windows
 projects are attended viewer/controller previews with separate physical-device/release gates;
 see `docs/CURRENT_STATE.md` and `docs/CROSS_PLATFORM_CAPABILITIES.md`. Dated phase reports retain
@@ -893,6 +893,7 @@ place the root-owned public keyring and host agent; later releases can be staged
 - `CustomerIdentityEntities.cs` — customer and organization invariants; no internal Admin role reuse
 - `20260817060948_AddCustomerIdentityOrganizationsAndPolicy.cs` — forward-only schema and append-only customer audit trigger
 - `artifacts/peeronq-portal/src/` — real same-origin API portal with explicit loading/error/empty states; stable `api.ts`, `shell.tsx`, and `components.tsx` facades re-export their focused implementations
+- `artifacts/peeronq-portal/src/App.tsx`, `pages.tsx` — reactive customer auth routes `/`, `/register`, `/forgot-password`, `/resend-verification`; links/history/direct navigation, capability gates, route-scoped form state and persistent generic success screens reuse the existing APIs. Token routes remain separate; authenticated auth-form visits return to Overview.
 - `artifacts/peeronq-portal/src/workspacePages.tsx` — authenticated overview, organization devices/remote-session history, downloads and support; resource responses are scoped to the current organization and aborted on scope changes
 - `artifacts/peeronq-portal/src/passwordFields.tsx` - accessible password visibility/confirmation and server-provided rules shared by registration, reset and Security
 - `artifacts/peeronq-portal/src/theme.tsx` — shared auth/customer theme, system preference fallback and guarded non-secret preference storage

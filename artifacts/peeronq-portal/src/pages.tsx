@@ -14,8 +14,9 @@ function formatDate(value: string | null) { return value ? new Intl.DateTimeForm
 
 type AuthMode = 'login' | 'register' | 'forgot' | 'resend';
 type AuthActions = Pick<ReturnType<typeof useAuth>, 'login' | 'register'>;
+type AuthSuccess = { title: string; message: string };
 
-async function submitAuthMode(mode: AuthMode, data: FormData, actions: AuthActions): Promise<string | null> {
+async function submitAuthMode(mode: AuthMode, data: FormData, actions: AuthActions): Promise<AuthSuccess | null> {
   if (mode === 'login') {
     await actions.login(String(data.get('email')), String(data.get('password')), String(data.get('mfaCode') ?? ''));
     return null;
@@ -24,15 +25,17 @@ async function submitAuthMode(mode: AuthMode, data: FormData, actions: AuthActio
     const token = new URLSearchParams(location.search).get('token') ?? undefined;
     const result = await actions.register(String(data.get('email')), String(data.get('displayName')), String(data.get('password')), token);
     return result.emailVerificationRequired
-      ? 'Check your inbox to verify your account, then sign in.'
-      : 'Account created. You can sign in now.';
+      ? { title: 'Check your email', message: 'Check your inbox to verify your account, then sign in.' }
+      : { title: 'Account created', message: 'Account created. You can sign in now.' };
   }
   await post(mode === 'resend' ? '/auth/verify-email/resend' : '/auth/password-reset/request', { email: String(data.get('email')) });
-  return 'Request accepted. If your account is eligible, check your inbox. If no message arrives, try again later.';
+  return { title: 'Check your email', message: mode === 'resend'
+    ? 'If the account is eligible, a new verification email has been sent.'
+    : 'If an eligible account exists, a password reset email has been sent.' };
 }
 
 function authTitle(mode: AuthMode): string {
-  return { login: 'Sign in', register: 'Create account', forgot: 'Reset password', resend: 'Resend verification' }[mode];
+  return { login: 'Sign in', register: 'Create account', forgot: 'Forgot password', resend: 'Resend verification' }[mode];
 }
 
 function authButtonLabel(mode: AuthMode, busy: boolean): string {
@@ -52,55 +55,73 @@ function AuthForm({ mode, mfa, busy, onSubmit }: {
     {mode === 'login' ? <PasswordField name="password" label="Password" autoComplete="current-password" /> : null}
     {mode === 'register' ? <NewPasswordFields label="Password" /> : null}
     {mode === 'login' && mfa ? <label>MFA or recovery code<input name="mfaCode" required autoComplete="one-time-code" autoFocus /></label> : null}
-    <button className="button primary full" disabled={busy}>{authButtonLabel(mode, busy)}</button>
+    <button type="submit" className="button primary full" disabled={busy}>{authButtonLabel(mode, busy)}</button>
   </form>;
 }
 
-function AuthLinks({ mode, busy, onMode }: { mode: AuthMode; busy: boolean; onMode(mode: AuthMode): void }) {
+function AuthLinks({ mode }: { mode: AuthMode }) {
   const { capabilities } = useAuth();
-  const canRegister = capabilities?.registrationAvailable && (capabilities.registrationMode === 'Open' || Boolean(new URLSearchParams(location.search).get('token')));
+  const invitation = new URLSearchParams(location.search).get('token');
+  const invitationQuery = invitation ? `?token=${encodeURIComponent(invitation)}` : '';
+  const canRegister = capabilities?.registrationAvailable && (capabilities.registrationMode === 'Open' || (capabilities.registrationMode === 'InvitationOnly' && Boolean(invitation)));
   if (mode !== 'login') {
-    return <div className="auth-links"><button className="link-button" disabled={busy} onClick={() => onMode('login')}>Back to sign in</button></div>;
+    return <nav className="auth-links" aria-label="Account access"><Link className="link-button" href={invitation ? `/invitations/accept${invitationQuery}` : '/'}>Back to sign in</Link></nav>;
   }
-  return <div className="auth-links">
-    {canRegister ? <button className="link-button" disabled={busy} onClick={() => onMode('register')}>Create account</button> : <p className="field-help">{capabilities?.registrationMode === 'InvitationOnly' ? 'An invitation is required to create an account. Open the link from your organization.' : 'New account registration is currently closed.'}</p>}
-    {capabilities?.passwordResetAvailable ? <button className="link-button" disabled={busy} onClick={() => onMode('forgot')}>Forgot password?</button> : <p className="field-help">Email recovery is unavailable. Contact your service operator.</p>}
-    {capabilities?.requireEmailVerification && capabilities.passwordResetAvailable ? <button className="link-button" disabled={busy} onClick={() => onMode('resend')}>Resend verification</button> : null}
-  </div>;
+  return <nav className="auth-links" aria-label="Account access">
+    {canRegister ? <Link className="link-button" href={`/register${invitationQuery}`}>Create account</Link> : <p className="field-help">{capabilities?.registrationMode === 'InvitationOnly' ? 'An invitation is required to create an account. Open the link from your organization.' : 'New account registration is currently closed.'}</p>}
+    {capabilities?.passwordResetAvailable ? <Link className="link-button" href="/forgot-password">Forgot password?</Link> : <p className="field-help">Email recovery is unavailable. Contact your service operator.</p>}
+    {capabilities?.requireEmailVerification && capabilities.passwordResetAvailable ? <Link className="link-button" href="/resend-verification">Resend verification</Link> : null}
+  </nav>;
 }
 
-export function AuthPage() {
+export function AuthPage({ mode = 'login' }: { mode?: AuthMode }) {
   const { login, register, error: serviceError, reload, capabilities, capabilitiesError, reloadCapabilities } = useAuth();
-  const [mode, setMode] = useState<AuthMode>('login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<AuthSuccess | null>(null);
   const [mfa, setMfa] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  const invitation = new URLSearchParams(location.search).get('token');
+  const registrationAvailable = capabilities?.registrationAvailable && (capabilities.registrationMode === 'Open' || (capabilities.registrationMode === 'InvitationOnly' && Boolean(invitation)));
+  const unavailable = !capabilities ? null
+    : mode === 'register' && !registrationAvailable ? (capabilities.registrationMode === 'InvitationOnly' ? 'An invitation is required to create an account. Open the link from your organization.' : 'New account registration is currently closed.')
+    : mode === 'forgot' && !capabilities.passwordResetAvailable ? 'Email recovery is unavailable. Contact your service operator.'
+    : mode === 'resend' && !(capabilities.requireEmailVerification && capabilities.passwordResetAvailable) ? 'Verification email is unavailable. Contact your service operator.'
+    : null;
+  useEffect(() => { if (notice || unavailable) heading.current?.focus(); }, [notice, unavailable]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); setBusy(true); setError(null); setNotice(null);
+    event.preventDefault();
+    if (busy || unavailable || !capabilities) return;
+    setBusy(true); setError(null); setNotice(null);
     try {
       const data = new FormData(event.currentTarget);
       if (mode === 'register') { const invalid = passwordError(data, capabilities?.passwordRules); if (invalid) { setError(invalid); return; } }
       const nextNotice = await submitAuthMode(mode, data, { login, register });
-      setNotice(nextNotice);
-      if (mode !== 'login') setMode('login');
+      if (active.current) setNotice(nextNotice);
     } catch (cause) {
+      if (!active.current) return;
       if (capabilities?.mfaAvailable && cause instanceof ApiError && cause.code === 'mfa_required') {
         setMfa(true); setError('Enter your authenticator or recovery code.');
+      } else if (cause instanceof ApiError && cause.code === 'account_exists') {
+        setError('An account already exists with this email. Sign in or use password recovery.');
+      } else if (cause instanceof ApiError && cause.code === 'customer_mail_unavailable') {
+        setError('Email delivery is temporarily unavailable. Please try again later. If you already submitted registration, request a new verification email when delivery is available.');
       } else setError(message(cause));
-    } finally { setBusy(false); }
+    } finally { if (active.current) setBusy(false); }
   };
-  const changeMode = (next: AuthMode) => { setMode(next); setMfa(false); setError(null); setNotice(null); };
   return <AuthFrame><section className="auth-layout">
     <div className="auth-intro"><div><span className="eyebrow">Your PeerOnQ workspace</span><h1>A clear view of your devices and access.</h1><p>Manage your account and your organization’s shared resources from one place.</p></div><ul className="auth-benefits"><li><Laptop aria-hidden="true" /><div><strong>Devices & sessions</strong><span>Review managed devices and remote session history.</span></div></li><li><UsersRound aria-hidden="true" /><div><strong>Your organization</strong><span>Keep members, teams and access settings together.</span></div></li><li><ShieldCheck aria-hidden="true" /><div><strong>Account security</strong><span>Manage your password, sign-in sessions and trusted sign-in devices.</span></div></li></ul><p className="auth-note">Remote connections run in the native app. Local LAN access works without an account.</p></div>
-    <div className="auth-card"><span className="eyebrow">Account portal</span><h2>{authTitle(mode)}</h2><p>{mode === 'login' ? 'Welcome back. Use your PeerOnQ account to continue.' : mode === 'register' ? 'Create your account to manage a shared workspace.' : mode === 'resend' ? 'Request a new verification link. Previous links will expire.' : 'Request an email link to reset your password.'}</p>
-      {serviceError ? <Notice tone="danger">{serviceError} <button className="link-button" onClick={() => void reload()}>Retry</button></Notice> : null}
-      {notice ? <Notice tone="success">{notice}</Notice> : null}
+    <div className="auth-card"><span className="eyebrow">Account portal</span><h2 ref={heading} tabIndex={-1}>{notice?.title ?? authTitle(mode)}</h2>{!notice ? <p>{mode === 'login' ? 'Welcome back. Use your PeerOnQ account to continue.' : mode === 'register' ? 'Create your account to manage a shared workspace.' : mode === 'resend' ? 'Request a new verification link. Previous links will expire.' : 'Request an email link to reset your password.'}</p> : null}
+      {serviceError ? <Notice tone="danger">{serviceError} <button type="button" className="link-button" onClick={() => void reload()}>Retry</button></Notice> : null}
+      {notice ? <Notice tone="success">{notice.message}</Notice> : null}
       {error ? <Notice tone="danger">{error}</Notice> : null}
       {capabilitiesError ? <ErrorState message={capabilitiesError} retry={() => void reloadCapabilities()} /> : !capabilities ? <LoadingState label="Loading sign-in options..." /> : <>
-        <AuthForm mode={mode} mfa={mfa && capabilities.mfaAvailable} busy={busy} onSubmit={(event) => void submit(event)} />
-        <AuthLinks mode={mode} busy={busy} onMode={changeMode} />
+        {unavailable ? <Notice>{unavailable}</Notice> : !notice ? <AuthForm mode={mode} mfa={mfa && capabilities.mfaAvailable} busy={busy} onSubmit={(event) => void submit(event)} /> : null}
+        {mode === 'register' && (notice || error) && capabilities.requireEmailVerification && capabilities.passwordResetAvailable ? <Link className="text-action" href="/resend-verification">Resend verification</Link> : null}
       </>}
+      {capabilities || mode !== 'login' ? <AuthLinks mode={mode} /> : null}
     </div>
   </section></AuthFrame>;
 }
@@ -109,7 +130,7 @@ export function VerifyEmailPage() {
   const token = new URLSearchParams(location.search).get('token') ?? '';
   const started = useRef(false); const [state, setState] = useState<'loading' | 'done' | 'error'>('loading');
   useEffect(() => { if (started.current) return; started.current = true; void post('/auth/verify-email', { token }).then(() => setState('done')).catch(() => setState('error')); }, [token]);
-  return <AuthFrame><section className="auth-card auth-single"><span className="eyebrow">Account security</span><h1>Verify your email</h1>{state === 'loading' ? <LoadingState label="Verifying your account…" /> : state === 'done' ? <Notice tone="success">Email verified. You can now sign in.</Notice> : <ErrorState message="This verification link is invalid, expired, or already used." />}<a className="button secondary" href="/">Back to sign in</a></section></AuthFrame>;
+  return <AuthFrame><section className="auth-card auth-single"><span className="eyebrow">Account security</span><h1>Verify your email</h1>{state === 'loading' ? <LoadingState label="Verifying your account…" /> : state === 'done' ? <Notice tone="success">Email verified. You can now sign in.</Notice> : <ErrorState message="This verification link is invalid, expired, or already used." />}<Link className="button secondary" href="/">Back to sign in</Link></section></AuthFrame>;
 }
 
 export function ResetPasswordPage() {
@@ -122,8 +143,8 @@ export function ResetPasswordPage() {
     catch (cause) { setError(message(cause)); } finally { setBusy(false); }
   };
   return <AuthFrame><section className="auth-card auth-single"><span className="eyebrow">Account security</span><h1>Choose a new password</h1>
-    {done ? <Notice tone="success">Password changed and existing sessions revoked.</Notice> : <form onSubmit={(event) => void submit(event)} aria-busy={busy}>{error ? <Notice tone="danger">{error}</Notice> : null}<NewPasswordFields /><p className="field-help">Changing your password revokes existing sign-in sessions.</p><button className="button primary full" disabled={busy}>{busy ? 'Resetting…' : 'Reset password'}</button></form>}
-    <a className="text-action" href="/">Back to sign in</a>
+    {done ? <Notice tone="success">Password changed and existing sessions revoked.</Notice> : <form onSubmit={(event) => void submit(event)} aria-busy={busy}>{error ? <Notice tone="danger">{error}</Notice> : null}<NewPasswordFields /><p className="field-help">Changing your password revokes existing sign-in sessions.</p><button type="submit" className="button primary full" disabled={busy}>{busy ? 'Resetting…' : 'Reset password'}</button></form>}
+    <Link className="text-action" href="/">Back to sign in</Link>
   </section></AuthFrame>;
 }
 

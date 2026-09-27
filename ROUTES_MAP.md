@@ -225,7 +225,10 @@ and tenant authorization still apply.
 
 | URL | Page | Purpose | Data source |
 | --- | --- | --- | --- |
-| `/` | `OverviewPage` / unauthenticated `AuthPage` | Capabilities-aware sign in, registration and verification resend; then identity/verification and optional MFA, active account-session/trust counts, organization count, managed devices and recent remote sessions; independent widget errors/retries | `/portal/v1/auth/*`, `/account/{profile,sessions,trusted-devices}`, `/organizations/`, `/organizations/*/{devices,sessions}` |
+| `/` | `OverviewPage` / unauthenticated `AuthPage` | Capabilities-aware sign in with real auth-route links; then identity/verification and optional MFA, active account-session/trust counts, organization count, managed devices and recent remote sessions; independent widget errors/retries | `/portal/v1/auth/*`, `/account/{profile,sessions,trusted-devices}`, `/organizations/`, `/organizations/*/{devices,sessions}` |
+| `/register` | `AuthPage` (register) | Real registration/password confirmation; invitation query retained; dedicated verification success state; unavailable policies show explanation instead of a form | `/portal/v1/auth/capabilities`, `/auth/register` |
+| `/forgot-password` | `AuthPage` (forgot) | Real email recovery; generic success stays on this URL with an explicit sign-in link | `/portal/v1/auth/capabilities`, `/auth/password-reset/request` |
+| `/resend-verification` | `AuthPage` (resend) | Real verification resend; generic success stays on this URL; requires enabled verification/mail capability | `/portal/v1/auth/capabilities`, `/auth/verify-email/resend` |
 | `/profile`, `/account` | `ProfilePage` | Profile editor; `/profile` is canonical navigation, `/account` remains a working compatibility alias | `/portal/v1/account/profile` |
 | `/remote-sessions` | `RemoteSessionsPage` | Organization host-side remote-session metadata, up to 500 recent records | `/portal/v1/organizations/*/sessions` |
 | `/downloads` | `DownloadsPage` | Native app access modes and link to authoritative public downloads | Static; `https://peeronq.com/#download` |

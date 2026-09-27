@@ -22,7 +22,7 @@ describe('customer authentication completion', () => {
   it.each(['Closed', 'InvitationOnly'] as const)('does not offer registration without an invitation in %s mode', async (mode) => {
     mockApi({ registrationMode: mode, registrationAvailable: mode !== 'Closed' }); open();
     await screen.findByLabelText('Email');
-    expect(screen.queryByRole('button', { name: 'Create account' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create account' })).not.toBeInTheDocument();
     expect(await screen.findByText(mode === 'Closed' ? /New account registration is currently closed/ : /An invitation is required/)).toBeVisible();
   });
 
@@ -38,13 +38,13 @@ describe('customer authentication completion', () => {
   it('does not advertise email recovery when mail is disabled', async () => {
     mockApi({ passwordResetAvailable: false, registrationAvailable: false, registrationMode: 'Closed' }); open();
     await screen.findByLabelText('Email');
-    expect(screen.queryByRole('button', { name: 'Forgot password?' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Forgot password?' })).not.toBeInTheDocument();
     expect(screen.getByText(/Email recovery is unavailable/)).toBeVisible();
   });
 
   it('validates password confirmation and complexity before requesting registration', async () => {
     const fetchMock = mockApi(); const user = userEvent.setup(); open();
-    await user.click(await screen.findByRole('button', { name: 'Create account' }));
+    await user.click(await screen.findByRole('link', { name: 'Create account' }));
     await user.type(screen.getByLabelText('Display name'), 'Avery'); await user.type(screen.getByLabelText('Email'), profile.email);
     await user.type(screen.getByLabelText('Password'), 'alllowercasepassword'); await user.type(screen.getByLabelText('Confirm password'), 'different');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
@@ -59,9 +59,9 @@ describe('customer authentication completion', () => {
 
   it('resends verification with a generic response and no token storage', async () => {
     const fetchMock = mockApi({}, false, (path) => path.endsWith('/verify-email/resend') ? Response.json({ message: 'Accepted' }, { status: 202 }) : undefined);
-    const user = userEvent.setup(); open(); await user.click(await screen.findByRole('button', { name: 'Resend verification' }));
+    const user = userEvent.setup(); open(); await user.click(await screen.findByRole('link', { name: 'Resend verification' }));
     await user.type(screen.getByLabelText('Email'), profile.email); await user.click(screen.getByRole('button', { name: 'Send verification message' }));
-    expect(await screen.findByText(/Request accepted. If your account is eligible/)).toBeVisible();
+    expect(await screen.findByText(/If the account is eligible, a new verification email has been sent/)).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith('/portal/v1/auth/verify-email/resend', expect.objectContaining({ body: JSON.stringify({ email: profile.email }) }));
     expect(sessionStorage.length).toBe(0);
   });

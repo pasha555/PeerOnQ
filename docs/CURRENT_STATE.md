@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.73`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9073`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.74`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9074`. A source
   version does not establish that a matching signed package has been built or published.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.
@@ -26,6 +26,35 @@ production approval or a fresh execution of the historical tests farther down th
 - Runtime, release-license, physical-device and performance gates remain evidence-bound. See
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
+
+## Customer auth navigation candidate - 2026-09-28
+
+- Portal sign-in (`/`), registration (`/register`), password recovery (`/forgot-password`) and
+  verification resend (`/resend-verification`) now have explicit client routes and real links.
+  Direct navigation and history restore the matching form; first-field/success-heading focus
+  follows navigation. `/verify-email` and `/reset-password` retain their real token endpoints.
+- Successful registration/recovery/resend stays on its route with guidance and an explicit sign-in
+  link. Existing backend capabilities, password rules and invitation tokens govern availability.
+  Closed registration and unavailable email recovery are hidden and blocked on direct navigation.
+- Auth endpoints, host-only cookies, CSRF, rate limits, verification, customer/Admin MFA, organization
+  security and native accountless LAN behavior are unchanged. Native packages only advance their
+  shared version; this patch is not a physical-desktop blur fix.
+- The operator has no SMTP service. Production Open/InvitationOnly registration and recovery cannot
+  work without real mail delivery; use Closed registration with mail Disabled until SMTP is configured.
+  Navigation fixes do not provision SMTP or bypass the production startup requirement.
+
+Local Portal typecheck/build and 82/82 tests, Cloud.Infrastructure 56/56 and Admin 49/49 passed.
+Public-site typecheck/86 tests, deployment configuration/21 tests, Compose/bootstrap and native
+UI/version invariants passed. Matching x64/ARM64 unsigned-public-pilot MSIs were built, payload-
+validated and published to the restarted local :5555 website; both full HTTP GET checksums match.
+The full 0.9.74 server bundle embeds that exact x64 package; checksum/payload/header checks and
+production Portal/public-site Docker builds from its extracted source passed. Loopback HTTP probes
+verified all six SPA auth routes/headers, deployed auth JavaScript and the offered client bytes.
+Server candidate: `dist/server/peeronq-server-0.9.74.run`, SHA-256
+`17d7587da5067fbb8cf7f6d7f70f6ac1e647c09511b5f82395fddd5f4be61626`.
+The bundle has no detached GPG signature; do not infer signing approval or production installation.
+Browser visual/pointer-hit acceptance was unavailable (no connected browser); DOM keyboard/history
+tests passed. Live SMTP/mailbox acceptance and physical-device validation were not performed.
 
 ## Physical desktop sharpness investigation - 2026-09-28
 

@@ -6,7 +6,7 @@ export function LoadingState({ label = 'Loading secure data…' }: { label?: str
   return <div className="state" role="status"><LoaderCircle className="spin" aria-hidden="true" /><p>{label}</p></div>;
 }
 export function ErrorState({ message, retry }: { message: string; retry?: () => void }) {
-  return <div className="state error" role="alert"><AlertTriangle aria-hidden="true" /><h2>Could not load this page</h2><p>{message}</p>{retry ? <button className="button secondary" onClick={retry}><RefreshCw size={16} />Retry</button> : null}</div>;
+  return <div className="state error" role="alert"><AlertTriangle aria-hidden="true" /><h2>Could not load this page</h2><p>{message}</p>{retry ? <button type="button" className="button secondary" onClick={retry}><RefreshCw size={16} />Retry</button> : null}</div>;
 }
 export function EmptyState({ title, children }: { title: string; children: ReactNode }) {
   return <div className="state"><Inbox aria-hidden="true" /><h2>{title}</h2><p>{children}</p></div>;

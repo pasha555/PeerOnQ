@@ -35,7 +35,7 @@ describe('customer authentication bootstrap', () => {
       return problem(401, 'session_invalid', 'Sign in required.');
     });
     const user = userEvent.setup(); render(<AuthProvider><App /></AuthProvider>);
-    await user.click(await screen.findByRole('button', { name: 'Create account' }));
+    await user.click(await screen.findByRole('link', { name: 'Create account' }));
     expect(screen.getByLabelText('Display name')).toHaveFocus();
     await user.type(screen.getByLabelText('Display name'), 'Avery');
     await user.type(screen.getByLabelText('Email'), 'avery@example.test');
@@ -52,11 +52,11 @@ describe('customer authentication bootstrap', () => {
   it('uses the generic password-reset request response without revealing whether the account exists', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => String(input).endsWith('/capabilities') ? Response.json(capabilities) : String(input).endsWith('/password-reset/request') ? new Response(null, { status: 204 }) : problem(401, 'session_invalid', 'Sign in required.'));
     const user = userEvent.setup(); render(<AuthProvider><App /></AuthProvider>);
-    await user.click(await screen.findByRole('button', { name: 'Forgot password?' }));
+    await user.click(await screen.findByRole('link', { name: 'Forgot password?' }));
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Email'), 'avery@example.test');
     await user.click(screen.getByRole('button', { name: 'Send reset message' }));
-    expect(await screen.findByText('Request accepted. If your account is eligible, check your inbox. If no message arrives, try again later.')).toBeVisible();
+    expect(await screen.findByText('If an eligible account exists, a password reset email has been sent.')).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith('/portal/v1/auth/password-reset/request', expect.objectContaining({ method: 'POST', body: JSON.stringify({ email: 'avery@example.test' }) }));
   });
 
