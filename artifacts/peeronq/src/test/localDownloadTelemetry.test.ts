@@ -81,6 +81,32 @@ describe('local download telemetry', () => {
     );
   });
 
+  it.each(['finish', 'close'] as const)('handles telemetry failure before a download emits %s', async (event) => {
+    const error = new Error('Telemetry host is unavailable');
+    const telemetry = { ...client(), reportFailure: vi.fn() };
+    telemetry.start.mockRejectedValue(error);
+    const response = new TestResponse();
+
+    expect(observeLocalMsiDownload({
+      method: 'GET',
+      url: '/downloads/PeerOnQ-0.9.66-unsigned-public-pilot-x64.msi',
+      headers: {},
+    }, response, telemetry)).toBe(true);
+
+    // The rejection occurs while MSI bytes are still being streamed.
+    await flushPromises();
+    expect(telemetry.reportFailure).toHaveBeenCalledWith(error);
+    expect(response.statusCode).toBe(200);
+    expect(response.writableFinished).toBe(false);
+
+    response.writableFinished = event === 'finish';
+    response.emit(event);
+    response.emit('close');
+    await flushPromises();
+    expect(telemetry.reportFailure).toHaveBeenCalledTimes(1);
+    expect(telemetry.complete).not.toHaveBeenCalled();
+  });
+
   it('records range responses as partial and disconnects as cancelled once', async () => {
     const partialTelemetry = client();
     const partialResponse = new TestResponse();

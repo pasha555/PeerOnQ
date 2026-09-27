@@ -15,7 +15,7 @@ retained on `feat/phase1-remote-view` and is not pushed because it contains gene
 Commits on the publication branch are pushed to `origin` and verified; installers and deployment
 remain subject to the separate release gates.
 
-Current source contract: canonical client version `0.9.66` comes from `Directory.Build.props`;
+Current source contract: canonical client version `0.9.67` comes from `Directory.Build.props`;
 Linux/Android/Apple versions derive from it. Signaling accepts exactly v3. Native non-Windows
 projects are attended viewer/controller previews with separate physical-device/release gates;
 see `docs/CURRENT_STATE.md` and `docs/CROSS_PLATFORM_CAPABILITIES.md`. Dated phase reports retain
@@ -786,7 +786,7 @@ preserves the older update-disabled connectivity-test kit.
 - `artifacts/peeronq-admin/src/pages/ResourcePage.tsx` - shared, responsibility-split resource tables, filters, metrics, and audited action dialogs
 - `artifacts/peeronq-admin/src/pages/UpgradePage.tsx` - durable host-status, signed bundle staging and exact-version MFA Owner apply/rollback controls
 - `src/PeerOnQ.Downloads.Service/DownloadEndpoints.cs` - signed release streaming and event tracking
-- `artifacts/peeronq/server/localDownloadTelemetry.ts` - server-side, non-blocking start/completion telemetry for exact local development MSI GETs
+- `artifacts/peeronq/server/localDownloadTelemetry.ts` - server-side, non-blocking start/completion telemetry for exact local development/public-pilot MSI GETs; start failures are handled during streaming so optional telemetry cannot interrupt downloads
 - `src/PeerOnQ.Observability/ServiceDefaults.cs` - common health, low-cardinality metrics, logs and OTel
 - `src/PeerOnQ.Observability/ServiceDrain.cs` - application-stop traffic admission and retryable drain response
 - `src/PeerOnQ.Infrastructure.Deployment/` - Compose, proxy, monitoring, backup/restore and runbooks

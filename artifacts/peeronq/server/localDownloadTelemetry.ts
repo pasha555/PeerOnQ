@@ -76,6 +76,10 @@ export function observeLocalMsiDownload(
   const started = client.start({
     ...metadata,
     userAgent: userAgent?.slice(0, 512),
+  }).catch((error: unknown) => {
+    // Handle rejection while the MSI is still streaming, before finish/close.
+    client.reportFailure?.(error);
+    return null;
   });
   let settled = false;
 
@@ -83,7 +87,7 @@ export function observeLocalMsiDownload(
     if (settled) return;
     settled = true;
     void started
-      .then((session) => client.complete(session, result))
+      .then((session) => session ? client.complete(session, result) : undefined)
       .catch((error: unknown) => client.reportFailure?.(error));
   };
 

@@ -30,6 +30,39 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Publish local Windows client 0.9.67 patch packages
+
+Task:
+- Package the recent native product-consistency changes as a patch over the installed 0.9.66 client.
+Files changed:
+- Directory.Build.props, localDownloadTelemetry.ts and its regression tests, PROJECT_MAP,
+  docs/CURRENT_STATE and this entry. Generated installers/checksums remain outside source control.
+Reason:
+- Advanced the canonical client version to 0.9.67 and derived Android/Apple bundle codes to 9067.
+  Retained the previous public-pilot endpoint/trust metadata and unsigned classification; no native
+  protocol, account requirement, production-signing or automatic-update trust change was introduced.
+- Full HTTP download verification uncovered an unhandled telemetry start rejection: DNS failure
+  before the MSI response finished terminated Vite and reset the download. Handle this immediately,
+  report the failure, and skip completion without a telemetry session. HTTPS validation is unchanged.
+Validation:
+- Built x64 and ARM64 public-pilot installers; administrative extraction and per-file payload
+  verification passed for both. Both compiled client assemblies report 0.9.67.0.
+- Published both MSIs and matching SHA256SUMS.txt to artifacts/peeronq/public/downloads; restarted
+  the owned local website. Live metadata selects 0.9.67 unsigned-public-pilot. Both complete HTTP
+  GETs returned 200 and matched local/manifest hashes despite the unavailable telemetry host.
+- x64: 78602240 bytes; SHA256 f361e0efb727ae79c645460b8137d840778169b5301012a8e38dab69eeef88f7.
+- ARM64: 74272768 bytes; SHA256 ae4b38e6cc6279ce68779f65a1591008a76ffff7a137461f6ec19dbe2fc6e4e2.
+- New early-failure tests reproduced both failures before the fix. Node 24 public typecheck,
+  lint, all 86 tests and production build passed. Native UI invariant and 106 Infrastructure tests
+  passed. Fallow, repository secret scan and git diff --check passed.
+Risk:
+- Unsigned controlled-test packages only; manual MSI installation is needed to replace 0.9.66.
+  No physical-device upgrade, ARM64 execution, two-device latency/4K or public production delivery
+  was tested. Linux/Android/Apple packages remain unpublished; Verified Updates remains unconfigured.
+Rollback:
+- Revert this source commit; restore the previous validated pair and its SHA256SUMS, then restart
+  the local website. Reverting Git alone does not downgrade installed clients or package files.
+
 ## 2026-09-27 - Remove eight Fallow dead-code findings
 
 Task:
