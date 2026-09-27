@@ -95,8 +95,10 @@ the user-clicked Windows download anchor to the production Downloads Service. Op
 Linux x64/ARM64, Android and shared iOS/iPadOS install URLs may configure the same single action for
 the locally detected platform after that platform's release gates pass. Every remote destination must
 be absolute HTTPS and fails closed when absent or invalid; unknown devices never fall back to Windows.
-Hero/footer download anchors lead to one `#download` section; its `DownloadsPage` child uses
-`#client-download`, preserves source selection/validation, shows browser-detected device/architecture,
+The hero mounts `DownloadsPage` once at `#client-download`; its optional `secondaryAction` slots the
+portal anchor beside the package action without changing release selection. Header/mobile download
+anchors return to that selector; `#download` retains platform status and legacy route compatibility.
+The selector preserves source selection/validation, shows browser-detected device/architecture,
 and displays version/classification only where supplied by the selected release source. Known
 unsigned builds are labeled for testing; server-owned or tracked sources never imply a signature
 or version from unrelated local metadata.

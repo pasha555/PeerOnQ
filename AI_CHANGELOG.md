@@ -30,6 +30,33 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Public website product narrative and primary download flow
+
+Task:
+- Refine the public product presentation on current main while preserving real customer Portal access.
+Files changed:
+- PublicLayout, LandingPage, DownloadsPage, Sidebar, routeSeparation tests; PROJECT_MAP, ROUTES_MAP,
+  DESIGN_SYSTEM, FRONTEND_ARCHITECTURE and this record.
+Reason:
+- Current main already had real Portal/Sign in links and accurate native source-preview status.
+  Bring the existing device-selected download into the hero beside Open Portal; add header/mobile
+  download anchors, numbered access-mode rows, connection/recovery/diagnostics/update explanations,
+  architecture/self-hosting links and clearer platform release status. Replace stale v0.5.1 with
+  Offline UI preview. Preserve canonical release selection, classifications and unavailable states.
+- Public navigation retains HTTPS-only portal links and no operator surfaces. Customer auth, cookies,
+  API routes, native client behavior/version, publication and deployment configuration are unchanged.
+Validation:
+- Node 24.21.0: public workspace typecheck, lint, all 80 tests across 11 files, and production build passed.
+- Targeted route/offline tests passed (54); keyboard menu traversal/Escape/focus, platform truth,
+  single hero package action and preview label are covered. Existing URL/release/offline tests remain.
+- Repository secret scan passed for 1,109 files; git diff --check passed.
+- Browser runtime exposed no browser; no desktop/mobile screenshot or visual-browser pass is claimed.
+Risk:
+- Responsive and dark/light visual review remains outstanding; no production deployment or external
+  DNS/TLS/reachability verification was performed. This is a website-only change, not a client release.
+Rollback:
+- Revert this website commit; release resolver, customer services and operator ingress are unchanged.
+
 ## 2026-09-27 - Public customer portal ingress and operator boundary validation
 
 Task:

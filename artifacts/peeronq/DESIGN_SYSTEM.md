@@ -99,9 +99,11 @@ Tailwind tokens rather than literal colors.
 | `--marketing-panel` | Client illustration surfaces (`207 46% 18%`) |
 | `--marketing-line` | Dark panel separators and outlines (`207 30% 28%`) |
 
-The landing page combines an explicitly captioned client-workflow illustration, four native access
-modes, the real customer-portal entry, security boundaries, MIT/public-source links, device-aware
-downloads and native `<details>` FAQ. The illustration uses the canonical Q-link mark and native
+The landing page combines an explicitly captioned client-workflow illustration, four numbered native
+access-mode rows, direct/relay/recovery/diagnostics/update copy, the real customer-portal entry,
+security boundaries, MIT/public-source links, device-aware downloads and native `<details>` FAQ.
+Section layouts use dividers, editorial rows and split columns rather than repeated feature cards.
+The illustration uses the canonical Q-link mark and native
 Segoe font family; its sidebar and permission choices are explanatory, not working remote controls
 or a fabricated live session. Effects are limited to a low-opacity radial hero wash, subtle borders,
 shadows and color transitions.
@@ -110,10 +112,13 @@ shadows and color transitions.
 `.public-heading` and `.public-eyebrow` define responsive spacing/type. `.public-button` supplies
 46px minimum action height and token-based primary/secondary variants. Public links, buttons and
 FAQ summaries have an explicit `:focus-visible` outline. The mobile menu exposes expanded state,
-closes on Escape and returns focus to its toggle; the viewport permits browser zoom.
+closes on Escape and returns focus to its toggle; it scrolls within short viewports and exposes the
+same Portal/Sign in and download anchors. Full navigation starts at `xl` to leave room for header
+actions. The skip-link target is programmatically focusable; the viewport permits browser zoom.
 
-Hero/footer download links navigate to `#download`, which contains the one device-selected package
-action. `DownloadsPage` displays detected device/architecture, only known release versions and
+The hero contains the one device-selected package action alongside Open Portal. Header/mobile
+Download PeerOnQ links navigate to `#client-download`; `#download` explains platform status and links
+back to that selector. `DownloadsPage` displays detected device/architecture, only known release versions and
 explicit unsigned classifications, or an honest unavailable state. It never invents a signed badge
 or a current version for server-owned/tracked releases. Sign in and Portal links navigate to the
 separately hosted customer portal; operational Admin/monitoring links remain absent.

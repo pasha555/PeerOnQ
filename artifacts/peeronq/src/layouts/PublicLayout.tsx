@@ -11,6 +11,7 @@ interface PublicLayoutProps {
 const publicLinks = [
   { label: "Product", href: "/#product" },
   { label: "Security", href: "/#security" },
+  { label: "Download", href: "/#download" },
   { label: "Open source", href: "/#open-source" },
 ];
 
@@ -37,42 +38,44 @@ export function PublicLayout({ children }: PublicLayoutProps) {
         Skip to main content
       </a>
       <header className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-xl">
-        <div className="public-container grid h-20 grid-cols-[1fr_auto_1fr] items-center gap-4">
-          <Link href="/" className="col-start-1 row-start-1 flex min-h-11 items-center gap-2 justify-self-start" aria-label="PeerOnQ home">
+        <div className="public-container flex h-20 items-center justify-between gap-3">
+          <Link href="/" className="flex min-h-11 items-center gap-2" aria-label="PeerOnQ home">
             <img src="/brand/peeronq-mark.svg" alt="" className="block h-7 w-7 dark:hidden" />
             <img src="/brand/peeronq-mark-light.svg" alt="" className="hidden h-7 w-7 dark:block" />
             <img src="/brand/peeronq-wordmark.svg" alt="PeerOnQ" className="block h-[1.15rem] dark:hidden" />
             <img src="/brand/peeronq-wordmark-light.svg" alt="PeerOnQ" className="hidden h-[1.15rem] dark:block" />
           </Link>
 
-          <nav aria-label="Public website" className="col-start-2 row-start-1 hidden items-center gap-1 lg:flex">
+          <nav aria-label="Public website" className="hidden items-center xl:flex">
             {navigation.map((item) => (
-              <a key={item.href} href={item.href} className="inline-flex min-h-11 items-center rounded-lg px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+              <a key={item.href} href={item.href} className="inline-flex min-h-11 items-center rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
                 {item.label}
               </a>
             ))}
           </nav>
 
-          <div className="col-start-3 row-start-1 flex items-center gap-2 justify-self-end">
+          <div className="flex shrink-0 items-center gap-2">
             <a href={portalUrl} className="public-button public-button-secondary hidden min-[400px]:inline-flex">Sign in<ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" /></a>
-            <Button ref={menuButton} type="button" variant="ghost" size="icon" className="h-11 w-11 lg:hidden" aria-label={mobileMenuOpen ? "Close menu" : "Open menu"} aria-expanded={mobileMenuOpen} aria-controls={mobileMenuOpen ? "public-mobile-navigation" : undefined} onClick={() => setMobileMenuOpen((open) => !open)}>
+            <a href="/#client-download" className="public-button public-button-primary hidden sm:inline-flex">Download PeerOnQ</a>
+            <Button ref={menuButton} type="button" variant="ghost" size="icon" className="h-11 w-11 xl:hidden" aria-label={mobileMenuOpen ? "Close menu" : "Open menu"} aria-expanded={mobileMenuOpen} aria-controls={mobileMenuOpen ? "public-mobile-navigation" : undefined} onClick={() => setMobileMenuOpen((open) => !open)}>
               {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
             </Button>
           </div>
         </div>
         {mobileMenuOpen && (
-          <nav id="public-mobile-navigation" aria-label="Mobile public website" className="border-t bg-background px-5 py-4 lg:hidden">
+          <nav id="public-mobile-navigation" aria-label="Mobile public website" className="max-h-[calc(100dvh-5rem)] overflow-y-auto border-t bg-background px-5 py-4 xl:hidden">
             <div className="mx-auto grid max-w-7xl gap-1">
               {navigation.map((item) => (
                 <a key={item.href} href={item.href} onClick={() => setMobileMenuOpen(false)} className="rounded-lg px-3 py-3 font-medium hover:bg-secondary">{item.label}</a>
               ))}
-              <a href={portalUrl} className="public-button public-button-primary mt-2" onClick={() => setMobileMenuOpen(false)}>Sign in to PeerOnQ<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a>
+              <a href={portalUrl} className="public-button public-button-secondary mt-2" onClick={() => setMobileMenuOpen(false)}>Sign in to PeerOnQ<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a>
+              <a href="/#client-download" className="public-button public-button-primary mt-2" onClick={() => setMobileMenuOpen(false)}>Download PeerOnQ</a>
             </div>
           </nav>
         )}
       </header>
 
-      <main id="main-content">{children}</main>
+      <main id="main-content" tabIndex={-1} className="scroll-mt-24">{children}</main>
 
       <footer className="border-t bg-card">
         <div className="public-container grid gap-10 py-14 md:grid-cols-[1.5fr_1fr_1fr]">

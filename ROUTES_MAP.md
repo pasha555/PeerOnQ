@@ -200,10 +200,12 @@ All routes are declared in `artifacts/peeronq/src/app/router/index.tsx` using `w
 | `/privacy` | `pages/public/PrivacyPage.tsx` | Privacy policy | static |
 | `/terms` | `pages/public/TermsPage.tsx` | Terms of service | static |
 
-The responsive public navbar uses Product, Security and Open source anchors plus a real Portal link
-and Sign in action. Both use the credential-free HTTPS `VITE_PEERONQ_ACCOUNT_PORTAL_URL` (default
-`https://portal.peeronq.com`). Hero Download App and footer Downloads lead to `#download`; the only
-package action is inside `DownloadsPage` (`#client-download`) in that section. Windows retains its
+The responsive public navbar uses Product, Security, Download and Open source anchors plus a real
+Portal link and Sign in action. Portal entries use the credential-free HTTPS
+`VITE_PEERONQ_ACCOUNT_PORTAL_URL` (default `https://portal.peeronq.com`). Header/mobile Download PeerOnQ
+anchors lead to the hero's single `DownloadsPage` package action (`#client-download`), beside Open Portal.
+`#download` and the legacy `/downloads` redirect retain platform/release information with a return
+anchor to that selector. Windows retains its
 checksum/version-controlled release sources and shows known unsigned classifications; macOS, Linux,
 Android and iOS/iPadOS need explicitly configured HTTPS publication URLs. Unknown or unpublished
 platforms fail closed without a Windows fallback. Open source uses `#open-source` and retains

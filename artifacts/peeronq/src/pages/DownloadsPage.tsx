@@ -1,4 +1,5 @@
 import { Download } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
 type WindowsSource = "server" | "embedded" | "tracked" | "local" | "none";
@@ -207,7 +208,7 @@ function selectDeviceDownload(device: ClientDevice, windowsDownloads: readonly C
   }
 }
 
-export function DownloadsPage() {
+export function DownloadsPage({ secondaryAction }: { secondaryAction?: ReactNode }) {
   const release = getWindowsRelease();
   const device = detectClientDevice();
   const download = selectDeviceDownload(device, release.downloads);
@@ -232,29 +233,32 @@ export function DownloadsPage() {
     : "We could not identify this device. No installer was selected.";
 
   return (
-    <div id="client-download" className="space-y-4" aria-label="PeerOnQ download">
+    <div id="client-download" className="scroll-mt-24 space-y-4" aria-label="PeerOnQ download">
       <div>
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your device</p>
         <p className="mt-1 text-lg font-semibold">{device.detected ? deviceLabel : "Device not detected"}</p>
         {download && version && <p className="mt-1 text-sm text-muted-foreground">Version {version}</p>}
       </div>
-      {download ? (
-        <Button asChild size="lg" className="h-12 w-full rounded-xl text-base shadow-lg shadow-primary/20 sm:w-auto sm:min-w-64">
-          <a
-            href={download.href}
-            download={download.fileName}
-            aria-label={device.platform === "windows"
-              ? `Download PeerOnQ for Windows ${architectureLabel}`
-              : `Download PeerOnQ for ${device.label}`}
-          >
-            <Download className="mr-2 h-5 w-5" aria-hidden="true" />Download PeerOnQ for {device.label}
-          </a>
-        </Button>
-      ) : (
-        <Button size="lg" className="h-12 w-full rounded-xl text-sm sm:w-auto sm:min-w-64" variant="secondary" disabled aria-label={`${device.label} app is not available yet`} aria-describedby="client-download-status">
-          Download unavailable
-        </Button>
-      )}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        {download ? (
+          <Button asChild size="lg" className="h-12 w-full rounded-xl text-sm shadow-lg shadow-primary/20 sm:w-auto">
+            <a
+              href={download.href}
+              download={download.fileName}
+              aria-label={device.platform === "windows"
+                ? `Download PeerOnQ for Windows ${architectureLabel}`
+                : `Download PeerOnQ for ${device.label}`}
+            >
+              <Download className="mr-2 h-5 w-5" aria-hidden="true" />Download PeerOnQ for {device.label}
+            </a>
+          </Button>
+        ) : (
+          <Button size="lg" className="h-12 w-full rounded-xl text-sm sm:w-auto" variant="secondary" disabled aria-label={`${device.label} app is not available yet`} aria-describedby="client-download-status">
+            Download unavailable
+          </Button>
+        )}
+        {secondaryAction}
+      </div>
       {download && unsignedLabel && (
         <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
           <p className="font-semibold">{unsignedLabel}</p>

@@ -1,4 +1,5 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import { OpenAppButton } from "../components/OpenAppButton";
@@ -67,8 +68,10 @@ describe("route surface separation", () => {
     render(<App />);
 
     const header = screen.getByRole("banner");
-    expect(header).not.toHaveTextContent("Download PeerOnQ");
+    expect(within(header).getByRole("link", { name: "Download PeerOnQ", exact: true })).toHaveAttribute("href", "/#client-download");
     expect(screen.getAllByRole("link", { name: /Download PeerOnQ for Windows/i })).toHaveLength(1);
+    expect(document.querySelectorAll("#client-download")).toHaveLength(1);
+    expect(document.querySelector("#client-download")?.closest("section")).toContainElement(screen.getByRole("heading", { level: 1 }));
   });
 
   it("explains access boundaries and links to the inspectable security implementation", () => {
@@ -88,7 +91,7 @@ describe("route surface separation", () => {
     for (const name of ["View Only", "Full Control", "File Transfer", "Unattended Access"])
       expect(screen.getByRole("heading", { name, exact: true })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "The MIT License" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Download App" })).toHaveAttribute("href", "#download");
+    expect(screen.getByRole("link", { name: "Find your download" })).toHaveAttribute("href", "#client-download");
     expect(document.querySelectorAll("#download")).toHaveLength(1);
   });
 
@@ -109,6 +112,27 @@ describe("route surface separation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.getByRole("button", { name: "Open menu" })).toHaveFocus();
+    expect(screen.queryByRole("navigation", { name: "Mobile public website" })).not.toBeInTheDocument();
+  });
+
+  it("makes portal and download actions reachable from the mobile menu by keyboard", async () => {
+    const user = userEvent.setup();
+    vi.stubEnv("VITE_PEERONQ_ACCOUNT_PORTAL_URL", "https://portal.dev.localhost:8443/");
+    render(<App />);
+
+    const toggle = screen.getByRole("button", { name: "Open menu" });
+    toggle.focus();
+    await user.keyboard("{Enter}");
+    const menu = within(screen.getByRole("navigation", { name: "Mobile public website" }));
+    for (const name of ["Product", "Security", "Download", "Open source", "Portal", "Sign in to PeerOnQ", "Download PeerOnQ"]) {
+      await user.tab();
+      expect(menu.getByRole("link", { name, exact: true })).toHaveFocus();
+    }
+    for (const name of ["Portal", "Sign in to PeerOnQ"])
+      expect(menu.getByRole("link", { name, exact: true })).toHaveAttribute("href", "https://portal.dev.localhost:8443");
+    expect(menu.getByRole("link", { name: "Download PeerOnQ" })).toHaveAttribute("href", "/#client-download");
+    await user.keyboard("{Escape}");
+    expect(toggle).toHaveFocus();
     expect(screen.queryByRole("navigation", { name: "Mobile public website" })).not.toBeInTheDocument();
   });
 
@@ -220,7 +244,7 @@ describe("route surface separation", () => {
     render(<App />);
 
     expect(screen.getByRole("button", { name: "macOS app is not available yet" })).toBeDisabled();
-    expect(screen.queryByRole("link", { name: /download peeronq/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /download peeronq for/i })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -291,7 +315,7 @@ describe("route surface separation", () => {
     render(<App />);
 
     expect(screen.getByRole("button", { name: "This device app is not available yet" })).toBeDisabled();
-    expect(screen.queryByRole("link", { name: /download peeronq/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /download peeronq for/i })).not.toBeInTheDocument();
   });
 
   it("selects the ARM64 package for a detected Windows ARM64 device", () => {
@@ -442,6 +466,20 @@ describe("route surface separation", () => {
     expect(screen.getByText(/Source previews are development projects, not published apps/)).toBeInTheDocument();
     expect(screen.getByText(/Third-party components retain their own license terms/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /pricing|subscription|enterprise plan/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Windows", { selector: "dt" }).parentElement).toHaveTextContent("Host, view, and control");
+    for (const platform of ["Linux", "Android", "macOS", "iPhone & iPad"])
+      expect(screen.getByText(platform, { selector: "dt" }).parentElement).toHaveTextContent("source preview");
+    expect(screen.getByRole("link", { name: "architecture", exact: true })).toHaveAttribute("href", "https://github.com/pasha555/PeerOnQ/blob/main/docs/ARCHITECTURE.md");
+    expect(screen.getByRole("link", { name: "self-hosting guide" })).toHaveAttribute("href", "https://github.com/pasha555/PeerOnQ/blob/main/docs/DEPLOYMENT.md");
+  });
+
+  it("explains recovery, unattended and release limits without a live-session mock", () => {
+    render(<App />);
+    expect(screen.getByText(/reconnection is not guaranteed/)).toBeInTheDocument();
+    expect(screen.getByText(/Windows host must remain running in a signed-in user session/)).toBeInTheDocument();
+    expect(screen.getByText(/Invalid or unverifiable updates are rejected/)).toBeInTheDocument();
+    expect(screen.getByText(/Real-world NAT coverage, sustained 4K performance/)).toBeInTheDocument();
+    expect(screen.getByText("Client workflow illustration. Connections run in the installed app.")).toBeInTheDocument();
   });
 
   it("renders desktop preview routes with the permanent banner and desktop sidebar only", () => {
@@ -451,6 +489,8 @@ describe("route surface separation", () => {
     expect(screen.getByText("Desktop application UI preview — this is not the production website.")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Remote Access" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Preview User/i })).toBeInTheDocument();
+    expect(screen.getByText("Offline UI preview")).toBeInTheDocument();
+    expect(screen.queryByText("v0.5.1")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Visit public website" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open account portal" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open account portal" })).toHaveAttribute("href", "https://portal.peeronq.com");

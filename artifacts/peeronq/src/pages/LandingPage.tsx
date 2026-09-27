@@ -1,7 +1,7 @@
 import {
-  ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronRight, Code2, Download,
+  Activity, ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronRight, Code2, Download,
   Eye, FileUp, Fingerprint, FolderOpen, Github, KeyRound, Laptop, LayoutDashboard,
-  LockKeyhole, Monitor, MousePointer2, Settings, ShieldCheck, Users,
+  LockKeyhole, Monitor, MousePointer2, Network, RefreshCw, Settings, ShieldCheck, Users,
 } from "lucide-react";
 import { DownloadsPage } from "@/pages/DownloadsPage";
 import { getAccountPortalUrl } from "@/lib/accountPortal";
@@ -10,8 +10,8 @@ const repository = "https://github.com/pasha555/PeerOnQ";
 const capabilities = [
   { icon: Eye, title: "View Only", label: "See the same screen", description: "Walk through a problem together. Share a display while keeping keyboard and mouse control with the person at the remote device." },
   { icon: MousePointer2, title: "Full Control", label: "Help, hands on", description: "Use the remote keyboard and pointer after approval. The remote owner chooses the access scope and can end the session." },
-  { icon: FileUp, title: "File Transfer", label: "Move what you need", description: "Send files and folders through an authorized session, with visible progress and integrity checks. File access stays permission-controlled." },
-  { icon: KeyRound, title: "Unattended Access", label: "Your setup. Your decision.", description: "Prepare access to a device you manage. Unattended Access needs separate configuration; saving a device never grants access on its own." },
+  { icon: FileUp, title: "File Transfer", label: "Move what you need", description: "Send files and folders with visible progress and integrity checks. File access stays permission-controlled and depends on the capabilities negotiated for the connection." },
+  { icon: KeyRound, title: "Unattended Access", label: "Your setup. Your decision.", description: "Prepare access to a device you manage with separate setup and trust decisions. Currently, the Windows host must remain running in a signed-in user session; this is not a background system service." },
 ];
 const questions = [
   { question: "Where do I start?", answer: "Install an available PeerOnQ client on the devices you want to connect. Share the remote device’s PeerOnQ ID, then have its owner approve View Only or Full Control. The portal is where you manage your account and organization." },
@@ -70,10 +70,9 @@ export function LandingPage() {
         <div>
           <a href="#open-source" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary"><Code2 className="h-3.5 w-3.5" aria-hidden="true" />Open source. MIT licensed.<ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></a>
           <h1 className="mt-7 text-balance text-[clamp(2.8rem,5.3vw,4.7rem)] font-semibold leading-[1.06] tracking-[-0.055em]">Remote access.<br /><span className="text-primary">On your terms.</span></h1>
-          <p className="mt-6 max-w-lg text-pretty text-lg leading-8 text-muted-foreground">Connect to your devices. Help someone get unstuck. Share a screen or take control with clear permissions and an open-source client.</p>
-          <div className="mt-8 flex flex-col gap-3 min-[400px]:flex-row">
-            <a href="#download" className="public-button public-button-primary"><Download className="h-4 w-4" aria-hidden="true" />Download App</a>
-            <a href={portalUrl} className="public-button public-button-secondary">Open Portal<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a>
+          <p className="mt-6 max-w-lg text-pretty text-lg leading-8 text-muted-foreground">Connect to your devices. Help someone get unstuck. Share a screen or take control with clear permissions and a native, open-source client.</p>
+          <div className="mt-8">
+            <DownloadsPage secondaryAction={<a href={portalUrl} className="public-button public-button-secondary">Open Portal<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a>} />
           </div>
           <a href={repository} className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"><Github className="h-4 w-4" aria-hidden="true" />View on GitHub<ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" /></a>
         </div>
@@ -86,21 +85,36 @@ export function LandingPage() {
       <span className="flex items-center justify-end gap-2.5"><Code2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />Public source. Practical tools.</span>
     </div></div>
 
-    <section id="product" className="public-section scroll-mt-24"><div className="public-container">
-      <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="public-eyebrow">The right access for the task</p><h2 className="public-heading mt-4 max-w-xl">One client. Clear choices.</h2></div><p className="max-w-sm leading-7 text-muted-foreground">Familiar tools for everyday support and your own devices, with permission boundaries you can understand.</p></div>
-      <div className="mt-10 grid gap-4 md:grid-cols-2">{capabilities.map(({ icon: Icon, title, label, description }) => <article key={title} className="rounded-xl border bg-card p-7 transition-colors hover:border-primary/30 sm:p-8">
-        <div className="flex items-center justify-between gap-4"><span className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/10 bg-primary/5 text-primary"><Icon className="h-5 w-5" aria-hidden="true" /></span><span className="text-xs font-medium text-muted-foreground">{label}</span></div>
-        <h3 className="mt-6 text-xl font-semibold tracking-tight">{title}</h3><p className="mt-3 max-w-lg leading-7 text-muted-foreground">{description}</p>
+    <section id="product" className="public-section scroll-mt-24"><div className="public-container grid gap-12 lg:grid-cols-[0.75fr_1.25fr] lg:gap-20">
+      <div><p className="public-eyebrow">The right access for the task</p><h2 className="public-heading mt-4">One client.<br />Clear choices.</h2><p className="mt-6 max-w-sm leading-7 text-muted-foreground">Help a colleague, move a file, or reach your own computer. Choose the access the task needs, with permissions the remote owner can understand.</p><a href="#security" className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">How permissions work<ArrowRight className="h-4 w-4" aria-hidden="true" /></a></div>
+      <div className="divide-y border-y">{capabilities.map(({ icon: Icon, title, label, description }, index) => <article key={title} className="grid grid-cols-[2rem_1fr] gap-4 py-7 sm:grid-cols-[2rem_1fr_auto] sm:gap-6">
+        <span className="pt-1 font-mono text-xs text-muted-foreground" aria-hidden="true">0{index + 1}</span>
+        <div><p className="text-xs font-medium text-primary">{label}</p><h3 className="mt-2 text-xl font-semibold tracking-tight">{title}</h3><p className="mt-3 leading-7 text-muted-foreground">{description}</p></div>
+        <Icon className="hidden h-5 w-5 text-muted-foreground sm:block" aria-hidden="true" />
       </article>)}</div>
+    </div></section>
+
+    <section className="public-section border-t" aria-labelledby="connection-heading"><div className="public-container">
+      <div className="grid gap-8 lg:grid-cols-2 lg:gap-20">
+        <div><p className="public-eyebrow">Built around the connection</p><h2 id="connection-heading" className="public-heading mt-4">A path to your device.<br />A view of what happens.</h2></div>
+        <p className="self-end leading-7 text-muted-foreground">PeerOnQ supports direct connections and configured TURN relay paths. The client negotiates an available route; network conditions and host capabilities still determine quality and responsiveness.</p>
+      </div>
+      <div className="mt-10 grid gap-8 border-y py-8 md:grid-cols-2 lg:grid-cols-4 lg:gap-10">{[
+        { icon: Network, title: "Direct & relay paths", text: "Use an available direct path or a configured relay for remote viewing and control. The client reports the selected connection path." },
+        { icon: RefreshCw, title: "Connection recovery", text: "Input pauses when a session is interrupted. The client attempts authenticated recovery and a fresh connection negotiation; reconnection is not guaranteed." },
+        { icon: Activity, title: "Useful diagnostics", text: "Inspect the connection path and session diagnostics in the client. Bring reproducible details to a support report without sharing credentials." },
+        { icon: Download, title: "Verified updates", text: "The Windows updater checks signed update metadata and package integrity. Invalid or unverifiable updates are rejected; installer signing is a separate release gate." },
+      ].map(({ icon: Icon, title, text }) => <div key={title}><Icon className="h-5 w-5 text-primary" aria-hidden="true" /><h3 className="mt-5 font-semibold">{title}</h3><p className="mt-3 text-sm leading-7 text-muted-foreground">{text}</p></div>)}</div>
+      <p className="mt-5 max-w-3xl text-sm leading-7 text-muted-foreground">Implementation is documented in public. Real-world NAT coverage, sustained 4K performance, and latency targets require validation on the devices and networks you use.</p>
     </div></section>
 
     <section className="public-section border-y bg-card" aria-labelledby="portal-heading"><div className="public-container grid gap-12 lg:grid-cols-2 lg:items-center">
       <div><p className="public-eyebrow">Meet your PeerOnQ portal</p><h2 id="portal-heading" className="public-heading mt-4">Your account.<br />A clearer overview.</h2><p className="mt-6 max-w-lg leading-7 text-muted-foreground">Keep account security, organization devices, and session history in one place. Use the desktop app for the connection and the portal for the bigger picture.</p><a href={portalUrl} className="public-button public-button-secondary mt-7">Go to your portal<ArrowRight className="h-4 w-4" aria-hidden="true" /></a></div>
       <div className="overflow-hidden rounded-xl border bg-background"><div className="flex items-center gap-3 border-b px-6 py-5"><LayoutDashboard className="h-5 w-5 text-primary" aria-hidden="true" /><span className="font-semibold">Your account control center</span></div>
         {[
-          { icon: Monitor, title: "Devices & Sessions", text: "Review your organization’s devices and recorded remote sessions." },
-          { icon: ShieldCheck, title: "Security & Settings", text: "Manage your profile, MFA, and signed-in account sessions." },
-          { icon: Users, title: "Organization & Teams", text: "Work with memberships, invitations, and role-based access." },
+          { icon: Monitor, title: "Devices & Sessions", text: "Review your organization’s managed devices and remote session history." },
+          { icon: ShieldCheck, title: "Security & Settings", text: "Manage your profile, MFA, trusted account devices, signed-in sessions, and privacy requests." },
+          { icon: Users, title: "Organization & Teams", text: "Manage members, invitations, and teams. Review organization policy and audit history with the permissions assigned to your role." },
         ].map(({ icon: Icon, title, text }) => <div key={title} className="flex gap-4 border-b px-6 py-6 last:border-0"><Icon className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" /><div><h3 className="font-semibold">{title}</h3><p className="mt-1.5 text-sm leading-6 text-muted-foreground">{text}</p></div></div>)}
       </div>
     </div></section>
@@ -109,19 +123,37 @@ export function LandingPage() {
       <div><div className="inline-flex h-12 w-12 items-center justify-center rounded-xl border border-marketing-line bg-marketing-panel"><ShieldCheck className="h-6 w-6" aria-hidden="true" /></div><p className="mt-7 text-xs font-semibold uppercase tracking-[.16em] text-marketing-muted">Trust through clear boundaries</p><h2 className="public-heading mt-4">Access is a decision.<br />Keep it yours.</h2><p className="mt-6 leading-7 text-marketing-muted">Security should be visible in how a product works. PeerOnQ combines encrypted session traffic with explicit, revocable access.</p><a href={`${repository}/blob/main/docs/PROTOCOL_COMPLIANCE.md`} className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm font-medium underline decoration-marketing-line underline-offset-4 hover:decoration-marketing-foreground">Read the security implementation<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a></div>
       <div className="divide-y divide-marketing-line border-y border-marketing-line">{[
         { icon: Fingerprint, title: "Know what you are approving", text: "Attended sessions require the remote owner’s approval. View Only and Full Control keep the choice explicit." },
-        { icon: LockKeyhole, title: "Encrypted session traffic", text: "The client protects screen and collaboration traffic with authenticated encryption and hybrid key agreement. Implementation details are open for review." },
+        { icon: LockKeyhole, title: "Encrypted session traffic", text: "The client protects screen and collaboration traffic with authenticated encryption and hybrid key agreement. Production signaling uses TLS. Failed identity or security validation blocks the connection." },
         { icon: KeyRound, title: "Separate permission for unattended access", text: "Unattended Access requires its own setup and trust decisions. Contacts, account sign-in, and saved devices do not grant remote control." },
       ].map(({ icon: Icon, title, text }) => <div key={title} className="flex gap-4 py-7"><Icon className="mt-1 h-5 w-5 shrink-0 text-marketing-muted" aria-hidden="true" /><div><h3 className="text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-7 text-marketing-muted">{text}</p></div></div>)}</div>
     </div></section>
 
     <section id="open-source" className="public-section scroll-mt-24"><span id="strategy" className="scroll-mt-24" /><div className="public-container grid gap-12 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
-      <div><p className="public-eyebrow">Open source, by design</p><h2 className="public-heading mt-4 max-w-xl">See the code.<br />Be part of what’s next.</h2><p className="mt-6 max-w-xl leading-7 text-muted-foreground">PeerOnQ is MIT licensed and developed in public. Inspect how it works, explore the development history, or help make the next version better.</p><div className="mt-7 flex flex-wrap items-center gap-5"><a href={repository} className="public-button public-button-secondary"><Github className="h-4 w-4" aria-hidden="true" />Explore the repository<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a><a href={`${repository}/issues`} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">Report an issue<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a></div></div>
+      <div><p className="public-eyebrow">Open source, by design</p><h2 className="public-heading mt-4 max-w-xl">See the code.<br />Be part of what’s next.</h2><p className="mt-6 max-w-xl leading-7 text-muted-foreground">PeerOnQ is MIT licensed and developed in public. Inspect how it works, explore the development history, or help make the next version better.</p><p className="mt-4 max-w-xl leading-7 text-muted-foreground">Explore the <a href={`${repository}/blob/main/docs/ARCHITECTURE.md`} className="font-medium text-primary underline underline-offset-4">architecture</a>, contribute a fix, or discuss an idea with the community. For operators, the <a href={`${repository}/blob/main/docs/DEPLOYMENT.md`} className="font-medium text-primary underline underline-offset-4">self-hosting guide</a> documents deployment requirements and the remaining production acceptance checks.</p><div className="mt-7 flex flex-wrap items-center gap-5"><a href={repository} className="public-button public-button-secondary"><Github className="h-4 w-4" aria-hidden="true" />Explore the repository<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a><a href={`${repository}/issues`} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">Report an issue<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a></div></div>
       <div className="rounded-xl border bg-card p-7 sm:p-9"><Code2 className="h-8 w-8 text-primary" aria-hidden="true" /><p className="mt-6 font-mono text-sm text-muted-foreground">LICENSE</p><h3 className="mt-2 text-2xl font-semibold tracking-tight">The MIT License</h3><ul className="mt-6 space-y-3 text-sm">{["Read and learn from the source", "Use, modify, and share under MIT terms", "Follow the work and contribute on GitHub"].map(text => <li key={text} className="flex items-start gap-2.5"><Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />{text}</li>)}</ul><p className="mt-6 border-t pt-5 text-xs leading-6 text-muted-foreground">Third-party components retain their own license terms. <a href={`${repository}/blob/main/THIRD_PARTY_NOTICES.md`} className="font-medium underline underline-offset-4">Read the notices</a>.</p></div>
     </div></section>
 
     <section id="download" className="public-section scroll-mt-24 border-y bg-card"><div className="public-container grid gap-12 lg:grid-cols-2 lg:items-start">
-      <div><p className="public-eyebrow">Start with the desktop app</p><h2 className="public-heading mt-4">Ready when<br />your devices are.</h2><p className="mb-7 mt-6 max-w-lg leading-7 text-muted-foreground">Get the package available for this device. Remote access happens in the app; your account and organization live in the portal.</p><DownloadsPage /><a href={portalUrl} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">Already have the app? Open your portal<ArrowRight className="h-4 w-4" aria-hidden="true" /></a></div>
-      <div className="rounded-xl border bg-background p-6 sm:p-8"><h3 className="font-semibold">A clear view of platform support</h3><dl className="mt-6 divide-y border-y">{[["Windows", "Host, view, and control"], ["Linux", "Viewer/controller source preview"], ["Android", "Viewer/controller source preview"], ["macOS · iPhone · iPad", "Viewer/controller source previews"]].map(([name, detail]) => <div key={name} className="flex flex-col justify-between gap-1 py-4 text-sm sm:flex-row sm:gap-5"><dt className="font-medium">{name}</dt><dd className="text-muted-foreground">{detail}</dd></div>)}</dl><p className="mt-5 text-xs leading-6 text-muted-foreground">Source previews are development projects, not published apps. Package availability, signing, and physical-device validation are tracked separately.</p><a href={`${repository}/blob/main/docs/CROSS_PLATFORM_CAPABILITIES.md`} className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline">Platform details<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a></div>
+      <div>
+        <p className="public-eyebrow">Downloads & platform support</p>
+        <h2 className="public-heading mt-4">Native clients.<br />An honest release status.</h2>
+        <p className="mt-6 max-w-lg leading-7 text-muted-foreground">Windows is the main host and controller. Other platforms are growing from the same protocol, with their own device testing and release requirements.</p>
+        <p className="mt-4 max-w-lg leading-7 text-muted-foreground">The download selector shows the package configured for your device and its release classification when supplied. If no package is published here, it stays unavailable.</p>
+        <a href="#client-download" className="public-button public-button-primary mt-7">Find your download<ArrowRight className="h-4 w-4" aria-hidden="true" /></a>
+        <a href={portalUrl} className="mt-5 flex min-h-11 items-center gap-2 text-sm font-semibold text-primary hover:underline">Already have the app? Open your portal<ArrowRight className="h-4 w-4" aria-hidden="true" /></a>
+      </div>
+      <div>
+        <h3 className="font-semibold">A clear view of platform support</h3>
+        <dl className="mt-6 divide-y border-y">{[
+          ["Windows", "Host, view, and control"],
+          ["Linux", "Viewer/controller source preview"],
+          ["Android", "Viewer/controller source preview"],
+          ["macOS", "Mac Catalyst viewer/controller source preview"],
+          ["iPhone & iPad", "Viewer/controller source preview"],
+        ].map(([name, detail]) => <div key={name} className="grid gap-1 py-4 text-sm sm:grid-cols-[8rem_1fr] sm:gap-5"><dt className="font-medium">{name}</dt><dd className="text-muted-foreground">{detail}</dd></div>)}</dl>
+        <p className="mt-5 text-xs leading-6 text-muted-foreground">Source previews are development projects, not published apps. Package availability, signing, and physical-device validation are tracked separately.</p>
+        <a href={`${repository}/blob/main/docs/CROSS_PLATFORM_CAPABILITIES.md`} className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline">Platform details<ArrowUpRight className="h-4 w-4" aria-hidden="true" /></a>
+      </div>
     </div></section>
 
     <section id="help" className="public-section scroll-mt-24"><div className="public-container grid gap-10 lg:grid-cols-[0.75fr_1.25fr] lg:gap-20">

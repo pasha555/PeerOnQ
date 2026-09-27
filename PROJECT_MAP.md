@@ -301,7 +301,10 @@ artifacts/mockup-sandbox/
 
 **Notes:** the public marketing site is one page at `/`, with a captioned static client illustration,
 View Only / Full Control / File Transfer / Unattended Access terminology and evidence-bound security
-copy. Hero/footer Download links lead to `#download`; only its device-matched action selects a package.
+copy. The hero contains the single device-matched `DownloadsPage` action at `#client-download`,
+beside Open Portal. Header/mobile Download PeerOnQ anchors return to that selector; `#download`
+explains platform/release status. Numbered access-mode rows and connection/recovery/diagnostics/update
+sections state implemented capabilities and validation limits. The desktop sidebar says Offline UI preview.
 Known unsigned development/pilot packages are labeled and unavailable platforms fail closed.
 `/features`, `/security`, `/downloads`, `/about`, and `/help` retain their anchor redirects; `#strategy`
 is a compatibility anchor in Open source. Privacy and Terms remain dedicated legal documents.

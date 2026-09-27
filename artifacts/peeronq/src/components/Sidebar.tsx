@@ -133,7 +133,7 @@ export function Sidebar({ collapsed, onToggle, className, mobile, onNavigate }: 
 
         {(!collapsed || mobile) && (
           <div className="px-4 py-2 mt-2 text-xs text-sidebar-foreground/50 font-mono">
-            v0.5.1
+            Offline UI preview
           </div>
         )}
       </div>
