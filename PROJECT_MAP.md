@@ -21,6 +21,11 @@ projects are attended viewer/controller previews with separate physical-device/r
 see `docs/CURRENT_STATE.md` and `docs/CROSS_PLATFORM_CAPABILITIES.md`. Dated phase reports retain
 their historical artifacts/results and do not certify the current checkout.
 
+Release policy: each new versioned product patch advances the server and clients together using
+`PeerOnQWindowsClientVersion`. The full server bundle and rebuilt Windows x64/ARM64 packages must
+share that version, including releases with only server/web behavior changes. Historical bundles
+retain their original versions; publication still requires validation and the existing signing gates.
+
 **Main purpose:** secure remote-access / remote-desktop platform — "Connect securely. Work anywhere."
 The repo contains an offline **frontend prototype** (`artifacts/peeronq`), an API skeleton
 (`artifacts/api-server`), and the real .NET remote-view product under `src/`. The .NET product has

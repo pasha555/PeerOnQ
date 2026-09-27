@@ -145,15 +145,25 @@ the user explicitly narrows the scope. The user applies server patches to produc
   `src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md`, and provide them alongside the artifact.
 - State the server version, embedded client version/classification, server/web/portal changes,
   whether clients changed and their changes, validation results, remaining blockers and rollback.
-- If clients changed, follow the canonical paired Windows publication rules below and embed the
-  exact validated x64 client. Server installation does not automatically upgrade installed clients.
+- Follow the canonical paired Windows publication rules below for every new product release and
+  embed the exact validated x64 client. Distinguish client behavior changes from a version-only
+  rebuild in the notes. Server installation does not automatically upgrade installed clients.
 - Preserve signature and release gates. Never describe an unsigned candidate, a failing release
   gate or an untested production deployment as ready for production.
 
-`Directory.Build.props` property `PeerOnQWindowsClientVersion` is the single source of truth for the
-distributable Windows client. Never place a default client version in an individual project or build
-script. A client release, public-pilot package, Portable Support package, server-embedded MSI, and
-local website package must use that exact version; release tooling must fail closed on a mismatch.
+The server patch and clients share one product release version. `Directory.Build.props` property
+`PeerOnQWindowsClientVersion` is its single source of truth; do not introduce a separate server
+version line. For each new product patch/release, increment the canonical version once and advance
+the server and all derived client versions together, including server-only or web-only changes in
+that release. This is a release rule, not a requirement to bump versions on every source commit.
+Rebuild and validate matching client packages even when client behavior has not changed. Never
+rename an older binary or bundle to claim it has the new version.
+
+Never place a default client version in an individual project or build script. The server bundle's
+version, client release, public-pilot package, Portable Support package, server-embedded MSI, and
+local website package must use that exact canonical version; reject a mismatched set before
+publication. An explicitly scoped website-only patch remains version-neutral and must not select a
+client version; a new versioned product release still requires the full synchronized package set.
 
 `PeerOnQLinuxClientVersion` derives from that canonical source version. The Linux viewer project and
 portable builder must consume the derived property and reject explicit mismatches; they must not
@@ -172,7 +182,7 @@ previews remain unpublished until matching Xcode/.NET Apple workloads, reviewed 
 physical Mac/iPhone/iPad interop, accessibility/lifecycle, ten-minute-session, approved signing,
 notarization and App Store gates pass.
 
-When a distributable Windows client change bumps the canonical version, treat publication as one
+When any product release bumps the canonical version, treat server and client publication as one
 transaction:
 
 - Build and payload-validate matching x64 and ARM64 installers from the same source/version.
@@ -182,8 +192,8 @@ transaction:
   MSI without a restart is incomplete.
 - Verify the selected website version/classification equals the canonical version, both package URLs
   return HTTP 200, and their bytes match the published checksums.
-- A server bundle must embed the exact canonical x64 client. A website-only patch must remain neutral
-  and must not select a client version.
+- Build the full server bundle with that same canonical version and embed the exact validated x64
+  client. Provide release notes covering both server and client changes and any remaining gates.
 
 Do not report a client version as current when any intended consumer surface still selects an older
 version. If a complete verified package pair is unavailable, fail closed and show downloads as

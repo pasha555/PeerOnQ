@@ -14,8 +14,10 @@ GitHub. A checksum establishes byte integrity, not release authenticity or produ
 | Linux / Android / Apple clients | Source previews; no newly published packages |
 
 This supersedes the local 0.6.45 candidate, which embedded Windows 0.9.66. It does not establish
-which server version is currently installed in production. Server and client version numbers are
-independent; the canonical client version is defined by Directory.Build.props.
+which server version is currently installed in production. This historical candidate predates the
+unified release-version policy and does not satisfy it: future server patches and clients must share
+the canonical Directory.Build.props version and advance together. Do not promote or rename this
+mismatched candidate as a release satisfying that policy; create a new validated matching package set.
 
 ## Server, public website and customer portal
 

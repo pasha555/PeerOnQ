@@ -469,6 +469,16 @@ payload selection. Provide the same notes alongside the bundle. They must identi
 version, embedded client version/classification, client changes (or no changes), validation,
 remaining release blockers and rollback. Client installation/update remains a separate device action.
 
+Server patches and clients now share a single product release version, sourced from
+`Directory.Build.props` / `PeerOnQWindowsClientVersion`. For each new versioned release, increment
+that value once and advance the server and derived client versions together, even if only server,
+website or portal behavior changed. Build and validate matching Windows x64/ARM64 packages and
+embed the validated x64 MSI in a server bundle with the same version. Release notes must distinguish
+client behavior changes from a version-only rebuild. Reject mismatched versions before publication;
+do not rename an older artifact to make it appear current. Historical packages retain their original
+versions. An explicitly scoped website-only patch remains version-neutral. This policy does not
+waive signing, physical-device or other release gates, or require a version bump for each source commit.
+
 `scripts/windows/build-peeronq-server-run.ps1` creates a self-extracting Linux server deployment
 bundle and SHA-256 file. This `.run` installs the cloud, website, Admin, download, signaling, TURN,
 and observability stack; it is not a Linux desktop client. Every server bundle must explicitly embed
@@ -482,11 +492,11 @@ makes the `.run` visible last as the atomic commit marker. A failed signed build
 trio.
 
 ```powershell
-$ClientVersion = ([xml](Get-Content ./Directory.Build.props -Raw)).Project.PropertyGroup.PeerOnQWindowsClientVersion
+$ReleaseVersion = ([xml](Get-Content ./Directory.Build.props -Raw)).Project.PropertyGroup.PeerOnQWindowsClientVersion
 pwsh ./scripts/windows/build-peeronq-server-run.ps1 `
-  -Version 0.6.11 `
+  -Version $ReleaseVersion `
   -OutputDirectory ./dist/server `
-  -WindowsClientMsiPath "./dist/release/$ClientVersion/PeerOnQ-$ClientVersion-x64.msi" `
+  -WindowsClientMsiPath "./dist/release/$ReleaseVersion/PeerOnQ-$ReleaseVersion-x64.msi" `
   -GpgKeyId <offline-release-key-id> `
   -RequireSignature
 ```
@@ -501,10 +511,11 @@ verification dependency. Bootstrap detects the LAN address or accepts `--local-i
 `public-IP/private-IP` NAT mapping. No credential or private key is printed.
 
 ```bash
-gpg --verify peeronq-server-0.6.11.run.asc peeronq-server-0.6.11.run
-sha256sum -c peeronq-server-0.6.11.run.sha256
-chmod 0755 peeronq-server-0.6.11.run
-sudo ./peeronq-server-0.6.11.run --bootstrap --dry-run \
+release_version='<same canonical version used to build the release>'
+gpg --verify "peeronq-server-${release_version}.run.asc" "peeronq-server-${release_version}.run"
+sha256sum -c "peeronq-server-${release_version}.run.sha256"
+chmod 0755 "peeronq-server-${release_version}.run"
+sudo "./peeronq-server-${release_version}.run" --bootstrap --dry-run \
   --acme-email <real-certificate-notification-email> \
   --admin-email admin@peeronq.com \
   --public-ip 31.171.38.28 \
@@ -523,7 +534,7 @@ root-owned `/etc/peeronq/peeronq.env`, never on the command line.
 After the bootstrap dry-run, start the verified release without repeating bootstrap:
 
 ```bash
-sudo ./peeronq-server-0.6.11.run --env-file /etc/peeronq/peeronq.env
+sudo "./peeronq-server-${release_version}.run" --env-file /etc/peeronq/peeronq.env
 ```
 
 Those last two options are the one-time trust bootstrap for Admin platform upgrades. Supply an
@@ -647,9 +658,10 @@ secret ownership before containers start. Shared files use narrow supplementary 
 different non-root services consume the same secret; the secret directory remains root-only:
 
 ```bash
-sudo ./peeronq-server-0.6.11.run --env-file /etc/peeronq/peeronq.env --dry-run
-sudo ./peeronq-server-0.6.11.run --env-file /etc/peeronq/peeronq.env
-sudo ./peeronq-server-0.6.11.run --status --env-file /etc/peeronq/peeronq.env
+release_version='<canonical version of the new verified release>'
+sudo "./peeronq-server-${release_version}.run" --env-file /etc/peeronq/peeronq.env --dry-run
+sudo "./peeronq-server-${release_version}.run" --env-file /etc/peeronq/peeronq.env
+sudo "./peeronq-server-${release_version}.run" --status --env-file /etc/peeronq/peeronq.env
 ```
 
 Server 0.6.20 migrates environments created before customer mail and public-host settings were

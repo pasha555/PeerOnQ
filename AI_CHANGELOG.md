@@ -30,6 +30,28 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Record unified server and client release versions
+
+Task:
+- Record the user's requirement that server patches and clients use the same version and advance
+  together in future releases, including changes limited to server/web behavior.
+Files changed:
+- AGENTS, PROJECT_MAP, docs/DEPLOYMENT, deployment RELEASE_NOTES and this entry.
+Reason:
+- Replace the independent server version policy with one canonical Directory.Build.props version.
+  Require matching rebuilt client packages, full server bundle and release notes; update deployment
+  examples to reuse that version. Historical 0.6.46/0.9.67 candidate remains explicitly noncompliant.
+Validation:
+- Documentation-only change; reviewed the canonical version source and build parameter contract.
+  No packages rebuilt/renamed, version bump, runtime changes or production deployment in this task.
+- git diff --check and the repository secret scan passed (1105 files); runtime suites were not rerun
+  for this documentation-only change.
+Risk:
+- Existing signing and CI blockers remain. This records release policy; it does not add a new
+  automatic server/client equality check to the builder or certify existing artifacts.
+Rollback:
+- Revert this documentation/instruction commit; no runtime or data rollback is needed.
+
 ## 2026-09-27 - Include server and client scope in requested patch deliverables
 
 Task:
