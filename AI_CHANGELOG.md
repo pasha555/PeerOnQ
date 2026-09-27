@@ -30,6 +30,45 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Unify public website and customer portal presentation
+
+Task:
+- Redesign the public website and real customer portal around native PeerOnQ terminology,
+  MIT/open-source positioning and honest package/security capabilities.
+Files changed:
+- Public landing/layout/downloads, scoped tokens, portal URL guard, metadata and route tests;
+  portal shell/auth presentation/styles/routes, workspace pages, brand assets and component tests;
+  Nginx portal ingress and validation; project/route/design/architecture maps and this record.
+Reason:
+- Public navigation hid the real portal; its profile-first UX omitted organization remote history.
+  Portal ingress incorrectly shared the operator CIDR allowlist.
+- Added Hero, native access modes, portal entry, security, MIT source, downloads and FAQ. Download
+  CTAs lead to one platform-matched package action; known unsigned releases are clearly labeled.
+- Portal now opens Overview and includes Account, remote Sessions, Downloads and Support. Existing
+  browser-session revocation remains separate. Organization loads expose failures; new workspace
+  requests discard stale tenant responses. Mobile focus trapping ends when the viewport widens.
+- Customer ingress is public; Admin/Grafana/Prometheus retain network restrictions. Customer
+  cookies, CSRF, tenant authorization, device proof and the network-free public prototype remain.
+Validation:
+- Node 24: workspace lint and build (including whole-workspace typecheck) passed. Workspace tests
+  passed; after review corrections, affected public/portal suites passed again: public 78/78,
+  portal 21/21, unchanged Admin 36/36; 135 current frontend tests across 20 files.
+- DeploymentConfigurationTests: 16/16 passed. Disposable pinned Nginx validator passed syntax and
+  real HTTP checks: portal 200; Admin/Grafana/Prometheus 403; existing download routing checks pass.
+- Local public/portal SPA routes and portal brand assets returned HTTP 200. These HTTP checks and
+  mocked-API component tests do not constitute a live production login or visual acceptance test.
+- Repository secret scan passed after a new test-only password was named explicitly as an example.
+  Gitleaks staged-diff scan found no leaks. Independent portal review findings were fixed;
+  git diff check passed.
+Risk:
+- Browser runtime had no connected browser; isolated headless Edge was rejected by automatic
+  approval review (blocked by policy). Visual desktop/mobile acceptance remains unverified.
+- Existing desktop installation identity and portal accounts share organization device records,
+  but no native customer login/self-service device-linking flow exists; the UI states this limit.
+- No production deployment, account registration policy, client version, MSI or release gates changed.
+Rollback:
+- Revert this website/portal/ingress commit; no database migration or package rollback is needed.
+
 ## 2026-09-27 - Reproduce input latency, reconcile source truth and enforce Node 24
 
 Task:

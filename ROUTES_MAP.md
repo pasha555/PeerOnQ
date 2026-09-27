@@ -191,7 +191,7 @@ All routes are declared in `artifacts/peeronq/src/app/router/index.tsx` using `w
 
 | URL | Page File | Purpose | Data source |
 | --- | --- | --- | --- |
-| `/` | `pages/public/HomePage.tsx` | Single public marketing page with product, security, usage, strategy, FAQ, and the only device-matched download action | Static product copy plus local browser platform detection and fail-closed release flags |
+| `/` | `pages/public/HomePage.tsx` → `LandingPage.tsx` | Public product, portal entry, security, MIT source, downloads and FAQ | Static copy, real HTTPS portal/GitHub links, local platform detection and fail-closed release flags |
 | `/features` | redirect | Backward-compatible link to `/#product` | static |
 | `/security` | redirect | Backward-compatible link to `/#security` | static |
 | `/downloads` | redirect | Backward-compatible link to `/#download`; canonical MSI/hash/version/classification remain immutable server-bundle routes | static |
@@ -200,25 +200,33 @@ All routes are declared in `artifacts/peeronq/src/app/router/index.tsx` using `w
 | `/privacy` | `pages/public/PrivacyPage.tsx` | Privacy policy | static |
 | `/terms` | `pages/public/TermsPage.tsx` | Terms of service | static |
 
-The responsive public navbar uses in-page Product, Security, and Strategy anchors. Download is
-rendered exactly once as a button inside the home hero and silently selects the real package for the
-locally detected platform and architecture. Windows retains its checksum/version-controlled release
-sources; macOS, Linux, Android and iOS/iPadOS require an explicitly configured HTTPS publication URL,
-and unknown or unpublished platforms fail closed without a Windows fallback. No metadata card,
-header, footer, or repeated section duplicates it. Legacy marketing URLs redirect into
-the matching home section. The surface never mounts the desktop `Sidebar`, `Topbar`, Phase 6
-development toolbar, or public Sign in/account-portal link.
+The responsive public navbar uses Product, Security and Open source anchors plus a real Portal link
+and Sign in action. Both use the credential-free HTTPS `VITE_PEERONQ_ACCOUNT_PORTAL_URL` (default
+`https://portal.peeronq.com`). Hero Download App and footer Downloads lead to `#download`; the only
+package action is inside `DownloadsPage` (`#client-download`) in that section. Windows retains its
+checksum/version-controlled release sources and shows known unsigned classifications; macOS, Linux,
+Android and iOS/iPadOS need explicitly configured HTTPS publication URLs. Unknown or unpublished
+platforms fail closed without a Windows fallback. Open source uses `#open-source` and retains
+`#strategy` for the legacy `/about` redirect. The static client illustration is labeled. The surface
+never mounts desktop `Sidebar`, `Topbar`, or the Phase 6 development toolbar and never promotes
+Admin, Grafana or Prometheus as public navigation.
 
 ### Customer account portal — `artifacts/peeronq-portal`
 
 The customer portal is a separately built/deployed SPA at `portal.*`; it is not mounted under the
-public site's retired `/app` routes and does not share the internal Admin UI.
+public site's retired `/app` routes and does not share the internal Admin UI. Its public host serves
+the sign-in page without an operator CIDR restriction; existing customer API authentication, CSRF
+and tenant authorization still apply.
 
 | URL | Page | Purpose | Data source |
 | --- | --- | --- | --- |
-| `/` | `ProfilePage` / unauthenticated `AuthPage` | Registration, login and real account profile | `/portal/v1/auth/*`, `/account/profile` |
+| `/` | `OverviewPage` / unauthenticated `AuthPage` | Sign in, then real account/organization overview, assigned devices and recent remote sessions | `/portal/v1/auth/*`, `/account/profile`, `/organizations/*/{devices,sessions}` |
+| `/account` | `ProfilePage` | Current account profile | `/portal/v1/account/profile` |
+| `/remote-sessions` | `RemoteSessionsPage` | Organization host-side remote-session metadata, up to 500 recent records | `/portal/v1/organizations/*/sessions` |
+| `/downloads` | `DownloadsPage` | Native app access modes and link to authoritative public downloads | Static; `https://peeronq.com/#download` |
+| `/support` | `SupportPage` | Documentation, GitHub issues/security policy and account/device access limits | Static; public repository |
 | `/verify-email`, `/reset-password` | token pages | Email verification and password recovery | `/portal/v1/auth/*` |
-| `/sessions`, `/trusted-devices` | account security pages | Session and trust revocation | `/portal/v1/account/*` |
+| `/sessions`, `/trusted-devices` | account security pages | Browser account session and sign-in trust revocation; distinct from remote history | `/portal/v1/account/*` |
 | `/organizations`, `/members`, `/teams` | organization pages | Tenant membership, RBAC and teams | `/portal/v1/organizations/*` |
 | `/invitations`, `/invitations/accept` | invitation pages | Issue/revoke/accept protected invitations | `/portal/v1/organizations/*/invitations*` |
 | `/devices` | `DevicesPage` | Organization-scoped device visibility | `/portal/v1/organizations/*/devices` |
@@ -229,6 +237,10 @@ public site's retired `/app` routes and does not share the internal Admin UI.
 
 Billing, pricing, invoice, subscription, entitlement, activation and payment routes are absent;
 unknown paths render a real not-found state. Loading, error and empty states are explicit and tested.
+Organization resources are scoped to the selected tenant; navigation groups workspace, organization,
+account and help. Device cards report assigned/revoked status rather than inferred online presence.
+Desktop installation identity remains separate from account sign-in; no self-service desktop account
+login/device-linking UI is claimed. Existing device ownership proof remains required.
 
 ### Desktop application UI preview — `DesktopPreviewLayout`
 

@@ -138,8 +138,8 @@ xUnit. Deployment uses Docker Compose, Nginx, and coturn REST credentials.
 artifacts/
   peeronq/            MAIN PRODUCT: PeerOnQ frontend prototype (React + Vite)
     src/app/router/     Route table and legacy redirects
-    src/layouts/        Separate public, portal, and desktop-preview layouts
-    src/pages/          Route-level pages grouped by public / portal / desktop-preview
+    src/layouts/        Separate public and desktop-preview layouts
+    src/pages/          Public pages and offline desktop-preview pages
     src/components/     Shared components; components/ui = shadcn primitives (vendored)
     src/features/       Feature-sliced logic (repositories + hooks)
     src/repositories/   Barrel re-exporting src/features/*/xRepository.ts
@@ -290,8 +290,8 @@ artifacts/mockup-sandbox/
 
 **Important files:**
 
-- `src/layouts/PublicLayout.tsx` — responsive in-page public navbar/mobile menu, skip link and compact footer
-- `src/pages/LandingPage.tsx` + `src/pages/DownloadsPage.tsx` — single editorial public product page and its one locally device-matched, fail-closed download action
+- `src/layouts/PublicLayout.tsx` — responsive public navbar, real Portal/Sign in links, keyboard-accessible mobile menu, skip link and product/community footer
+- `src/pages/LandingPage.tsx` + `src/pages/DownloadsPage.tsx` — product hero, access modes, portal entry, security, MIT source, downloads and FAQ; one locally device-matched, fail-closed package action
 - `src/components/PublicMarketing.tsx` — shared public page/section heading primitives retained by public content
 - `src/lib/accountPortal.ts` — validates the separate HTTPS customer-portal URL
 - `src/layouts/DesktopPreviewLayout.tsx` — desktop sidebar, topbar, permanent preview banner and
@@ -299,13 +299,16 @@ artifacts/mockup-sandbox/
 - `src/components/Sidebar.tsx` — desktop-preview nav item list
 - `src/components/Topbar.tsx`
 
-**Notes:** the public marketing site is one page at `/`; its Product rows, Security trust path,
-Strategy roadmap, and FAQ use distinct visual structures instead of repeated card grids. `/features`,
-`/security`, `/downloads`, `/about`, and `/help` redirect to matching anchors while Privacy and Terms remain dedicated legal
-documents. The offline desktop preview (`/desktop-preview…`) remains separate. The former `/app…`
-preview routes are retired. Public Sign in/account-portal links are hidden; desktop-preview Open
-portal actions still navigate to the separate real `artifacts/peeronq-portal` deployment. Customer
-routes belong only in `peeronq-portal/src/App.tsx`.
+**Notes:** the public marketing site is one page at `/`, with a captioned static client illustration,
+View Only / Full Control / File Transfer / Unattended Access terminology and evidence-bound security
+copy. Hero/footer Download links lead to `#download`; only its device-matched action selects a package.
+Known unsigned development/pilot packages are labeled and unavailable platforms fail closed.
+`/features`, `/security`, `/downloads`, `/about`, and `/help` retain their anchor redirects; `#strategy`
+is a compatibility anchor in Open source. Privacy and Terms remain dedicated legal documents.
+`.public-site` tokens scope the new Segoe/green/navy presentation away from the offline desktop preview
+(`/desktop-preview…`). Former `/app…` preview routes stay retired. Public Portal/Sign in and desktop-preview
+Open portal links navigate to the separate HTTPS `artifacts/peeronq-portal` deployment. Its customer
+routes belong only in `peeronq-portal/src/App.tsx`; no customer API calls enter the offline prototype.
 
 ### Flow 2: Connect to a remote device (desktop preview)
 
@@ -855,6 +858,8 @@ place the root-owned public keyring and host agent; later releases can be staged
 - `CustomerIdentityEntities.cs` — customer and organization invariants; no internal Admin role reuse
 - `20260817060948_AddCustomerIdentityOrganizationsAndPolicy.cs` — forward-only schema and append-only customer audit trigger
 - `artifacts/peeronq-portal/src/` — real same-origin API portal with explicit loading/error/empty states; stable `api.ts`, `shell.tsx`, and `components.tsx` facades re-export their focused implementations
+- `artifacts/peeronq-portal/src/workspacePages.tsx` — authenticated overview, organization devices/remote-session history, downloads and support; resource responses are scoped to the current organization and aborted on scope changes
+- `artifacts/peeronq-portal/src/brand.tsx`, `public/brand/`, `src/styles.css` — shared canonical Q-mark, public/source destinations and standalone portal tokens/navigation
 - `scripts/windows/test-phase7-customer-portal.ps1` — real HTTPS multi-organization and multi-role acceptance
 
 **Notes:** internal Admin and customer identities use different schemes, claims, cookies, roles, routes,
@@ -864,6 +869,13 @@ unmanaged/accountless LAN clients continue to use the v1 attestation path. Custo
 keys and development mail live in dedicated persistent volumes. Production accepts the bounded
 `Disabled` or `Smtp` provider and rejects the file mail sink at startup; disabled mail requires
 closed registration and no email-verification dependency.
+
+The portal host is publicly reachable; its account and organization API still requires customer
+authentication/authorization. Nginx network allowlists remain on Admin, Grafana and Prometheus only.
+Signed-in users land on Overview; `/sessions` remains browser-session revocation and `/remote-sessions`
+shows up to 500 host-side remote-session records. Device installation proof and customer sign-in are
+distinct identities linked through the existing organization device-claim API; the desktop client
+has no self-service account sign-in/device-linking UI. The portal states this limitation explicitly.
 
 Website patches may replace the public `/downloads` UI only when their Admin-verified compatibility
 entry exactly matches the signed `index.html`. Old overlays fall back to the base page. Exact MSI,
@@ -995,7 +1007,7 @@ append-only audit triggers or legal-hold policy.
 | `VITE_PEERONQ_ADMIN_PANEL_URL` / `VITE_PEERONQ_CLOUD_HEALTH_URL` | Desktop-preview-only Phase 6 toolbar links to the Admin console and Cloud readiness | controller-provided | low |
 | `VITE_PEERONQ_GRAFANA_URL` / `VITE_PEERONQ_PROMETHEUS_URL` | Desktop-preview-only observability links; insecure URLs are accepted only on loopback | controller-provided | low |
 | `VITE_PEERONQ_ADMIN_API_BASE_URL` | Admin SPA API origin; production requires HTTPS and never stores tokens in localStorage | same origin | high |
-| `VITE_PEERONQ_ACCOUNT_PORTAL_URL` | Preview link to the separate internal customer portal; must be an absolute HTTPS URL outside localhost development | `https://portal.peeronq.com` | high |
+| `VITE_PEERONQ_ACCOUNT_PORTAL_URL` | Public/preview links to the separate customer portal; absolute HTTPS URL without embedded credentials | `https://portal.peeronq.com` | high |
 | `PEERONQ_HTTPS_BIND_ADDRESS` / `PEERONQ_HTTPS_PORT` | Host address and port published by the TLS proxy; development is loopback-only while production bootstrap binds canonical TCP 443 | `127.0.0.1` / `8443` | high |
 | `PEERONQ_API_BASE_URL` / `PEERONQ_PRESENCE_URL` / `PEERONQ_DOWNLOADS_BASE_URL` / `PEERONQ_DIAGNOSTICS_BASE_URL` / `PEERONQ_UPDATES_BASE_URL` | Development-only desktop cloud endpoint overrides; official Release uses compiled metadata | unset | high |
 | `PEERONQ_DEPLOYMENT_ENVIRONMENT` / `PEERONQ_REGION` | Desktop endpoint environment and deployment region | unset | high |

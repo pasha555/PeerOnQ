@@ -2,13 +2,14 @@ import { Route, Switch } from 'wouter';
 import { useAuth } from './auth';
 import { LoadingState } from './components';
 import {
-  AcceptInvitationPage, AuditPage, AuthPage, DevicesPage, InvitationsPage, MembersPage, OrganizationsPage,
+  AcceptInvitationPage, AuditPage, AuthPage, InvitationsPage, MembersPage, OrganizationsPage,
   PolicyPage, PrivacyPage, ProfilePage, ResetPasswordPage, SecurityPage, SessionsPage, TeamsPage,
   TrustedDevicesPage, VerifyEmailPage,
 } from './pages';
 import { OrganizationProvider, Shell } from './shell';
+import { DevicesPage, DownloadsPage, OverviewPage, RemoteSessionsPage, SupportPage } from './workspacePages';
 
-function NotFound() { return <section className="state"><h1>Page not found</h1><p>This account-portal route does not exist.</p><a className="button primary" href="/">Return to profile</a></section>; }
+function NotFound() { return <section className="state"><h1>Page not found</h1><p>This portal page does not exist.</p><a className="button primary" href="/">Return to overview</a></section>; }
 
 export function App() {
   const { status } = useAuth();
@@ -17,7 +18,11 @@ export function App() {
   if (status === 'loading') return <main className="standalone"><LoadingState label="Restoring your secure account session…" /></main>;
   if (status !== 'authenticated') return <AuthPage />;
   return <OrganizationProvider><Shell><Switch>
-    <Route path="/" component={ProfilePage} />
+    <Route path="/" component={OverviewPage} />
+    <Route path="/account" component={ProfilePage} />
+    <Route path="/remote-sessions" component={RemoteSessionsPage} />
+    <Route path="/downloads" component={DownloadsPage} />
+    <Route path="/support" component={SupportPage} />
     <Route path="/sessions" component={SessionsPage} />
     <Route path="/trusted-devices" component={TrustedDevicesPage} />
     <Route path="/organizations" component={OrganizationsPage} />

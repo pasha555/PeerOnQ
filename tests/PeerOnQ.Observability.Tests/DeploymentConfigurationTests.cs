@@ -335,10 +335,23 @@ public sealed class DeploymentConfigurationTests
         Assert.Contains("- \"127.0.0.1:${PEERONQ_GRAFANA_PORT:-3000}:3000\"", staging, StringComparison.Ordinal);
         Assert.Contains("customer-data-protection:", staging, StringComparison.Ordinal);
         Assert.Contains("customer-mail:", staging, StringComparison.Ordinal);
-        Assert.Contains(
-            "server_name ${PEERONQ_ADMIN_HOST};\n  allow ${PEERONQ_ADMIN_ALLOWED_CIDR};\n  deny all;",
-            Normalize(nginx),
-            StringComparison.Ordinal);
+        foreach (var operatorHost in new[] { "PEERONQ_ADMIN_HOST", "PEERONQ_GRAFANA_HOST", "PEERONQ_PROMETHEUS_HOST" })
+        {
+            Assert.Contains(
+                $"server_name ${{{operatorHost}}};\n  allow ${{PEERONQ_ADMIN_ALLOWED_CIDR}};\n  deny all;",
+                Normalize(nginx),
+                StringComparison.Ordinal);
+        }
+
+        var portal = Assert.Single(Normalize(nginx).Split("\nserver {", StringSplitOptions.None),
+            block => block.Contains("server_name ${PEERONQ_PORTAL_HOST};", StringComparison.Ordinal));
+        Assert.DoesNotContain("PEERONQ_ADMIN_ALLOWED_CIDR", portal, StringComparison.Ordinal);
+        Assert.DoesNotContain("deny all;", portal, StringComparison.Ordinal);
+        Assert.Contains("listen 443 ssl;", portal, StringComparison.Ordinal);
+        Assert.Contains("ssl_protocols TLSv1.2 TLSv1.3;", portal, StringComparison.Ordinal);
+        Assert.Contains("location /portal/v1/ { proxy_pass http://cloud_api; include /etc/nginx/proxy_params; }", portal, StringComparison.Ordinal);
+        Assert.Contains("location / { proxy_pass http://portal_ui; include /etc/nginx/proxy_params; }", portal, StringComparison.Ordinal);
+        Assert.Contains("server_name ${PEERONQ_WEB_HOST} ${PEERONQ_WEB_WWW_HOST};", nginx, StringComparison.Ordinal);
     }
 
     [Fact]

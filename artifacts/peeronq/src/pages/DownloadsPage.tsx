@@ -212,9 +212,32 @@ export function DownloadsPage() {
   const device = detectClientDevice();
   const download = selectDeviceDownload(device, release.downloads);
   const architectureLabel = device.architecture === "arm64" ? "ARM64" : "x64";
+  const deviceLabel = device.platform === "windows" || device.platform === "linux"
+    ? `${device.label} · ${architectureLabel}`
+    : device.label;
+  const version = device.platform === "windows" && (release.source === "local" || release.source === "embedded")
+    ? release.version
+    : "";
+  const unsignedLabel = device.platform !== "windows"
+    ? ""
+    : release.source === "local"
+      ? readEnv("VITE_PEERONQ_WINDOWS_DOWNLOAD_ARTIFACT_QUALIFIER") === "unsigned-public-pilot"
+        ? "Unsigned public pilot"
+        : "Unsigned development build"
+      : release.source === "embedded" && release.unsigned
+        ? "Unsigned controlled pilot"
+        : "";
+  const unavailableReason = device.detected
+    ? `A download for ${device.label}${device.architecture && device.platform !== "macos" ? ` ${architectureLabel}` : ""} is not currently available on this site.`
+    : "We could not identify this device. No installer was selected.";
 
   return (
-    <div id="download" className="scroll-mt-24" aria-label="PeerOnQ download">
+    <div id="client-download" className="space-y-4" aria-label="PeerOnQ download">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your device</p>
+        <p className="mt-1 text-lg font-semibold">{device.detected ? deviceLabel : "Device not detected"}</p>
+        {download && version && <p className="mt-1 text-sm text-muted-foreground">Version {version}</p>}
+      </div>
       {download ? (
         <Button asChild size="lg" className="h-12 w-full rounded-xl text-base shadow-lg shadow-primary/20 sm:w-auto sm:min-w-64">
           <a
@@ -228,12 +251,18 @@ export function DownloadsPage() {
           </a>
         </Button>
       ) : (
-        <Button size="lg" className="h-12 w-full rounded-xl text-sm sm:w-auto sm:min-w-64" variant="secondary" disabled aria-label={`${device.label} app is not available yet`}>
-          {device.platform === "windows" ? "Download unavailable" : `${device.label} app coming later`}
+        <Button size="lg" className="h-12 w-full rounded-xl text-sm sm:w-auto sm:min-w-64" variant="secondary" disabled aria-label={`${device.label} app is not available yet`} aria-describedby="client-download-status">
+          Download unavailable
         </Button>
       )}
-      <p className="sr-only" role="status" aria-live="polite">
-        {device.detected ? `${device.label} detected locally.` : "Device platform could not be detected."}
+      {download && unsignedLabel && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
+          <p className="font-semibold">{unsignedLabel}</p>
+          <p className="mt-1 text-muted-foreground">For testing only. This installer is not production-signed.</p>
+        </div>
+      )}
+      <p id="client-download-status" className="text-sm leading-6 text-muted-foreground" role="status" aria-live="polite">
+        {download ? "Selected using your browser's device information." : unavailableReason}
       </p>
     </div>
   );

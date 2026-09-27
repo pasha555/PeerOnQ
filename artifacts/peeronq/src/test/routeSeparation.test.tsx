@@ -71,23 +71,25 @@ describe("route surface separation", () => {
     expect(screen.getAllByRole("link", { name: /Download PeerOnQ for Windows/i })).toHaveLength(1);
   });
 
-  it("states the hybrid post-quantum connection design accurately", () => {
+  it("explains access boundaries and links to the inspectable security implementation", () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
 
-    expect(screen.getByText("Hybrid post-quantum connection setup")).toBeInTheDocument();
-    expect(screen.getByText(/ML-KEM-768 and X25519 establish session key material/)).toBeInTheDocument();
-    expect(screen.getByText(/AES-256-GCM protects encoded video/)).toBeInTheDocument();
+    expect(screen.getByText(/authenticated encryption and hybrid key agreement/)).toBeInTheDocument();
+    expect(screen.getByText(/Attended sessions require the remote owner’s approval/)).toBeInTheDocument();
+    expect(screen.getByText(/Unattended Access requires its own setup/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Read the security implementation" })).toHaveAttribute("href", "https://github.com/pasha555/PeerOnQ/blob/main/docs/PROTOCOL_COMPLIANCE.md");
   });
 
-  it("uses one continuous narrative without the retired repeated step section", () => {
+  it("presents client modes, open source and a single download destination", () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
 
-    expect(screen.queryByText("Three deliberate steps. No mystery.")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Everything the session needs. Nothing hidden around it." })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Security is the path, not a badge." })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Built in the right order." })).toBeInTheDocument();
+    for (const name of ["View Only", "Full Control", "File Transfer", "Unattended Access"])
+      expect(screen.getByRole("heading", { name, exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "The MIT License" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download App" })).toHaveAttribute("href", "#download");
+    expect(document.querySelectorAll("#download")).toHaveLength(1);
   });
 
   it("opens and closes the accessible mobile public menu", () => {
@@ -103,6 +105,10 @@ describe("route surface separation", () => {
     expect(closeButton).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(closeButton);
 
+    expect(screen.queryByRole("navigation", { name: "Mobile public website" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Open menu" })).toHaveFocus();
     expect(screen.queryByRole("navigation", { name: "Mobile public website" })).not.toBeInTheDocument();
   });
 
@@ -169,9 +175,10 @@ describe("route surface separation", () => {
       "/downloads/PeerOnQ-0.9.30-unsigned-development-x64.msi",
     );
     expect(screen.queryByRole("link", { name: "Download PeerOnQ for Windows ARM64" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Detected:/)).not.toBeInTheDocument();
+    expect(screen.getByText("Windows · x64")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "View SHA-256 checksums" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Unsigned controlled-test package available.")).not.toBeInTheDocument();
+    expect(screen.getByText("Unsigned development build")).toBeInTheDocument();
+    expect(screen.getByText("For testing only. This installer is not production-signed.")).toBeInTheDocument();
   });
 
   it("fails closed when local Windows download version metadata is missing", () => {
@@ -202,6 +209,8 @@ describe("route surface separation", () => {
       "href",
       "/downloads/PeerOnQ-0.9.66-unsigned-public-pilot-x64.msi",
     );
+    expect(screen.getByText("Unsigned public pilot")).toBeInTheDocument();
+    expect(screen.getByText("Version 0.9.66")).toBeInTheDocument();
   });
 
   it("detects macOS without exposing a fake download", () => {
@@ -331,7 +340,9 @@ describe("route surface separation", () => {
     );
     expect(screen.queryByRole("link", { name: "Download PeerOnQ for Windows ARM64" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Detected:/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Unsigned controlled-test package available.")).not.toBeInTheDocument();
+    expect(screen.getByText("Unsigned controlled pilot")).toBeInTheDocument();
+    expect(screen.getByText("For testing only. This installer is not production-signed.")).toBeInTheDocument();
+    expect(screen.getByText("Version 0.5.1")).toBeInTheDocument();
   });
 
   it("links a website patch to the canonical server client without claiming its version or signature", () => {
@@ -349,7 +360,7 @@ describe("route surface separation", () => {
     expect(screen.queryByText(/signed embedded release|unsigned controlled pilot|latest signed stable release/i)).not.toBeInTheDocument();
   });
 
-  it("labels an explicitly signed embedded Windows client without a pilot warning", () => {
+  it("keeps an embedded client neutral when its unsigned-pilot flag is false", () => {
     vi.stubEnv("VITE_PEERONQ_EMBEDDED_WINDOWS_X64_URL", "/downloads/PeerOnQ-Windows-x64.msi");
     vi.stubEnv("VITE_PEERONQ_EMBEDDED_WINDOWS_VERSION", "0.5.1");
     vi.stubEnv("VITE_PEERONQ_EMBEDDED_WINDOWS_UNSIGNED_PILOT", "false");
@@ -357,7 +368,8 @@ describe("route surface separation", () => {
     render(<App />);
 
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toBeInTheDocument();
-    expect(screen.queryByText("Unsigned controlled-test package available.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unsigned controlled pilot")).not.toBeInTheDocument();
+    expect(screen.queryByText(/signed embedded release/i)).not.toBeInTheDocument();
   });
 
   it("fails closed when embedded-client signature metadata is absent", () => {
@@ -392,12 +404,26 @@ describe("route surface separation", () => {
     expect(screen.queryByRole("navigation", { name: "Account portal" })).not.toBeInTheDocument();
   });
 
-  it("keeps sign-in and account portal links off the public website", () => {
+  it("links public sign-in and portal entry to the real customer portal", () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
 
-    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Account portal" })).not.toBeInTheDocument();
+    for (const name of ["Sign in", "Portal", "Open Portal", "Account portal"])
+      expect(screen.getByRole("link", { name, exact: true })).toHaveAttribute("href", "https://portal.peeronq.com");
+    expect(screen.getByRole("link", { name: "View on GitHub" })).toHaveAttribute("href", "https://github.com/pasha555/PeerOnQ");
+    for (const link of screen.getAllByRole("link"))
+      expect(link.getAttribute("href")).not.toMatch(/https?:\/\/(?:admin|grafana|prometheus)\./);
+  });
+
+  it("honors a configured HTTPS portal without mounting local account pages", () => {
+    vi.stubEnv("VITE_PEERONQ_ACCOUNT_PORTAL_URL", "https://portal.dev.localhost:8443/");
+    render(<App />);
+    expect(screen.getByRole("link", { name: "Open Portal", exact: true })).toHaveAttribute("href", "https://portal.dev.localhost:8443");
+  });
+
+  it.each(["http://portal.peeronq.com", "https://user:secret@portal.peeronq.com"])("rejects an unsafe portal URL %s", (url) => {
+    vi.stubEnv("VITE_PEERONQ_ACCOUNT_PORTAL_URL", url);
+    expect(() => render(<App />)).toThrow("VITE_PEERONQ_ACCOUNT_PORTAL_URL must be an HTTPS URL without credentials.");
   });
 
   it("does not expose a billing, subscription, or entitlement portal surface", () => {
@@ -408,15 +434,14 @@ describe("route surface separation", () => {
     expect(screen.queryByRole("link", { name: /billing/i })).not.toBeInTheDocument();
   });
 
-  it("states the public open-source and no-activation model accurately", () => {
+  it("states the open-source license and native preview scope accurately", () => {
     window.history.replaceState(null, "", "/");
     render(<App />);
 
-    expect(screen.getByText("Product strategy")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Built in the right order." })).toBeInTheDocument();
-    expect(screen.getByText(/add macOS and mobile only when their complete clients are ready/i)).toBeInTheDocument();
-    expect(screen.getAllByText("MIT licensed").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("No activation key").length).toBeGreaterThan(0);
+    expect(screen.getByText(/PeerOnQ is MIT licensed and developed in public/)).toBeInTheDocument();
+    expect(screen.getByText(/Source previews are development projects, not published apps/)).toBeInTheDocument();
+    expect(screen.getByText(/Third-party components retain their own license terms/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /pricing|subscription|enterprise plan/i })).not.toBeInTheDocument();
   });
 
   it("renders desktop preview routes with the permanent banner and desktop sidebar only", () => {

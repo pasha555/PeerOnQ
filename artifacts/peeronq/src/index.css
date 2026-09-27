@@ -4,6 +4,83 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@layer components {
+  .public-site {
+    --background: 210 25% 98%;
+    --foreground: 207 65% 17%;
+    --primary: 153 69% 31%;
+    --primary-foreground: 0 0% 100%;
+    --muted-foreground: 215 16% 42%;
+    --border: 214 20% 88%;
+    --marketing-hero: 207 62% 13%;
+    --marketing-panel: 207 46% 18%;
+    --marketing-line: 207 30% 28%;
+    --marketing-muted: 210 22% 76%;
+  }
+  .dark .public-site {
+    --background: 222 20% 9%;
+    --foreground: 210 25% 94%;
+    --primary: 153 52% 58%;
+    --primary-foreground: 222 20% 9%;
+    --muted-foreground: 215 16% 72%;
+    --border: 215 18% 25%;
+  }
+  .public-container {
+    width: 100%;
+    max-width: 78rem;
+    margin-inline: auto;
+    padding-inline: clamp(1.25rem, 4vw, 2.5rem);
+  }
+  .public-section { padding-block: clamp(4rem, 7vw, 6.5rem); }
+  .public-heading {
+    font-size: clamp(2rem, 3.6vw, 3rem);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -.04em;
+    text-wrap: balance;
+  }
+  .public-eyebrow {
+    color: hsl(var(--primary));
+    font-size: .75rem;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+  }
+  .public-button {
+    display: inline-flex;
+    min-height: 2.875rem;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    border: 1px solid transparent;
+    border-radius: .625rem;
+    padding: .7rem 1.15rem;
+    font-size: .875rem;
+    font-weight: 600;
+    transition: background-color 160ms, border-color 160ms, box-shadow 160ms;
+  }
+  .public-button-primary {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+  .public-button-primary:hover { background: hsl(var(--primary) / .9); }
+  .public-button-secondary {
+    border-color: hsl(var(--border));
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
+  }
+  .public-button-secondary:hover { border-color: hsl(var(--primary) / .5); }
+  .public-hero-wash {
+    background: radial-gradient(ellipse at 80% 20%, hsl(var(--primary) / .06), transparent 65%);
+  }
+  .public-site :is(a, button, summary):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 4px;
+    border-radius: .375rem;
+  }
+  .public-site summary::-webkit-details-marker { display: none; }
+}
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));

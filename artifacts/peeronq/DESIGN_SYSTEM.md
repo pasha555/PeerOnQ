@@ -77,23 +77,46 @@ All colors are defined as CSS custom properties in `src/index.css` using HSL spa
 
 ### Public Marketing Tokens
 
-The public website uses a dark trust/authority hero system in both themes while the page body keeps
-the normal light/dark semantic palette. Components consume these through Tailwind names and never
-embed literal colors.
+The public website uses a light surface with navy text, green actions and dark navy client/security
+panels; `.dark .public-site` supplies its dark variant. Overrides live on `.public-site` in
+`src/index.css`, so the desktop preview retains its existing theme. Components consume semantic
+Tailwind tokens rather than literal colors.
+
+| Scoped token | Public light | Public dark |
+| --- | --- | --- |
+| `--background` | `210 25% 98%` | `222 20% 9%` |
+| `--foreground` | `207 65% 17%` | `210 25% 94%` |
+| `--primary` | `153 69% 31%` | `153 52% 58%` |
+| `--primary-foreground` | `0 0% 100%` | `222 20% 9%` |
+| `--muted-foreground` | `215 16% 42%` | `215 16% 72%` |
+| `--border` | `214 20% 88%` | `215 18% 25%` |
 
 | Token | Usage |
 | --- | --- |
-| `--marketing-hero` | Hero and final conversion background |
-| `--marketing-foreground` | Primary copy on the marketing hero |
-| `--marketing-muted` | Secondary hero copy |
-| `--marketing-panel` | Product-preview and hero card surface |
-| `--marketing-line` | Hero grid, separators and panel outlines |
+| `--marketing-hero` | Dark client illustration and security section (`207 62% 13%` on `.public-site`) |
+| `--marketing-foreground` | Light primary copy on dark panels; inherited from the base theme |
+| `--marketing-muted` | Secondary panel copy (`210 22% 76%`) |
+| `--marketing-panel` | Client illustration surfaces (`207 46% 18%`) |
+| `--marketing-line` | Dark panel separators and outlines (`207 30% 28%`) |
 
-Public effects are limited to token-driven radial light, a 64 px grid, restrained blur, and subtle
-row hover states. The single landing page deliberately changes visual rhythm between the session
-model, editorial capability rows, vertical security path, roadmap, and FAQ instead of repeating card
-grids. Its only conversion surface is one device-aware download button with no surrounding release
-metadata card.
+The landing page combines an explicitly captioned client-workflow illustration, four native access
+modes, the real customer-portal entry, security boundaries, MIT/public-source links, device-aware
+downloads and native `<details>` FAQ. The illustration uses the canonical Q-link mark and native
+Segoe font family; its sidebar and permission choices are explanatory, not working remote controls
+or a fabricated live session. Effects are limited to a low-opacity radial hero wash, subtle borders,
+shadows and color transitions.
+
+`.public-container` caps content at 78rem with fluid side padding; `.public-section`,
+`.public-heading` and `.public-eyebrow` define responsive spacing/type. `.public-button` supplies
+46px minimum action height and token-based primary/secondary variants. Public links, buttons and
+FAQ summaries have an explicit `:focus-visible` outline. The mobile menu exposes expanded state,
+closes on Escape and returns focus to its toggle; the viewport permits browser zoom.
+
+Hero/footer download links navigate to `#download`, which contains the one device-selected package
+action. `DownloadsPage` displays detected device/architecture, only known release versions and
+explicit unsigned classifications, or an honest unavailable state. It never invents a signed badge
+or a current version for server-owned/tracked releases. Sign in and Portal links navigate to the
+separately hosted customer portal; operational Admin/monitoring links remain absent.
 `prefers-reduced-motion` reduces transitions and animations globally.
 
 ---
@@ -180,11 +203,11 @@ Tailwind's default 4 px grid. Key layout values:
 
 | Component | File | Description |
 | --- | --- | --- |
-| `PublicLayout` | `layouts/PublicLayout.tsx` | Responsive in-page navbar/mobile menu, skip link, content landmark, and compact legal footer |
-| `PublicPageHero`, `SectionHeading`, `MarketingCta` | `components/PublicMarketing.tsx` | Public marketing hierarchy primitives; the one-page surface uses `SectionHeading` and no repeated conversion block |
-| `PortalLayout` | `layouts/PortalLayout.tsx` | Account-only portal header, nav, and content |
+| `PublicLayout` | `layouts/PublicLayout.tsx` | Scoped public theme, responsive in-page/portal navigation, keyboard menu, skip link, content landmark, GitHub and legal footer |
+| `PublicPageHero`, `SectionHeading`, `MarketingCta` | `components/PublicMarketing.tsx` | Retained public primitives; legal pages use `PublicPageHero`, while the landing page owns its current section composition |
+| `ClientPreview` | `pages/LandingPage.tsx` | Captioned static native-workflow illustration using existing brand assets and permission terminology |
+| `DownloadsPage` | `pages/DownloadsPage.tsx` | One device-matched package action with known release details, unsigned warning and explicit unavailable state |
 | `DesktopPreviewLayout` | `layouts/DesktopPreviewLayout.tsx` | Desktop sidebar/topbar shell with permanent preview banner |
-| `PortalStatusPage` | `pages/portal/PortalStatusPage.tsx` | Shared account-portal heading and offline-status panel |
 | `Sidebar` | `components/Sidebar.tsx` | Desktop-preview-only collapsible nav with icon+label items |
 | `Topbar` | `components/Topbar.tsx` | Search, theme, notifications, user menu |
 | `PageHeader` | `components/PageHeader.tsx` | Consistent `<h1>` + description per page |
@@ -199,7 +222,7 @@ Tailwind's default 4 px grid. Key layout values:
 | `StatusBadge` | `components/StatusBadge.tsx` | online / offline / unknown pill |
 | `SecurityCard` | `components/SecurityCard.tsx` | Security feature with planned badge |
 | `SessionTable` | `components/SessionTable.tsx` | History table with direction/mode/state |
-| `PlatformCard` | `components/PlatformCard.tsx` | Legacy platform-status card; the home hero now owns one locally device-matched action instead of a card directory |
+| `PlatformCard` | `components/PlatformCard.tsx` | Legacy platform-status card; the home download section owns the current device-matched action |
 | `EmptyState` | `components/EmptyState.tsx` | Consistent zero-state with icon + CTA |
 | `DeviceDetailDrawer` | `components/DeviceDetailDrawer.tsx` | Sheet with device details, connect and remove actions |
 
@@ -237,8 +260,9 @@ Tailwind's default 4 px grid. Key layout values:
 The separate `artifacts/peeronq-portal` SPA mirrors the PeerOnQ navy/green identity without importing
 the public prototype or vendored shadcn tree. Its source of truth is `src/styles.css`: semantic HSL
 tokens (`background`, `foreground`, `surface`, `subtle`, `border`, `muted`, `primary`, `danger`,
-`success`, `info`, `focus`) have light/dark values; the responsive 240 px sidebar collapses below
-1000 px and all card/form grids collapse on narrow screens.
+`success`, `info`, `focus`) have light/dark values. It uses the Segoe system font, canonical Q-link
+lockup with a Portal label, a navy topbar, a 244 px sidebar and responsive card/form grids. Its
+styles and local brand assets are separate from the public-site CSS and offline desktop preview.
 
 | Component | File | Description |
 | --- | --- | --- |
@@ -248,10 +272,13 @@ tokens (`background`, `foreground`, `surface`, `subtle`, `border`, `muted`, `pri
 | `ErrorState` | `artifacts/peeronq-portal/src/components.tsx` | Accessible `role=alert` with optional retry |
 | `EmptyState` | `artifacts/peeronq-portal/src/components.tsx` | Explicit zero-data state; never substitutes fake records |
 | `Notice` | `artifacts/peeronq-portal/src/components.tsx` | Info/success/danger feedback using semantic tokens |
+| `Brand` | `artifacts/peeronq-portal/src/brand.tsx` | Canonical lockup and explicit Portal surface label |
+| `OverviewPage`, `DevicesPage`, `RemoteSessionsPage` | `artifacts/peeronq-portal/src/workspacePages.tsx` | Organization-scoped account overview, real device data and recorded remote-session history; missing data remains loading/error/empty |
 
-Portal controls have at least 40 px targets, visible focus rings, reduced-motion behavior, native
-labels, table overflow focus, and text rather than color alone for security state. Billing/pricing
-components are intentionally absent.
+Primary portal buttons and text inputs have 44 px minimum heights; focus rings, reduced-motion
+behavior, native labels, focusable table overflow and textual security states remain explicit.
+Remote-session history is separate from signed-in account sessions; portal account/device visibility
+does not grant native remote control. Billing/pricing and simulated live remote controls are absent.
 
 ---
 

@@ -206,8 +206,6 @@ server {
   listen 443 ssl;
   http2 on;
   server_name ${PEERONQ_PORTAL_HOST};
-  allow ${PEERONQ_ADMIN_ALLOWED_CIDR};
-  deny all;
   server_tokens off;
   access_log off;
   error_log /dev/stderr warn;

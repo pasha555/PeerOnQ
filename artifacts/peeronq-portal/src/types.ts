@@ -6,5 +6,6 @@ export interface Member { accountId: string; displayName: string; email: string;
 export interface Team { id: string; name: string; createdAtUtc: string }
 export interface Invitation { id: string; email: string; role: Organization['role']; createdAtUtc: string; expiresAtUtc: string; acceptedAtUtc: string | null; revokedAtUtc: string | null }
 export interface Device { id: string; maskedPublicDeviceId: string; displayName: string; lastSeenAtUtc: string; isRevoked: boolean }
+export interface RemoteSession { id: string; permissionMode: string; connectionPath: string; lifecycle: string; startedAtUtc: string; endedAtUtc: string | null }
 export interface SecurityEvent { id: string; action: string; result: string; timestampUtc: string; correlationId: string; safeMetadata: string | null }
 export interface Policy { organizationId: string; viewOnlyAllowed: boolean; fullControlAllowed: boolean; fileTransferAllowed: boolean; clipboardAllowed: boolean; unattendedAccessAllowed: boolean; mfaRequired: boolean; trustedDeviceLifetimeDays: number; auditRetentionDays: number; approvedRelayRegionsCsv: string; minimumClientVersion: string; hybridSecurityRequired: boolean }

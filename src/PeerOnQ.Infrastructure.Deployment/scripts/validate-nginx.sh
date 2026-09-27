@@ -90,7 +90,7 @@ grep -Fq 'resolver 127.0.0.11 valid=10s ipv6=off;' /etc/nginx/conf.d/peeronq.con
 test "$(grep -Ec 'server [a-z-]+:8080 resolve' /etc/nginx/conf.d/peeronq.conf)" -eq 8
 grep -Fq 'server grafana:3000 resolve;' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'server prometheus:9090 resolve;' /etc/nginx/conf.d/peeronq.conf
-test "$(grep -Fxc '  allow 10.20.10.0/24;' /etc/nginx/conf.d/peeronq.conf)" -eq 4
+test "$(grep -Fxc '  allow 10.20.10.0/24;' /etc/nginx/conf.d/peeronq.conf)" -eq 3
 grep -Fq 'server_name grafana-staging.peeronq.invalid;' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'proxy_pass http://grafana_server;' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'server_name prometheus-staging.peeronq.invalid;' /etc/nginx/conf.d/peeronq.conf
@@ -134,7 +134,7 @@ fetch_status() {
 }
 
 for internal_host in \
-  "$PEERONQ_ADMIN_HOST" "$PEERONQ_PORTAL_HOST" \
+  "$PEERONQ_ADMIN_HOST" \
   "$PEERONQ_GRAFANA_HOST" "$PEERONQ_PROMETHEUS_HOST"
 do
   test "$(fetch_status "$internal_host")" = 403
@@ -157,6 +157,7 @@ until [ "$(fetch_public /downloads 2>/dev/null || true)" = 'base downloads page'
   [ "$attempt" -lt 10 ] || exit 1
   sleep 1
 done
+test "$(fetch_status "$PEERONQ_PORTAL_HOST")" = 200
 # Only releases created by the current builder contain the Admin-verified, byte-identical UI entry.
 # Its presence switches the page, but never any client artifact, to the active website release.
 cp "$patch_root/index.html" "$patch_root/peeronq-downloads-ui-v1.html"
