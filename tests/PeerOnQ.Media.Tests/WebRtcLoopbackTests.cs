@@ -734,8 +734,10 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
-    public async Task Interactive_input_remains_responsive_while_bulk_transfer_is_backpressured()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Interactive_input_remains_responsive_while_bulk_transfer_is_backpressured(bool dedicatedInput)
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "peeronq-phase4-priority", Guid.NewGuid().ToString("N"));
         var destination = Path.Combine(testRoot, "destination");
@@ -772,11 +774,14 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             viewer.LocalIceCandidate += async (_, candidate) =>
                 await sharer.AddRemoteIceCandidateAsync(candidate.Candidate, candidate.SdpMid, candidate.SdpMLineIndex);
 
+            var probe = new InputLatencyProbe();
+            var measuredViewer = probe.ObserveMedia(viewer, sender: true);
+            var measuredSharer = probe.ObserveMedia(sharer, sender: false);
             await using var identities = await TestHybridIdentityPair.CreateAsync();
             await using var viewerTransport = new MediaCollaborationTransport(
-                viewer, permissions, identities.Viewer, identities.SharerLegacyFingerprint);
+                measuredViewer, permissions, identities.Viewer, identities.SharerLegacyFingerprint);
             await using var sharerTransport = new MediaCollaborationTransport(
-                sharer, permissions, identities.Sharer, identities.ViewerLegacyFingerprint);
+                measuredSharer, permissions, identities.Sharer, identities.ViewerLegacyFingerprint);
             await using var sender = new FileTransferService(
                 sharerTransport,
                 new FileTransferOptions { ChunkBytes = 1024 });
@@ -784,9 +789,12 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
                 viewerTransport,
                 new FileTransferOptions { ChunkBytes = 1024 });
             var inputSink = new FakeRemoteInputSink();
+            inputSink.BeforeInjection = probe.InjectionEntered;
             inputSink.RestoreApprovedScope(SessionPermission.ControlInput);
-            await using var inputSender = new RemoteInputSession(sessionId, SessionRole.Viewer, viewerTransport);
-            await using var inputReceiver = new RemoteInputSession(sessionId, SessionRole.Sharer, sharerTransport, inputSink);
+            await using var inputSender = new RemoteInputSession(
+                sessionId, SessionRole.Viewer, probe.ObserveInputTransport(viewerTransport, sender: true));
+            await using var inputReceiver = new RemoteInputSession(
+                sessionId, SessionRole.Sharer, probe.ObserveInputTransport(sharerTransport, sender: false), inputSink);
             var framesReceived = 0;
             var videoLatencySamples = new List<(long ReceivedAt, double LatencyMs)>();
             var firstFrame = new TaskCompletionSource<RemoteVideoFrame>(
@@ -831,15 +839,22 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
                 await receiver.AcceptAsync(offer.TransferId, destination, TransferCollisionPolicy.Rename);
 
             var offer = await sharer.CreateOfferAsync();
+            if (!dedicatedInput)
+                offer = WebRtcMediaSession.RemoveInputDescription(offer)
+                    .Replace("a=x-peeronq-input-data-lane:1\r\n", string.Empty, StringComparison.Ordinal)
+                    .Replace("a=x-peeronq-input-data-lane:1\n", string.Empty, StringComparison.Ordinal);
             var answer = await viewer.CreateAnswerAsync(offer);
             await sharer.ApplyRemoteAnswerAsync(answer);
             await Task.WhenAll(
                 viewerReady.Task.WaitAsync(TimeSpan.FromSeconds(30)),
                 sharerReady.Task.WaitAsync(TimeSpan.FromSeconds(30)));
-            await WaitUntilAsync(() => viewer.IsInputDataLaneReady && sharer.IsInputDataLaneReady);
+            if (dedicatedInput)
+                await WaitUntilAsync(() => viewer.IsInputDataLaneReady && sharer.IsInputDataLaneReady);
             await WaitUntilAsync(() => viewer.IsBulkDataLaneReady && sharer.IsBulkDataLaneReady);
-            Assert.True(viewer.IsInputDataLaneNegotiated);
-            Assert.True(sharer.IsInputDataLaneNegotiated);
+            Assert.Equal(dedicatedInput, viewer.IsInputDataLaneNegotiated);
+            Assert.Equal(dedicatedInput, sharer.IsInputDataLaneNegotiated);
+            Assert.Equal(dedicatedInput, viewer.IsInputDataLaneReady);
+            Assert.Equal(dedicatedInput, sharer.IsInputDataLaneReady);
             Assert.True(viewer.IsBulkDataLaneNegotiated);
             Assert.True(sharer.IsBulkDataLaneNegotiated);
             Assert.True(viewer.UsesDedicatedInputPeerConnection);
@@ -851,12 +866,20 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             await inputSender.SetLocalCaptureEnabledAsync(true);
 
             var inputSendSamples = new List<double>();
+            var pipelineSamples = new List<InputLatencyProbe.Sample>();
             async Task<double> MeasureInputInjectionAsync(double position)
             {
                 var injected = new TaskCompletionSource<long>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                inputSink.InputInjected = _ => injected.TrySetResult(Stopwatch.GetTimestamp());
-                var startedAt = Stopwatch.GetTimestamp();
+                inputSink.InputInjected = _ =>
+                {
+                    var timestamp = Stopwatch.GetTimestamp();
+                    probe.Injected(timestamp);
+                    injected.TrySetResult(timestamp);
+                };
+                var sample = probe.Begin();
+                pipelineSamples.Add(sample);
+                var startedAt = sample.EventAt;
                 await inputSender.SendPointerMoveAsync(position, position);
                 inputSendSamples.Add(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
                 var injectedAt = await injected.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -892,6 +915,10 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
                 bulkInputSamples.Add(await MeasureInputInjectionAsync((20 - index) / 25d));
             var bulkInputP95 = P95(bulkInputSamples);
             await WaitUntilAsync(() => viewer.GetStatistics().InputToInjectionLatencyP95Ms > 0);
+            await InputLatencyProbe.WaitForAcknowledgementsAsync(pipelineSamples);
+            var laneName = dedicatedInput ? "dedicated" : "primary_fallback";
+            InputLatencyProbe.Write(output, laneName + "/no_bulk", pipelineSamples.Skip(5).Take(20).ToArray());
+            InputLatencyProbe.Write(output, laneName + "/active_bulk", pipelineSamples.Skip(25).Take(20).ToArray());
 
             Assert.False(completed.Task.IsCompleted);
             Assert.True(
@@ -909,7 +936,8 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             var viewerStatistics = viewer.GetStatistics();
             var inputLatency = viewerStatistics.InputToInjectionLatencyP95Ms;
             var inputUncertainty = viewerStatistics.InputClockUncertaintyMs;
-            Assert.True(viewerStatistics.InputDataRecordsSent >= 45);
+            if (dedicatedInput) Assert.True(viewerStatistics.InputDataRecordsSent >= 45);
+            else Assert.Equal(0, viewerStatistics.InputDataRecordsSent);
             Assert.InRange(viewerStatistics.InputSctpBufferedBytes, 0, 64 * 1024);
             Assert.True(inputLatency > 0);
             if (inputUncertainty <= ConnectionPolicyProvider.MaximumAdaptiveInputClockUncertaintyMs)
@@ -1499,6 +1527,7 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
         private bool _enabled;
         public List<RemoteInputEvent> Inputs { get; } = [];
         public Action<RemoteInputEvent>? InputInjected { get; set; }
+        public Action? BeforeInjection { get; set; }
 
         public void SetCaptureTarget(CaptureTargetInfo? target) { }
         public void RestoreApprovedScope(SessionPermission approvedPermissions) =>
@@ -1507,6 +1536,7 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
         public void ReleaseAll() { }
         public bool TryInject(RemoteInputEvent input)
         {
+            BeforeInjection?.Invoke();
             if (!_enabled) return false;
             Inputs.Add(input);
             InputInjected?.Invoke(input);

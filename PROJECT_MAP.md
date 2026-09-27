@@ -4,7 +4,7 @@
 Read this instead of running a full repo scan. If something here is wrong, fix this file
 in the same change.
 
-**Last updated:** 2026-08-27
+**Last updated:** 2026-09-27
 
 ## Product Summary
 
@@ -14,6 +14,12 @@ The public MIT-licensed `main` branch begins with a source-only snapshot. Earlie
 retained on `feat/phase1-remote-view` and is not pushed because it contains generated packages.
 Commits on the publication branch are pushed to `origin` and verified; installers and deployment
 remain subject to the separate release gates.
+
+Current source contract: canonical client version `0.9.66` comes from `Directory.Build.props`;
+Linux/Android/Apple versions derive from it. Signaling accepts exactly v3. Native non-Windows
+projects are attended viewer/controller previews with separate physical-device/release gates;
+see `docs/CURRENT_STATE.md` and `docs/CROSS_PLATFORM_CAPABILITIES.md`. Dated phase reports retain
+their historical artifacts/results and do not certify the current checkout.
 
 **Main purpose:** secure remote-access / remote-desktop platform — "Connect securely. Work anywhere."
 The repo contains an offline **frontend prototype** (`artifacts/peeronq`), an API skeleton
@@ -83,6 +89,8 @@ through the cloud APIs.
 
 **Monorepo:** pnpm workspaces (`pnpm-workspace.yaml`), Node.js 24, TypeScript 5.9.
 **pnpm only** — `npm install` is blocked by the root `preinstall` script.
+`.nvmrc` selects Node 24; root `engines.node = 24.x` and pnpm `engineStrict: true` enforce that
+runtime major. The shared `@types/node` catalog targets 24; CI remains on Node 24.
 
 **Frontend:**
 
@@ -155,7 +163,7 @@ lib/
   api-zod/            GENERATED Zod schemas — never edit by hand
   db/                 Drizzle setup; schema currently empty
 
-src/                  .NET 10 / C# remote-access product (v0.5 production-readiness scope)
+src/                  .NET 10 / C# remote-access product, native viewers and cloud services
   PeerOnQ.Domain          PeerOnQ ID, device identity, typed session state machine, Phase1SessionScope
   PeerOnQ.Application     Ports + SessionCoordinator (timeouts, lifecycle, cleanup)
   PeerOnQ.Infrastructure  Cross-platform SQLite/logging/audit plus Windows update verification
@@ -781,7 +789,8 @@ preserves the older update-disabled connectivity-test kit.
 - `docs/phase-reports/PHASE_09_COMPLETION_REPORT.md` - failed Phase 9 gate and exact prerequisites before Phase 10
 - `docs/phase-reports/PHASE_10_COMPLETION_REPORT.md` - single-node Phase 10 implementation evidence and remaining physical/HA gates
 - `docs/phase-reports/PHASE_11_COMPLETION_REPORT.md` - support, portable, multi-session and preserved hybrid-security evidence
-- `docs/PERFORMANCE_REPORT.md` - measured 0.9.21 idle baseline plus explicit unmeasured active-session matrix
+- `docs/PERFORMANCE_REPORT.md` - dated idle/transport evidence, 2026-09-27 input pipeline investigation and explicit unmeasured physical-session gates
+- `tests/PeerOnQ.Media.Tests/InputLatencyProbe.cs` - test-only monotonic input/secure-record/delivery/ack boundary timing; fake sink, not Windows injection
 - `docs/WORLD_CLASS_VALIDATION_REPORT.md` - Phase 11 local truth matrix and external release blockers
 - `PHASE6.md` - architecture, actual test evidence, limitations and Phase 7 integration points
 

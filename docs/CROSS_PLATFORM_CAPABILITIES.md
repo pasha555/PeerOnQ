@@ -1,8 +1,14 @@
 # PeerOnQ cross-platform capability and evidence matrix
 
-Verified from the current repository and Windows test environment on 2026-08-26. This document is
-a truth ledger, not a roadmap-completion claim. A Linux server `.run` bundle is deployment
-infrastructure and is **not** a Linux desktop client.
+Source/project/capability contracts reviewed on 2026-09-27. Build/test/package evidence retains
+its original Phase 8 or 2026-08-26 scope below; it was not rerun for this documentation review.
+This document is a truth ledger, not a roadmap-completion claim. A Linux server `.run` bundle is
+deployment infrastructure and is **not** a Linux desktop client.
+
+All four native app projects consume the canonical `Directory.Build.props` client version
+(`0.9.66`); Android and Apple also consume bundle code `9066`. A matching source version is not a
+published package or passed platform gate. `PeerOnQ.slnx` excludes the Android and Apple app
+projects requiring their separate native workloads; shared platform tests do not compile those apps.
 
 ## Platform truth matrix
 
@@ -104,14 +110,14 @@ forwarding only after explicit local enablement and remote focus acknowledgment.
   another reviewed OS-protected store, native accessibility, distro/package matrix and a ten-minute
   physical session.
 
-### 2026-08-26 current Linux viewer packaging revalidation
+### Historical Linux viewer packaging revalidation — 2026-08-26
 
 The Linux viewer was already implemented; this pass removed the stale independent `0.9.21` metadata
 and made it derive `PeerOnQLinuxClientVersion` from the canonical desktop source version. The project,
 builder and CI invariant now fail closed when metadata or an explicitly requested package version
 does not match canonical 0.9.66.
 
-Current local evidence:
+Recorded local evidence from that run:
 
 - Linux platform/capability/keyring tests: 8 passed, 0 failed.
 - Linux viewer render/key-map tests: 11 passed, 0 failed.

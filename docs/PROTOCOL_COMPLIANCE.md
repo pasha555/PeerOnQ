@@ -1,7 +1,8 @@
 # PeerOnQ real-time protocol compliance
 
-Verified from the current source and local runtime on 2026-08-17. This is an implementation and
-evidence map, not an IETF conformance certification.
+Source contracts reviewed on 2026-09-27. Runtime evidence is from the explicitly dated historical
+runs below and is not a fresh test result. This is an implementation and evidence map, not an IETF
+conformance certification.
 
 ## Implementations and versions
 
@@ -12,18 +13,22 @@ evidence map, not an IETF conformance certification.
 | SIPSorceryMedia.Encoders | `10.0.4` | VP8 decode integration |
 | Bouncy Castle | `2.6.2` | X25519 and Ed25519 classical hybrid components |
 | coturn | `4.15.0-r0`, digest-pinned in deployment | STUN/TURN UDP, TCP, TLS and DTLS |
-| .NET | SDK `10.0.303` in the recorded local gate | WSS client/server, TLS and cancellation |
+| .NET | `global.json`: SDK `10.0.302`, `latestPatch`; historical local gate used `10.0.303` | WSS client/server, TLS and cancellation |
 | Nginx | `1.28.3-alpine` | TLS termination and WebSocket upgrade proxy |
 
-## Standards and evidence
+## Standards and recorded evidence
 
-| Protocol/reference | PeerOnQ implementation | Status and current evidence | Limitation |
+The status labels describe earlier local evidence, not full conformance or validation of every
+current-source path. The historical command section identifies the Phase 3 and Phase 8 runs;
+later test changes/results are recorded in [AI_CHANGELOG](../AI_CHANGELOG.md).
+
+| Protocol/reference | PeerOnQ implementation | Recorded local evidence | Limitation |
 | --- | --- | --- | --- |
-| WebRTC overview, RFC 8825 | `WebRtcMediaSession` reuses one peer connection for media and approved data channels | `IMPLEMENTED_LOCAL_ONLY`: real direct and relay-only peers negotiate and render VP8 | No independent browser/interoperability laboratory |
+| WebRTC overview, RFC 8825 | `WebRtcMediaSession` uses a primary media/control peer plus negotiated dedicated input/bulk peers, with primary compatibility fallback | `IMPLEMENTED_LOCAL_ONLY`: real direct and relay-only peers negotiate and render VP8 | No independent browser/interoperability laboratory |
 | ICE, RFC 8445 | SIPSorcery gathering, connectivity checks, nomination, selected-pair inspection and ICE restart | `IMPLEMENTED_LOCAL_ONLY`: direct loopback/LAN and forced-relay nominated paths pass | IPv6-only, NAT64, symmetric-NAT and separate-ISP matrices remain external |
 | Trickle ICE, RFC 8838 | `LocalIceCandidate` -> authenticated signaling `ice` frame -> `AddRemoteIceCandidateAsync` | `IMPLEMENTED_AND_VERIFIED`: ordering/routing tests and real local WebRTC negotiation pass | Candidate interoperability with other WebRTC implementations is untested |
 | STUN, RFC 8489 | coturn STUN listener and SIPSorcery STUN URLs | `IMPLEMENTED_LOCAL_ONLY`: controller receives a reflexive address | Public IPv4/IPv6 STUN reachability is untested |
-| TURN, RFC 8656 | coturn REST credentials; UDP/TCP listener, TLS/DTLS listener, bounded relay range and quotas | `IMPLEMENTED_LOCAL_ONLY`: authenticated UDP/TCP/TLS/DTLS allocations and forced relay video pass; file frames fail closed on relay paths | Development WebRTC advertises UDP/TCP relay URLs; TLS/DTLS media routing is not claimed |
+| TURN, RFC 8656 | coturn REST credentials; UDP/TCP listener, TLS/DTLS listener, bounded relay range and quotas | `IMPLEMENTED_LOCAL_ONLY`: historical allocation/forced-relay video evidence; WebRTC file payloads remain direct-only | Negotiated `file.relay.v1` uses authenticated opaque signaling records, not TURN file payloads; TLS/DTLS media routing is not claimed |
 | SDP offer/answer, RFC 3264 | Sharer is the deterministic offerer; viewer answers; reconnect uses fresh ICE offer/answer | `IMPLEMENTED_AND_VERIFIED`: initial and reconnect SDP tests pass | No third-party SDP interop claim |
 | DTLS-SRTP, RFC 5764; SRTP, RFC 3711 | SIPSorcery WebRTC protection plus mandatory hybrid-PQ application AEAD on encoded video | `IMPLEMENTED_LOCAL_ONLY`: authenticated hybrid handshake and protected direct video pass locally; the protected live-relay test is opt-in | Independent cryptographic/interoperability review and a current external TURN rerun are absent |
 | RTP/RTCP, RFC 3550; PLI, RFC 4585 | VP8 RTP, RTCP statistics and bounded PLI key-frame recovery | `IMPLEMENTED_AND_VERIFIED`: encode/decode, PLI and loss/statistics tests pass | Public-network loss benchmark is absent |
@@ -37,7 +42,7 @@ WebRTC signaling standard. `SignalingProtocol.CurrentVersion` is currently `3`, 
 supported range of 3-3. The client sends the version and bounded native capability manifest in
 `hello`; the server checks version, capability dependencies and required server functions before
 issuing a challenge. `registered` echoes the accepted endpoint capabilities, server capabilities and
-the intersection of implemented optional features. Missing, v2 or newer versions receive
+the intersection of implemented optional features. Missing, pre-v3 or newer versions receive
 `unsupported_version` plus received/minimum/maximum fields; a client rejects a mismatched response
 instead of appearing partially connected.
 
@@ -46,7 +51,9 @@ viewer and host requirements and returns `capability_mismatch` with the missing 
 Unknown well-formed message types return `unsupported_message` without closing the socket; malformed
 JSON remains `malformed_message`. Canonical UTF-8 vectors live under `test-vectors/signaling-v3` and
 are byte-compared by `CapabilityNegotiationTests`. The vector naming Linux proves shared-wire
-portability only; there is no Linux native client claim.
+portability only. Native Linux, Android and Apple viewer/controller projects now exist independently
+of that vector; their implementation and unclosed physical-device gates are documented in
+[CROSS_PLATFORM_CAPABILITIES](CROSS_PLATFORM_CAPABILITIES.md).
 
 Collaboration protocol v2 uses `PNQ4` only inside authenticated `PNQE` records and is additionally bound to the exact
 signaling session ID and permission generation. Pre-v3 signaling clients are intentionally
@@ -81,7 +88,7 @@ Direct-to-relay or relay-to-direct behavior on a real changing ISP/NAT path rema
 periodic relay-to-direct probe after a stable relay session, so that optional optimization remains
 `PLANNED` for the later Smart Connection phase.
 
-## Current local command evidence
+## Historical local command evidence
 
 ```powershell
 .\scripts\windows\peeronq-phase3-local.ps1 test -BindAddress 10.0.0.10

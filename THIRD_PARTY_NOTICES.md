@@ -13,11 +13,27 @@ OpenTelemetry Collector, Prometheus, Grafana, Loki and Tempo.
 Each component is governed by the license attached to its pinned package/image/source. The PeerOnQ
 MIT license does not replace those terms, trademark rules, platform SDK terms, or notices.
 
-The 2026-08-18 Phase 6.5 audit found unresolved distribution terms in the restored SIPSorcery
-10.0.15 license, incomplete notice/source provenance for the `vpxmd.dll` embedded by
-SIPSorceryMedia.Encoders 10.0.4, and WiX UI extension terms that require release-owner review.
-These are release blockers, not implied grants. Details and exact versions are recorded in
-`DEPENDENCIES.md` and `docs/competitive/THIRD_PARTY_LICENSE_AUDIT.md`.
+The 2026-08-18 Phase 6.5 findings were rechecked against the restored packages on 2026-09-27:
+
+- SIPSorcery and SIPSorceryMedia.Abstractions 10.0.15 both ship `LICENSE.md` with BSD-3-Clause
+  text plus additional geographic/use restrictions. These packages must not be described as
+  plain BSD-3-Clause. The package license's separate FFmpeg section does not by itself establish
+  that PeerOnQ ships FFmpeg; the final runtime inventory must determine included components.
+- SIPSorceryMedia.Encoders 10.0.4 declares BSD-3-Clause, but its NuGet archive omits the separate
+  libvpx notice and patent-grant files. Its x64/x86 `vpxmd.dll` files match the examined upstream
+  binaries; their exact libvpx source revision, build and security patch status remain unverified.
+  Upstream [libvpx license](https://github.com/webmproject/libvpx/blob/main/LICENSE) and
+  [patent terms](https://github.com/webmproject/libvpx/blob/main/PATENTS) are reference material,
+  not proof of the source used to build those binaries.
+- WixToolset.UI.wixext 6.0.1 embeds an Open Source Maintenance Fee Agreement for use of official
+  binary releases. Its revenue applicability, payment or exemption needs release-owner review;
+  the agreement separately preserves source/self-build and qualifying redistribution rights
+  under the underlying open-source license. It is not a blanket ban on commercial distribution.
+
+These release gates remain open. Qualified legal/release-owner approval is outside the codebase
+and has not been obtained by this review. Exact package hashes, official sources, current security
+findings and technical migration options are recorded in [DEPENDENCIES.md](DEPENDENCIES.md) and
+[the license audit](docs/competitive/THIRD_PARTY_LICENSE_AUDIT.md).
 
 ## Release requirement
 

@@ -22,7 +22,15 @@ Public source: [pasha555/PeerOnQ](https://github.com/pasha555/PeerOnQ).
 The public `main` branch starts with a source-only snapshot; local build packages, credentials and
 test reports are excluded. Development builds remain subject to the documented acceptance gates.
 The current 4K improvements do not establish sustained 4K/30 fps or parity with other remote-desktop
-products; the 35 ms input-latency acceptance gate remains open. See [AI_CHANGELOG.md](AI_CHANGELOG.md).
+products; the 35 ms input-latency acceptance gate remains open. See the dated
+[latency investigation](docs/PERFORMANCE_REPORT.md#input-latency-investigation--2026-09-27) and
+[AI_CHANGELOG.md](AI_CHANGELOG.md).
+
+The canonical client source version is `0.9.66` in `Directory.Build.props`; Linux, Android and Apple
+versions derive from it. Signaling supports exactly v3. Windows has host/viewer/control scope;
+Linux, Android and Apple (macOS/iOS/iPadOS) have attended viewer/controller projects with separate
+physical-device and release gates. Source presence/version does not imply a published native app:
+see [current state](docs/CURRENT_STATE.md) and [platform capabilities](docs/CROSS_PLATFORM_CAPABILITIES.md).
 
 ## Public pilot artifacts
 
@@ -82,7 +90,8 @@ src/                .NET 10 remote-view product and signaling service
 ## Getting Started
 
 This is a pnpm workspace. **Use pnpm** — `npm install` and `yarn` are rejected by the root
-`preinstall` script.
+`preinstall` script. Use **Node 24** (`.nvmrc`); `package.json` declares `24.x`, and pnpm's
+`engineStrict` setting rejects a different runtime major. The Node type catalog also targets 24.
 
 ```bash
 pnpm install
@@ -119,8 +128,8 @@ On Windows, run the local Phase 3 TLS/signaling/TURN acceptance stack with:
 .\scripts\windows\peeronq-phase3-local.ps1 test
 ```
 
-The controller uses loopback-only local domains and reports whether it ran the complete Docker
-coturn stack or the signaling-only fallback.
+The controller defaults to loopback and supports an explicit trusted-LAN `-BindAddress`. It reports
+whether it ran the complete Docker coturn stack or the signaling-only fallback.
 
 #### Two physical Windows laptops on one trusted LAN
 
@@ -167,8 +176,9 @@ router's public IP, enable port forwarding, or run it on a public Wi-Fi network.
    select **View only**, and start the session. Accept the permission prompt on laptop B. Repeat
    with **Full control** only after view-only succeeds. Finally select **File Transfer**, accept the
    separate request on laptop B, and use the File Transfer page to choose the exact file or folder.
-   LAN clients start with **Low latency (1080p / 60 fps)**; select Native only when maximum detail is
-   more important than interaction latency.
+   LAN development clients start with **High Quality / 4K** (up to the source display, without
+   upscaling; 30 fps target and 36 Mbps ceiling). This default does not guarantee sustained 4K/30 fps
+   or near-zero latency. Production retains **Automatic** as its default.
    For Phase 4, also test pause/resume after a real Wi-Fi interruption, the default-off text
    clipboard toggle on both sides, trusted-device revoke, and explicit unattended access after an
    app restart. Do not expect pre-logon, Secure Desktop, UAC bypass, or locked-screen control.
@@ -290,7 +300,7 @@ Keep them true — an outdated map is worse than no map.
 | [CODEX.md](CODEX.md) | Codex-specific reading order and token rules |
 | [PROJECT_MAP.md](PROJECT_MAP.md) | Structure, stack, core flows, critical files, env vars |
 | [ROUTES_MAP.md](ROUTES_MAP.md) | API routes, frontend routes, repositories, storage keys, models |
-| [Current state](docs/CURRENT_STATE.md) | R0 source-backed inventory and Phase 1-6 truth matrix |
+| [Current state](docs/CURRENT_STATE.md) | Current source/version/capability contract and separately labeled historical R0 evidence |
 | [Brand migration](docs/BRAND_MIGRATION.md) | Canonical identity and isolated compatibility register |
 | [Local development](docs/LOCAL_DEVELOPMENT.md) | Clean restore/build/test/start/stop runbook |
 | [Test matrix](docs/TEST_MATRIX.md) | Automated, loopback, container, physical and external evidence boundaries |

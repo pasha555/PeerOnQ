@@ -24,9 +24,12 @@ implementation does not claim a path merely from configuration.
 ## Signaling compatibility
 
 PeerOnQ signaling is a bounded JSON application protocol over authenticated WSS.
-`SignalingProtocol.CurrentVersion` is `1`. The client sends the version in `hello`; the server checks
-it before issuing a challenge and echoes it in `registered`. Missing, older, or newer versions receive
-`unsupported_version`, and the client stops rather than partially connecting.
+`SignalingProtocol.MinimumSupportedVersion`, `CurrentVersion` and `MaximumSupportedVersion` are
+all `3` in the current source. The client sends the version and capability manifest in `hello`;
+the server validates them before issuing a challenge and echoes the accepted version/capabilities
+in `registered`. Missing, pre-v3 or newer versions receive `unsupported_version`, and the client
+stops rather than partially connecting. Optional input/bulk lanes retain negotiated fallback
+within v3; this does not make pre-v3 signaling clients compatible.
 
 Every registration repeats the ECDSA device proof. Production also requires a fresh short-lived
 Cloud attestation bound to the alias and device public key. Duplicate connections replace prior
@@ -96,7 +99,7 @@ Pointer mapping follows the real rendered/cropped image rectangle for each mode.
 resolution, loss, jitter, bitrate, FPS, drops, and reconnect state come from the active session; an
 unavailable value is not fabricated.
 
-## Current evidence and gate
+## Historical evidence and gate — 2026-08-17
 
 On 2026-08-17 the full local Phase 3 controller passed in 147.6 seconds against the real Docker
 Nginx/signaling/coturn stack: WSS, STUN, authenticated TURN UDP/TCP/TLS/DTLS allocation, invalid and
@@ -107,8 +110,10 @@ reported healthy.
 
 This is local and real-container evidence, not public or two-physical-device proof. Same-LAN final
 `0.7.5`, separate internet connections, mobile hotspot, sleep/wake, IPv6-only/dual-stack, repeated
-network transitions, credential rotation, and a 10-15 minute soak remain externally blocked.
-Therefore the Phase 3 gate is `PASS_WITH_EXTERNAL_BLOCKERS`, not production approval.
+network transitions, credential rotation, and a 10-15 minute soak were externally blocked in that run.
+The recorded Phase 3 gate was `PASS_WITH_EXTERNAL_BLOCKERS`, not production approval. This v1-era
+run has not been relabeled as a current v3 runtime test; consult [CURRENT_STATE](docs/CURRENT_STATE.md)
+and dated [AI_CHANGELOG](AI_CHANGELOG.md) entries for later source and validation changes.
 
 The detailed evidence/status matrix is in
 [PHASE_03_COMPLETION_REPORT.md](docs/phase-reports/PHASE_03_COMPLETION_REPORT.md).

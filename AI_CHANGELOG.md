@@ -30,6 +30,51 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Reproduce input latency, reconcile source truth and enforce Node 24
+
+Task:
+- Investigate the unchanged 35 ms input gate; reconcile current documentation, Node tooling and
+  exact dependency license/security evidence without claiming production approval.
+Files changed:
+- Media loopback test and new test-only InputLatencyProbe; Application test friend assembly;
+  package.json, pnpm catalog/lock and .nvmrc; PROJECT_MAP, README, phase/current-state/capability/
+  protocol/performance documents; dependency notices/audit and this record.
+Reason:
+- Release reproduced the original fact failure (35.8 ms p95). Boundary probes locate the excess
+  after send admission, with dedicated/bulk baseline 38.328 ms p95 versus 38.183 ms in transport/
+  delivery. Original decoder isolation also fails. The sink is fake, not Windows SendInput.
+- A supported balanced Windows timer request initially passed, but its session-scoped candidate
+  failed repeated checks; the candidate and temporary tests/traces were removed. No production
+  transport fix or fork was adopted; thresholds, security and compatibility remain unchanged.
+- Added the primary-input fallback acceptance case and honest ack counts/overlap reporting.
+- Current docs now distinguish canonical 0.9.66, signaling v3 and native viewer/controller source
+  from dated historical test/package evidence. No installer/version/publication was changed.
+- No workspace needs Node 25 APIs; Node 24.x is enforced and exact reviewed @types/node 24.19.0
+  replaces 25.x through normal pnpm resolution. minimumReleaseAge remains 1440 minutes.
+- Exact package/native hashes and licenses, WiX applicability, libvpx provenance and current
+  SIPSorcery advisories remain evidence-bound release blockers; legal approval is external.
+Validation:
+- dotnet restore PeerOnQ.slnx: passed. Strict Release solution build with ContinuousIntegrationBuild,
+  EnableNETAnalyzers, AnalysisLevel=latest and -warnaserror: passed, 0 warnings/errors.
+- dotnet test PeerOnQ.slnx --no-restore -c Release --nologo (detailed console logger):
+  846 passed / 1 failed / 5 skipped across 18 assemblies. Media: 138/1/1; Application: 160/0/0.
+  Dedicated bulk input p50/p95/p99: 33.264/35.057/39.792 ms, n=20; unchanged gate FAILED.
+  Final fallback bulk: 31.077/31.671/32.285 ms, n=20. Full before/candidate/final matrices and
+  stage timings are in docs/PERFORMANCE_REPORT.md. No discarded experiment counts enter totals.
+- Three isolated-Redis tests and Phase 3 controller-owned Docker-restart/TURN tests stayed skipped;
+  required test endpoints/credentials were not supplied. No physical-device test was executed.
+- Client-version invariant and Phase 5 native UI scripts passed. Secret scan: 1103 files passed.
+- With verified temporary Node 24.21.0/pnpm 10.33.0: pnpm install --lockfile-only and
+  --frozen-lockfile, root typecheck/lint/test/build passed (PORT=23586, BASE_PATH=/ for build).
+  Frontend: 122 passed / 0 failed / 0 skipped in 19 files. Host default Node 25 remains unchanged.
+- pnpm audit --json: FAILED with 9 existing findings (5 high, 4 moderate), recorded in DEPENDENCIES.
+  No unrelated unreviewed upgrades were made. Git whitespace/diff review passed.
+Risk:
+- Input acceptance, real Windows injection/physical-session/4K claims, dependency advisories,
+  native provenance and release/legal/signing gates remain open. Use Node 24 in fresh shells.
+Rollback:
+- Revert this source/documentation commit normally; reinstall with the restored pnpm lockfile.
+
 ## 2026-09-27 - Open every development interface from the Windows launcher
 
 Task:

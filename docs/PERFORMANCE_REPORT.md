@@ -93,6 +93,144 @@ claims. The production 256 KiB file record size and the same adaptive bulk pacer
   the complete 320x240/1080p/4K theory passed 3/3 in 10.2 seconds. This proves the local recovery
   path, not physical-network stall recovery.
 
+## Input latency investigation — 2026-09-27
+
+**Result: the unchanged 35 ms p95 acceptance gate remains open.** No production transport,
+decoder, timer/power policy, dependency version, security boundary or latency threshold was changed
+by this investigation. Test instrumentation and the primary-input fallback case are retained.
+
+Exact test:
+`PeerOnQ.Media.Tests.WebRtcLoopbackTests.Interactive_input_remains_responsive_while_bulk_transfer_is_backpressured`.
+The original Release fact first failed with p95 **35.8 ms** and send-call p95 **0.3 ms**.
+That original output did not include p50/p99; they were not reconstructed.
+
+Reproduction command (the final test is a theory with dedicated/fallback cases):
+
+```powershell
+dotnet test tests/PeerOnQ.Media.Tests/PeerOnQ.Media.Tests.csproj --no-restore -c Release --filter FullyQualifiedName~Interactive_input_remains_responsive_while_bulk_transfer_is_backpressured --logger 'console;verbosity=detailed' --nologo
+```
+
+Configuration: Windows 10.0.26200 x64, Ryzen 7 3700X, .NET 10.0.12 testhost, Release, real
+same-process WebRTC/ICE/SCTP/DTLS, mandatory authenticated hybrid session protection, 320x240
+synthetic video with a 30 fps target, dedicated bulk peer, 1 MiB file and 1,024-byte chunks.
+Each input-lane case uses five warm-up events, then 20 events without bulk and 20 with an active
+backpressured file transfer. Percentiles use nearest rank; with n=20, p99 is the maximum, not a
+large-sample tail estimate. The developer host's existing idle services remained running; this is
+not dedicated benchmark hardware or a two-machine network experiment.
+
+The fixture calls `SendPointerMoveAsync` and timestamps the callback inside **FakeRemoteInputSink**.
+It does not sample a physical mouse, WinUI's input queue, Windows `SendInput`, or input-to-photon
+latency. Real Windows injection remains **UNMEASURED / physical-device gate open**.
+
+### Comparable input-to-fake-injection distributions
+
+All entries below are milliseconds in **p50 / p95 / p99** order, n=20 per cell. The baseline uses
+the corrected final probe with timer activation disabled. The candidate uses the same probe and
+an OS timer lease active only while an input-authorized session's primary peer is connected.
+
+| Input lane / load | Baseline, optimized decoder | Timer candidate, optimized decoder | Original decoder isolation, no timer |
+| --- | --- | --- | --- |
+| Dedicated / no bulk | 33.138 / 34.709 / 39.105 | 33.249 / 34.624 / 38.755 | 33.284 / 34.754 / 39.833 |
+| Dedicated / active bulk | 33.069 / 38.328 / 39.140 | 33.249 / 34.926 / 41.212 | 33.245 / 35.578 / 35.957 |
+| Primary fallback / no bulk | 32.483 / 37.467 / 38.147 | 25.750 / 26.326 / 26.852 | 33.111 / 35.567 / 39.733 |
+| Primary fallback / active bulk | 33.263 / 36.620 / 40.498 | 33.321 / 38.011 / 39.503 | 33.279 / 34.286 / 34.618 |
+| Complete acceptance cases | **0 passed / 2 failed** | **1 passed / 1 failed** | **0 passed / 2 failed** |
+
+The original-decoder isolation temporarily substituted SIPSorcery's `VpxVideoEncoder.DecodeVideo`
+for the optimized decoder, preserving the rest of the pipeline, then restored the file in `finally`.
+Its total input timings remain valid; the earlier probe revision's unfiltered telemetry/ack stage
+details are not used as the corrected stage baseline. Failure with both decoders rules out the
+optimized decoder as the sole cause. This 320x240 comparison does not measure 4K decoding.
+
+### Pipeline ownership
+
+Corrected baseline, dedicated input during active bulk; milliseconds, n=20 except acknowledgements.
+Reflection proxies observe existing abstraction boundaries and forward real calls unchanged.
+Secure input routing excludes clock telemetry; plaintext values are not recorded. These boundaries
+include probe overhead and cannot expose private transport internals independently.
+
+| Requested boundary/stage | p50 | p95 | p99 | Interpretation |
+| --- | ---: | ---: | ---: | --- |
+| Local event | — | — | — | Monotonic test timestamp at the sender API; physical/WinUI event unavailable |
+| Coalescing/pacing and command creation | 0.024 | 0.041 | 0.056 | Event to collaboration SendAsync |
+| Secure-record creation | 0.043 | 0.077 | 0.078 | Binding, serialization, send gate and AEAD to media call |
+| Send admission | 0.013 | 0.020 | 0.022 | Media SendDataAsync call to return, not a socket-write hook |
+| SCTP/DTLS/OS scheduling through receiver delivery | 32.879 | 38.183 | 38.959 | Send return to raw DataMessageReceived; individual transport stages are not separable here |
+| Receiver delivery | — | — | — | Timestamped by the prior row; includes media lane validation/copy before the callback |
+| Secure validation/decryption | 0.085 | 0.115 | 0.116 | Raw ciphertext callback to bound, decoded command |
+| Permission/focus/rate checks | 0.003 | 0.005 | 0.005 | Decoded command to sink entry |
+| Fake sink injection | 0.001 | 0.001 | 0.002 | **Not Windows SendInput** |
+| Authenticated acknowledgement return | 33.241 | 39.281 | 39.281 | Injection to accepted ReportInputLatency; n=6 requested, 6 validated, 0 unavailable |
+| Final event-to-injection | 33.069 | **38.328** | 39.140 | **35 ms gate failed** |
+
+The probe waits up to two seconds for sampled acknowledgements and reports requested, validated and
+unavailable counts. It never assumes every event requests an ack: production samples at most once
+per 100 ms. Concurrent receiver delivery can precede send-call return; any negative boundary overlap
+is explicitly counted, not discarded. This baseline had zero overlaps. Stage percentiles must not
+be added; acknowledgement return is subsequent work, not part of event-to-injection latency.
+
+The excess is localized to **post-admission transport/delivery**, not crypto, pacing or input
+permission checks. These same-process monotonic intervals are not network RTT. Exact attribution
+among socket delivery, SCTP, DTLS polling and OS scheduling requires deeper transport tracing;
+the boundary measurements do not pretend to supply that unavailable split.
+
+### Supported mitigation tested and rejected
+
+The pinned SIPSorcery DTLS receiver enqueues incoming records, then polls an empty queue using
+`Thread.Sleep(25)`. The inspected 10.0.16 and upstream source retain the same implementation;
+there is no supported poll-interval setting or transport factory. See the exact commit/blob and
+API/security/license analysis in the [dependency audit](competitive/THIRD_PARTY_LICENSE_AUDIT.md).
+
+A balanced Windows `timeBeginPeriod(1)` experiment initially passed 2/2 cases with input p95
+26.053–26.411 ms. A production-shaped, permission-scoped connected-session lease then produced
+the **1 pass / 1 failure** candidate above. A repeat with native-call tracing failed **both** cases
+(dedicated baseline p95 36.158 ms, fallback bulk p95 35.963 ms), despite successful begin calls and
+no end call before cleanup. Acquiring earlier passed 2/2 but still had fallback p95 34.506 ms;
+no evidence of timer-resolution caching in SCTP/DTLS initialization was found.
+
+A separate diagnostic sleeper during a subsequent lease run measured actual `Sleep(25)` at
+p50/p95/p99 **25.526 / 32.591 / 51.805 ms** during fallback bulk (n=28). That run's input cases
+passed 2/2, illustrating why a passing short sample cannot establish a reliable correction.
+The sleeper is a separate thread, not an internal DTLS trace. The lease's ten deterministic
+ownership tests passed during the experiment; they do not prove latency. The temporary lease,
+ownership tests, tracing and decoder substitution were all removed. **There is no adopted fix and
+therefore no successful production “after” distribution.**
+
+Microsoft documents that [timer requests](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod)
+can improve wait precision at a power cost and may be ignored for occluded Windows 11 applications.
+[Sleep](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-sleep) also depends on
+scheduling after the wait expires. No process power-policy override, registry change or real-time
+priority was introduced.
+
+The smallest transport-level candidate is an upstream event-driven receive wakeup retaining
+timeouts, ordering, cancellation and DTLS behavior. A maintained fork would need security backports,
+license review and unchanged ICE/TURN/SDP/SCTP/hybrid/focus/reconnect compatibility gates. Existing
+native QUIC file transport is not a drop-in input lane or a WAN/TURN replacement. Work stops before
+a fork or major migration, as requested; the audit records the bounded alternatives.
+
+### Final retained-source validation
+
+After removing the candidate, the strict Release solution build succeeded with zero warnings and
+errors. The complete solution regression returned **846 passed / 1 failed / 5 skipped** across
+18 test assemblies. Media was **138 passed / 1 failed / 1 skipped**; Application was **160 passed /
+0 failed / 0 skipped**. The extra Media case is the new primary-input fallback acceptance case.
+
+The unchanged dedicated-input acceptance failed during bulk at p95 **35.057 ms**. Final solution-run
+event-to-fake-injection values (p50 / p95 / p99, n=20 each) were:
+
+| Scenario | Final retained-source measurement (ms) | 35 ms stage gate |
+| --- | --- | --- |
+| Dedicated / no bulk | 32.941 / 34.630 / 37.824 | Passed |
+| Dedicated / active bulk | 33.264 / 35.057 / 39.792 | **Failed** |
+| Primary fallback / no bulk | 30.868 / 32.202 / 32.476 | Passed |
+| Primary fallback / active bulk | 31.077 / 31.671 / 32.285 | Passed |
+
+These are an additional full-suite run, not an improvement attributed to a production change.
+Five skips retain their real environment scope: three need an explicitly isolated
+`PEERONQ_TEST_REDIS` endpoint; signaling restart and live TURN require the configured Phase 3 test
+controller/credentials. Those environments were not supplied to this run; the existing development
+Docker stack is not automatically a disposable test environment. No skip is counted as a pass.
+
 ## Not measured
 
 - Active capture, encode, decode and render CPU/GPU.
