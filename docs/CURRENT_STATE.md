@@ -27,6 +27,27 @@ production approval or a fresh execution of the historical tests farther down th
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
 
+## Operator deployment evidence — 2026-09-27
+
+- The operator supplied the successful installer result: server 0.9.70 is healthy and active, with
+  current release `/opt/peeronq/releases/0.9.70`. The log passed embedded Windows publication,
+  proxy streaming/cache validation, public API/signaling routing and base website activation.
+- Independent read-only HTTPS requests from the development workstation returned 200 for the
+  public website, www, customer portal and embedded client version metadata. Public API liveness
+  returned healthy and signaling readiness returned ready. DNS resolution and certificate
+  validation succeeded without a TLS bypass or a forced local address.
+- A complete public x64 MSI GET returned 200 and 78602240 bytes; SHA-256 matched the validated
+  0.9.70 package: `d72f617c028ee3b435f3106fa6ce8a06420ed50c1a123f46655752a0a696a2bb`.
+  Metadata reported 0.9.70 and the response retained `Cache-Control: no-store, max-age=0`.
+- Operator-host CIDR isolation was not established: this workstation received Admin 200 and
+  Grafana/Prometheus 302. It may be an allowed operator source. An independent web-tool attempt
+  could not access those hosts but supplied no usable HTTP status. The configured operator CIDR
+  was requested; do not claim public exposure or successful isolation from these observations.
+- This confirms installation and the tested public endpoints, not release-signing approval,
+  account authentication, TURN/media behavior or physical 4K/latency acceptance. Existing client
+  installations do not upgrade automatically. No new patch or version bump was needed to record
+  this successful deployment, and the immutable 0.9.70 bundle/release notes were not changed.
+
 ## Current investigation boundaries — 2026-09-27
 
 - The unchanged 35 ms input-to-injection p95 gate was reproduced in Release on both dedicated

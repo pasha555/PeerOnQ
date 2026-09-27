@@ -30,6 +30,30 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Record successful operator deployment of 0.9.70
+
+Task:
+- Review the operator's latest output and remember the verified installation fixes.
+Files changed:
+- AGENTS.md, docs/CURRENT_STATE.md and this entry; no runtime or artifact changes.
+Reason:
+- The supplied output is successful, with 0.9.70 healthy/active and current pointing to its release.
+  Preserve the Node build compatibility and nested download-header fixes as confirmed behavior.
+Validation:
+- Actual external HTTPS requests from this workstation passed certificate validation: website/www,
+  portal, API liveness and signaling readiness returned 200; API was healthy and signaling ready.
+- Public version metadata was 0.9.70; the complete x64 MSI returned 200, matched the validated
+  package's SHA-256, and retained no-store. Detailed evidence is in CURRENT_STATE.
+- Repository secret scan (1105 files) and git diff --check passed; no runtime tests were needed
+  for this documentation-only change.
+Risk:
+- Operator CIDR isolation remains unverified from this possibly allowed workstation; requested the
+  exact configured CIDR after Admin/Grafana/Prometheus responses of 200/302/302. A separate web-tool
+  attempt was inaccessible without usable status, not a passed isolation test. No account-login,
+  physical-session, performance or signing approval is inferred. No production mutation performed.
+Rollback:
+- Revert only this documentation commit if needed. Keep the active release and data volumes intact.
+
 ## 2026-09-27 - Fix installer download-header parsing for release 0.9.70
 
 Task:

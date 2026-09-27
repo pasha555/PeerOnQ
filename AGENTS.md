@@ -219,6 +219,10 @@ Never report a new installer version as ready if the website still exposes a pre
 
 ## Confirmed Fix Preservation
 
+- The operator confirmed successful server 0.9.70 activation on 2026-09-27. Preserve the compatible
+  Node 24 Docker pins and the correctly nested CR/header parsing in the installer. Keep their
+  executable regression checks; do not bypass download hash/cache/TLS checks to make upgrades pass.
+  See docs/CURRENT_STATE.md for the dated deployment evidence and its validation limits.
 - Treat user-confirmed fixes and approved page sections as protected behavior.
 - Do not redesign, revert, remove, or otherwise alter an already corrected area unless the user
   explicitly asks for that area to change or the change is strictly required to keep the requested
