@@ -143,6 +143,12 @@ the user explicitly narrows the scope. The user applies server patches to produc
 
 - Include operator-facing release notes in the bundle at
   `src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md`, and provide them alongside the artifact.
+- Always provide copy-paste Linux CLI commands with each server patch: verify the exact artifact
+  checksum, set its executable permission, run the installer preflight, apply the upgrade and check
+  status. Use the delivered version/filename and the known server directory/environment path;
+  verify the flags against the current installer. Existing installations reuse their environment
+  without `--bootstrap`. State remaining signing/release gates; never bypass them. Do not wait for
+  the user to request installation commands separately.
 - State the server version, embedded client version/classification, server/web/portal changes,
   whether clients changed and their changes, validation results, remaining blockers and rollback.
 - Follow the canonical paired Windows publication rules below for every new product release and

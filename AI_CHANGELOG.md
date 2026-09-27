@@ -30,6 +30,21 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Remember server patch CLI handoff preference
+
+Task:
+- Include installation commands whenever handing the user a server patch.
+Files changed:
+- AGENTS.md and this entry.
+Reason:
+- The user copied the patch to the server and requested persistent, version-specific CLI guidance.
+Validation:
+- Checked upgrade, preflight and status flags against the existing installer and deployment guide.
+Risk:
+- Documentation only; this does not deploy the patch or remove existing signing/release gates.
+Rollback:
+- Revert this documentation change.
+
 ## 2026-09-27 - Fix production web Docker Node mismatch in release 0.9.69
 
 Task:
