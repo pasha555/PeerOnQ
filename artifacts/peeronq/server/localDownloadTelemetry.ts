@@ -100,7 +100,7 @@ export function observeLocalMsiDownload(
   return true;
 }
 
-export function createLocalDownloadTelemetryPlugin(
+function createLocalDownloadTelemetryPlugin(
   client: LocalDownloadTelemetryClient,
 ): Plugin {
   return {

@@ -292,7 +292,7 @@ artifacts/mockup-sandbox/
 
 - `src/layouts/PublicLayout.tsx` — responsive public navbar, real Portal/Sign in links, keyboard-accessible mobile menu, skip link and product/community footer
 - `src/pages/LandingPage.tsx` + `src/pages/DownloadsPage.tsx` — product hero, access modes, portal entry, security, MIT source, downloads and FAQ; one locally device-matched, fail-closed package action
-- `src/components/PublicMarketing.tsx` — shared public page/section heading primitives retained by public content
+- `src/components/PublicMarketing.tsx` — shared `PublicPageHero` used by the active privacy and terms pages; retired standalone marketing pages and their unused helpers have been removed, while legacy URL redirects remain in the router
 - `src/lib/accountPortal.ts` — validates the separate HTTPS customer-portal URL
 - `src/layouts/DesktopPreviewLayout.tsx` — desktop sidebar, topbar, permanent preview banner and
   development-only Admin/health/observability toolbar

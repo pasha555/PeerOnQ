@@ -247,7 +247,6 @@ Tailwind's default 4 px grid. Key layout values:
 | `StatusBadge` | `components/StatusBadge.tsx` | online / offline / unknown pill |
 | `SecurityCard` | `components/SecurityCard.tsx` | Security feature with planned badge |
 | `SessionTable` | `components/SessionTable.tsx` | History table with direction/mode/state |
-| `PlatformCard` | `components/PlatformCard.tsx` | Legacy platform-status card; the home download section owns the current device-matched action |
 | `EmptyState` | `components/EmptyState.tsx` | Consistent zero-state with icon + CTA |
 | `DeviceDetailDrawer` | `components/DeviceDetailDrawer.tsx` | Sheet with device details, connect and remove actions |
 

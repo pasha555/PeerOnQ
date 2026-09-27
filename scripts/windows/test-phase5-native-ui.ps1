@@ -44,7 +44,7 @@ $viewerXaml = Read-RepositoryFile 'src\PeerOnQ.App\ViewerWindow.xaml'
 $indicatorXaml = Read-RepositoryFile 'src\PeerOnQ.App\SharingIndicatorWindow.xaml'
 $permissionHost = Read-RepositoryFile 'src\PeerOnQ.App\PermissionDialogHost.cs'
 $router = Read-RepositoryFile 'artifacts\peeronq\src\app\router\index.tsx'
-$aboutPage = Read-RepositoryFile 'artifacts\peeronq\src\pages\AboutPage.tsx'
+$landingPage = Read-RepositoryFile 'artifacts\peeronq\src\pages\LandingPage.tsx'
 
 foreach ($panel in @(
     'DashboardPanel', 'DevicesPanel', 'SessionsPanel', 'FileTransferPanel',
@@ -216,7 +216,7 @@ foreach ($disclosure in @(
     'product activation',
     'paid subscription',
     'online entitlement check')) {
-    Assert-Contains $aboutPage $disclosure "Public About disclosure is missing: $disclosure"
+    Assert-Contains $landingPage $disclosure "Public landing-page disclosure is missing: $disclosure"
 }
 
 Write-Host 'Phase 5 native UI/accessibility/open-source validation passed.'

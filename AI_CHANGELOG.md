@@ -30,6 +30,29 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Remove eight Fallow dead-code findings
+
+Task:
+- Fix the editor's seven unreachable files and one unused export on main 51b911c.
+Files changed:
+- Removed retired public About/Downloads/Features/Help/Security page files, the old About implementation
+  and PlatformCard; trimmed unused PublicMarketing helpers; localized the telemetry plugin factory;
+  updated LandingPage FAQ, native UI disclosure validation, PROJECT_MAP and DESIGN_SYSTEM.
+Reason:
+- Marketing URLs already redirect to landing anchors. Their old implementations were unreachable;
+  the telemetry factory is called only inside its own module. No Fallow suppressions were added.
+- Preserved the retired About license/activation disclosure in the active FAQ and pointed the existing
+  invariant at that live source. Active routes, download selection and telemetry behavior are unchanged.
+Validation:
+- VS Code's installed Fallow 3.30.0, uncached analysis: 8 findings before, 0 after. The older global
+  2.88.3 CLI cannot read the existing config, so validation used the editor's matching binary.
+- Node 24 public typecheck, lint, 84 tests and production build passed. Native UI invariant,
+  repository secret scan and git diff --check passed. No new dependencies or analyzer exclusions.
+Risk:
+- Low-risk source cleanup; interactive browser and production deployment were not exercised.
+Rollback:
+- Revert this commit; no data, API, native-client or route migration is involved.
+
 ## 2026-09-27 - Align native, public and customer portal product language
 
 Task:
