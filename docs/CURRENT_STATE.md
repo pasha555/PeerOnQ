@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.70`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9070`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.71`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9071`. A source
   version does not establish that a matching signed package has been built or published.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.
@@ -48,6 +48,13 @@ production approval or a fresh execution of the historical tests farther down th
   account authentication, TURN/media behavior or physical 4K/latency acceptance. Existing client
   installations do not upgrade automatically. No new patch or version bump was needed to record
   this successful deployment, and the immutable 0.9.70 bundle/release notes were not changed.
+
+- A subsequent navigation check found the deployed 0.9.70 public JavaScript compiled with
+  `https://portal.peeronq.com:8443`. Both Portal and Sign in used that value, inherited from the
+  development Compose build arguments. Direct portless portal HTTPS returned 200 and the anonymous
+  profile endpoint returned the expected 401; those checks did not validate an account login.
+  Source release 0.9.71 fixes the inherited portal/download URLs. Its production activation and
+  real-account sign-in still require operator verification; no public 8443 forwarding is needed.
 
 ## Current investigation boundaries — 2026-09-27
 

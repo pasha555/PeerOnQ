@@ -30,6 +30,40 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Correct public portal navigation in release 0.9.71
+
+Task:
+- Fix Portal/Sign in timing out on the public website's inherited development port.
+Files changed:
+- Staging Compose web build arguments, merged-Compose regression/Quality wiring, canonical version,
+  deployment/release documentation, PROJECT_MAP, CURRENT_STATE and this entry; no auth/native changes.
+Reason:
+- The actual production JS compiled https://portal.peeronq.com:8443. Staging extends development,
+  whose web build arguments appended its 8443 default; Dockerfile defaults did not override them.
+  Explicit portless portal/download URLs fix both navigation entries without opening another port.
+Validation:
+- The real Compose regression fails against the original files and passes for the corrected
+  staging/production merge with absent, 8443 and 443 bind settings; localhost development is retained.
+- 21 deployment tests, 12 customer security tests, 86 public-site and 47 portal tests, both
+  frontend typechecks, portal build, native UI and Windows/Linux/Android/Apple/server guards passed.
+- Linux installer contracts and trusted-TLS Nginx boundary fixture passed; operator restrictions,
+  same-origin portal API, public metrics denial, unknown hosts and security headers remain enforced.
+- Built and payload-validated matching 0.9.71 x64/ARM64 MSIs. Restarted local preview selects the
+  checksum-verified unsigned-public-pilot pair; both complete curl downloads returned 200 and matched
+  SHA256SUMS; both app assemblies are 0.9.71.0. A slow PowerShell download was canceled, not counted.
+- Built immutable 79253858-byte server bundle, verified payload/header/embedded MSI/version/notes,
+  and built its extracted website with the actual merged production arguments. Strict checks on
+  its HTTP-served JS found portless URLs, and the complete embedded MSI matched the x64 hash.
+- Source secret scan (1106 files), workflow formatting and git diff --check passed. Public live
+  portal HTTPS returned 200 and anonymous profile 401; these do not prove real-account sign-in.
+Risk:
+- No browser connection or real-account/physical-device test; operator must install and verify.
+  Packages remain unsigned pilots, with existing release/performance gates unchanged. The separately
+  reported long-session blur is not fixed by this version-only native rebuild.
+Rollback:
+- Use the installer's retained previous release; preserve volumes and forward-only migrations.
+  Old immutable packages are unchanged; no DNS/NAT, cookies, CORS or operator CIDR changes.
+
 ## 2026-09-27 - Confirm the workstation matches the operator allowlist
 
 Task:

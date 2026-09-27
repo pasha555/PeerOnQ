@@ -180,6 +180,11 @@ services:
     extends:
       <<: *extends-development
       service: web-ui
+    build:
+      args:
+        # Public URLs use canonical HTTPS, never the inherited development bind port.
+        VITE_PEERONQ_ACCOUNT_PORTAL_URL: https://${PEERONQ_PORTAL_HOST:?set PEERONQ_PORTAL_HOST}
+        VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL: https://${PEERONQ_DOWNLOAD_HOST:?set PEERONQ_DOWNLOAD_HOST}
     restart: always
 
   release-storage-init:

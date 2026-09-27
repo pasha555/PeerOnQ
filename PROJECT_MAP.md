@@ -15,7 +15,7 @@ retained on `feat/phase1-remote-view` and is not pushed because it contains gene
 Commits on the publication branch are pushed to `origin` and verified; installers and deployment
 remain subject to the separate release gates.
 
-Current source contract: canonical server/client version `0.9.70` comes from `Directory.Build.props`;
+Current source contract: canonical server/client version `0.9.71` comes from `Directory.Build.props`;
 Linux/Android/Apple versions derive from it. Signaling accepts exactly v3. Native non-Windows
 projects are attended viewer/controller previews with separate physical-device/release gates;
 see `docs/CURRENT_STATE.md` and `docs/CROSS_PLATFORM_CAPABILITIES.md`. Dated phase reports retain
@@ -33,6 +33,9 @@ Web builds require Node >=24.15.0 and <25. Public, Admin and Portal Docker build
 24.21.0 by digest; GitHub Quality builds all three production web images against the frozen lockfile.
 Quality also runs the Linux installer contract (including the nested download-header check) and
 the real Nginx ingress fixture with trusted local TLS and operator/public boundary checks.
+`scripts/test-peeronq-compose-contract.mjs` renders the real staging/production Compose merge in
+Quality: portal/download build URLs must use portless HTTPS regardless of the development bind
+port, internal services stay private, and explicit localhost development keeps its port.
 
 **Main purpose:** secure remote-access / remote-desktop platform — "Connect securely. Work anywhere."
 The repo contains an offline **frontend prototype** (`artifacts/peeronq`), an API skeleton

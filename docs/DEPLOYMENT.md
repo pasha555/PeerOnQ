@@ -95,6 +95,16 @@ record. Publish an AAAA record only when the same ingress is reachable and verif
 Set `PEERONQ_PORTAL_HOST=portal.peeronq.com`; route public TCP 443 to Nginx and deploy the current
 configuration. These source changes do not update public DNS, issue a certificate, or deploy a server.
 
+Public "Portal" and "Sign in" links must target `https://portal.peeronq.com` without a port.
+Release 0.9.71 overrides the development `web-ui` build arguments in staging/production, including
+the download host. Previously, Compose inherited `:8443` even though the proxy published 443;
+the page could load directly on HTTPS while its navigation links timed out. Rebuild `web-ui` through
+the server installer to replace the compiled URLs; changing only its runtime environment is not
+enough. Do not open public 8443 or publish the portal container port as a workaround. Development
+retains `https://portal.dev.localhost:8443`. From a source checkout, run
+`node scripts/test-peeronq-compose-contract.mjs` to validate the real merged Compose models with
+synthetic configuration and no container startup.
+
 Customer requests stay at `https://portal.peeronq.com/portal/v1/*`. The existing
 `__Host-peeronq_customer_access`, `__Host-peeronq_customer_refresh`, and `__Host-peeronq_customer_csrf`
 cookies remain Secure, SameSite=Strict, Path=/ and host-only; access/refresh remain HttpOnly.
