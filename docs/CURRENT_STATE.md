@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.69`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9069`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.70`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9070`. A source
   version does not establish that a matching signed package has been built or published.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.

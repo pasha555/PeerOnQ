@@ -30,6 +30,43 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Fix installer download-header parsing for release 0.9.70
+
+Task:
+- Fix the operator's false cache-policy failure after healthy 0.9.69 startup.
+Files changed:
+- Linux installer, bootstrap contract and Nginx fixture tests, Quality workflow, Directory.Build.props,
+  PROJECT_MAP, CURRENT_STATE, DEPLOYMENT, deployment RELEASE_NOTES and this entry.
+Reason:
+- Single quotes inside the proxy's single-quoted sh -ec command consumed the backslash in
+  tr -d '\r'. The container deleted literal r characters, so Cache-Control was never recognized.
+- Correct only that quoting; retain all publication/TLS/hash/version gates. Advance the shared
+  server/client version to 0.9.70 and Android/Apple codes to 9070; native behavior is unchanged.
+Validation:
+- Added an executable regression using the actual nested installer command: it reproduced the
+  operator's error before the fix and passed afterward. Missing/cacheable headers remain rejected.
+- Linux bootstrap/Compose contract and real Nginx ingress tests passed in the pinned production
+  image with locally trusted TLS. The complete original publication function also failed against
+  that real proxy, while the corrected function passed. Added both checks to GitHub Quality.
+- All 21 deployment tests, 86 public-site tests/typecheck, workflow formatting, native UI and all
+  platform version/publication guards passed. The Linux contract ran in Linux containers; a Git Bash
+  attempt stopped in the pre-existing TLS fixture before reaching the new regression.
+- Fresh x64/ARM64 MSI builds and extracted-payload validation passed. App assemblies are 0.9.70.0;
+  the restarted website selects 0.9.70 unsigned-public-pilot and both full HTTP downloads returned
+  200 with matching SHA-256. Built dist/server/peeronq-server-0.9.70.run (79241730 bytes); verified
+  680 safe payload files, the corrected installer header, canonical/embedded versions, matching
+  x64 MSI, byte-exact release notes and payload/bundle hashes.
+  Bundle SHA256: 05cc035783ef89481a2292cf1784e30744333a8df016942e2b25ec23f996b36f.
+- Built the actual bundle's web image and verified its healthy isolated container serves the
+  complete embedded MSI with the expected hash and version 0.9.70. Packaged installer bash -n,
+  repository secret scan (1105 files) and git diff --check passed. Packages remain ignored.
+Risk:
+- No production rollout or physical-device validation. Existing signing and WebRTC latency release
+  gates remain open; a packaging fix does not establish production approval.
+Rollback:
+- Preserve immutable older packages and retained releases/data volumes. Do not disable the check
+  or manually activate a failed release. A source revert restores the known header parsing bug.
+
 ## 2026-09-27 - Remember server patch CLI handoff preference
 
 Task:

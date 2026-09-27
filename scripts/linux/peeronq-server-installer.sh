@@ -1352,7 +1352,7 @@ verify_embedded_windows_client() {
         --max-time 30 \
         --resolve "$PEERONQ_WEB_HOST:443:127.0.0.1" \
         "https://$PEERONQ_WEB_HOST/downloads/PeerOnQ-Windows-x64.msi?v=$2" \
-        | tr -d '\r' \
+        | tr -d "\r" \
         | awk '\''tolower($1) == "cache-control:" { print; exit }'\'')
       printf "%s\n" "$cache_control" | grep -Fq "no-store" || {
         printf "Public Windows client response is cacheable.\n" >&2

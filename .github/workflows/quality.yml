@@ -87,6 +87,19 @@ jobs:
           BASE_PATH: "/"
       - run: pnpm audit --audit-level high
 
+  production-ingress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Validate installer publication checks and production TLS ingress
+        run: |
+          docker run --rm \
+            --mount "type=bind,source=$PWD,target=/repo,readonly" \
+            --mount "type=bind,source=$PWD/src/PeerOnQ.Infrastructure.Deployment,target=/workspace,readonly" \
+            --entrypoint sh \
+            nginx:1.28.3-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236 \
+            -ec 'apk add --no-cache openssl >/dev/null; sh /repo/scripts/linux/test-peeronq-bootstrap-compose-contract.sh; sh /workspace/scripts/validate-nginx.sh /repo/scripts/linux/peeronq-server-installer.sh'
+
   web-images:
     runs-on: ubuntu-latest
     strategy:

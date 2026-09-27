@@ -653,6 +653,12 @@ These logs can contain operational details and must not be published. Use `--sta
 service state and `--rollback` to restore the previous application bundle. Database migrations remain
 forward-only and therefore must be backward compatible with the previous application release.
 
+The 0.9.69 installer could falsely report `Public Windows client response is cacheable.` after
+healthy startup: nested shell quoting made its header filter remove the letter `r` instead of CR.
+Release 0.9.70 corrects that filter; it still requires `Cache-Control: no-store` and verifies TLS,
+client hash and version before activation. Use the corrected immutable bundle instead of disabling
+publication checks. Quality exercises the actual nested command and the TLS ingress fixture.
+
 An in-place upgrade first stops the retained application stack with `docker compose down` without
 the volume-removal option. This releases old network endpoints before the new release reconciles its
 networks, while PostgreSQL, Redis, Grafana and other named-volume data remain intact. Database/cache

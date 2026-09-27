@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+installer_source=${1:?Usage: validate-nginx.sh PATH_TO_INSTALLER}
+
 export PEERONQ_API_HOST=api-staging.peeronq.invalid
 export PEERONQ_ADMIN_HOST=admin-staging.peeronq.invalid
 export PEERONQ_PORTAL_HOST=portal-staging.peeronq.invalid
@@ -260,4 +262,32 @@ done
 if fetch_public /downloads/Other.msi >/dev/null 2>&1; then
   exit 1
 fi
+# Exercise the complete installer publication function through this real TLS proxy too.
+# Keep fixture data explicit; this is a transport/header test, not MSI payload validation.
+publication_release=/tmp/peeronq-publication-release
+publication_downloads="$publication_release/artifacts/peeronq/public/downloads"
+mkdir -p "$publication_downloads" "$publication_release/scripts/linux" /usr/share/nginx/html/assets
+cp "$base_root/downloads/PeerOnQ-Windows-x64.msi" "$publication_downloads/"
+cp "$base_root/downloads/embedded-windows-version.txt" "$publication_downloads/"
+cp "$base_root/downloads/embedded-windows-release-type.txt" "$publication_downloads/"
+publication_hash=$(sha256sum "$publication_downloads/PeerOnQ-Windows-x64.msi" | awk '{ print $1 }')
+printf '%s  PeerOnQ-Windows-x64.msi\n' "$publication_hash" > "$publication_downloads/SHA256SUMS.txt"
+printf '%s\n' 'This x64 MSI is unsigned and is authorized only for controlled PeerOnQ pilot testing.' \
+  > "$publication_downloads/UNSIGNED-PILOT-NOTICE.txt"
+cp "${installer_source%/*}/verify-embedded-windows-client.sh" "$publication_release/scripts/linux/"
+printf '%s\n' '/downloads/PeerOnQ-Windows-x64.msi?v=0.5.1' > /usr/share/nginx/html/assets/publication-fixture.js
+rm "$patch_root/peeronq-downloads-ui-v1.html"
+awk '
+  /^verify_embedded_windows_client\(\)/ { copy = 1 }
+  copy && /^transition_website_overlay\(\)/ { exit }
+  copy { print }
+' "$installer_source" > /tmp/peeronq-publication-function.sh
+. /tmp/peeronq-publication-function.sh
+run_compose_step() {
+  printf 'Installer fixture: %s\n' "$1"
+  shift 5 # step, release, exec, -T, service; the fixture serves both origins in this container.
+  "$@"
+}
+export CURL_CA_BUNDLE=/certs/fullchain.pem
+verify_embedded_windows_client "$publication_release"
 printf '%s\n' 'Nginx local ingress checks passed: verified TLS, public portal/API, operator isolation, private metrics and unknown-host rejection.'

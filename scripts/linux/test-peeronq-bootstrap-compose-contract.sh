@@ -770,4 +770,68 @@ EOF
 chmod 755 "$retry_unit"
 sh "$retry_unit" "$temporary/retry-runtime" >/dev/null
 
+# Execute the installer's actual nested proxy shell command, not a copied header parser.
+# In particular, CR stripping must survive both the host shell and container sh -ec.
+publication_unit="$temporary/publication.sh"
+awk '
+  /^verify_embedded_windows_client\(\)/ { copy = 1 }
+  copy && /^transition_website_overlay\(\)/ { exit }
+  copy { print }
+' "$installer" > "$publication_unit"
+publication_root="$temporary/publication"
+mkdir -p "$publication_root/bin" "$publication_root/release/scripts/linux" \
+  "$publication_root/release/artifacts/peeronq/public/downloads"
+cp "$script_dir/verify-embedded-windows-client.sh" "$publication_root/release/scripts/linux/"
+publication_downloads="$publication_root/release/artifacts/peeronq/public/downloads"
+printf 'fixture client bytes\n' > "$publication_downloads/PeerOnQ-Windows-x64.msi"
+publication_hash=$(sha256sum "$publication_downloads/PeerOnQ-Windows-x64.msi" | awk '{ print $1 }')
+printf '%s  PeerOnQ-Windows-x64.msi\n' "$publication_hash" > "$publication_downloads/SHA256SUMS.txt"
+printf '0.1.0\n' > "$publication_downloads/embedded-windows-version.txt"
+printf 'unsigned-pilot\n' > "$publication_downloads/embedded-windows-release-type.txt"
+printf '%s\n' 'This x64 MSI is unsigned and is authorized only for controlled PeerOnQ pilot testing.' \
+  > "$publication_downloads/UNSIGNED-PILOT-NOTICE.txt"
+cat > "$publication_root/bin/curl" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *--head*) printf 'HTTP/2 200\r\n%s\r\n\r\n' "$TEST_CACHE_HEADER" ;;
+  *embedded-windows-version.txt*) printf '0.1.0\n' ;;
+  *PeerOnQ-Windows-x64.msi*) printf 'fixture client bytes\n' ;;
+  *) printf 'fixture base page\n' ;;
+esac
+EOF
+cat > "$publication_root/bin/nginx" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'location = /downloads/PeerOnQ-Windows-x64.msi {' \
+  'proxy_buffering off;' 'proxy_max_temp_file_size 0;' '}'
+EOF
+chmod 755 "$publication_root/bin/curl" "$publication_root/bin/nginx"
+cat >> "$publication_unit" <<'EOF'
+set -eu
+publication_root=$1
+PATH="$publication_root/bin:$PATH"
+export PATH PEERONQ_WEB_HOST=peeronq.invalid
+run_compose_step() {
+  case "$1" in
+    "verify embedded Windows client publication") return 0 ;; # Separate web-origin gate.
+    "verify Windows client proxy streaming")
+      shift 5 # step, release, exec, -T, proxy; execute the exact sh -ec arguments.
+      "$@" ;;
+    *) return 1 ;;
+  esac
+}
+for valid_header in 'Cache-Control: no-store, max-age=0' 'cache-control: no-store'; do
+  export TEST_CACHE_HEADER="$valid_header"
+  verify_embedded_windows_client "$publication_root/release"
+done
+for invalid_header in 'Cache-Control: public, max-age=3600' 'X-Other: no-store' ''; do
+  export TEST_CACHE_HEADER="$invalid_header"
+  if verify_embedded_windows_client "$publication_root/release" > "$publication_root/rejected.log" 2>&1; then
+    printf 'Installer accepted a missing or cacheable download policy.\n' >&2
+    exit 1
+  fi
+  grep -Fq 'Public Windows client response is cacheable.' "$publication_root/rejected.log"
+done
+EOF
+sh "$publication_unit" "$publication_root"
+
 printf 'Bootstrap/production Compose environment contract tests passed.\n'
