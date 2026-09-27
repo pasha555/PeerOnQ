@@ -680,7 +680,7 @@ and secure-desktop boundaries are intentionally not bypassed.
 - `src/PeerOnQ.Infrastructure/Updates/UpdateManifestVerifier.cs` — bounded ECDSA manifest policy
 - `src/PeerOnQ.Infrastructure/Updates/UpdateService.cs` — HTTPS streaming/hash/Authenticode/publisher/atomic staging
 - `src/PeerOnQ.Infrastructure/Diagnostics/PrivacyAndCrashReporting.cs` — default-off sanitized local crash consent
-- `.github/workflows/quality.yml`, `codeql.yml`, `release.yml` — quality/security/protected-release gates
+- `.github/workflows/quality.yml`, `codeql.yml`, `release.yml` — quality/security/protected-release gates; Quality builds once and runs .NET test projects serially without rebuilding, with native QUIC acceptance isolated from other xUnit collections
 - `docs/` — operator and user-facing production documentation
 - `PHASE5.md` — actual evidence, 25-scenario checklist, and unresolved external gates
 

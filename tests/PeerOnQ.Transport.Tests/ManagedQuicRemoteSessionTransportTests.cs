@@ -14,6 +14,10 @@ using Xunit.Abstractions;
 
 namespace PeerOnQ.Transport.Tests;
 
+[CollectionDefinition("Native QUIC acceptance", DisableParallelization = true)]
+public sealed class NativeQuicAcceptanceCollection;
+
+[Collection("Native QUIC acceptance")]
 [SupportedOSPlatform("windows")]
 [SupportedOSPlatform("linux")]
 [SupportedOSPlatform("macos")]

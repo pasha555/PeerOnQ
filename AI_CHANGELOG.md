@@ -30,6 +30,44 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Correct cross-platform Quality workflow failures
+
+Task:
+- Diagnose the failed main Quality run 36334120630 from its actual GitHub job logs.
+Files changed:
+- .gitattributes, .github/workflows/quality.yml, public routeSeparation tests,
+  ManagedQuicRemoteSessionTransportTests, pnpm workspace/lockfile, DEPENDENCIES, PROJECT_MAP and this entry.
+Reason:
+- Eight public download assertions inherited jsdom's Linux runner identity while expecting Windows
+  links. Give the suite an explicit Windows device fixture; existing non-Windows/ARM64/unknown
+  device cases still override it. Production device detection remains unchanged.
+- Windows checkout converted two canonical signaling JSON vectors to CRLF, breaking byte-for-byte
+  checks against LF wire output. Pin only those shared vectors to LF; do not normalize assertions.
+- Native QUIC benchmarks overlapped other test collections and solution tests overlapped builds/
+  test projects. Run the already-built solution tests serially and isolate native QUIC acceptance
+  through the same xUnit nonparallel collection pattern already used for real WebRTC acceptance.
+  Retain all performance assertions, including the 35 ms input gate and explicit 1 GiB transfer.
+- The previously unreached web audit step also blocked on five high findings in existing fast-uri
+  and js-yaml overrides. Advance only their patch floors to 3.1.6 and 4.3.2 after registry/license/
+  release-age review; no new package or minimumReleaseAge exception is introduced.
+Validation:
+- Strict Release solution build passed with zero warnings/errors. Serial full solution run:
+  875 passed, 0 failed, 5 existing environment-dependent skips (Redis/restart/live TURN).
+- Node 24 workspace typecheck/lint and all 169 frontend tests passed (86 public, 36 admin, 47 portal).
+- Fresh core.autocrlf=true checkout preserved both signaling vectors byte-for-byte with LF.
+- Explicit 1 GiB QUIC test passed: 25.2 MiB/s payload, 0.4 ms interactive p95, 2716 samples.
+- .NET dependency audit reported no high/critical findings. pnpm audit --audit-level high passed
+  after remediation; four previously documented moderate findings remain (qs and Vitest/mocker).
+- Full workspace build and OpenAPI generator smoke check passed with the patched build dependencies;
+  checked-in generated API files are unchanged. Fallow, repository secret scan and diff checks passed.
+Risk:
+- This fixes test inputs/execution, not the documented production transport latency limitation.
+  An initial isolated input test still reproduced a 39.7 ms baseline before the complete serial run
+  passed. Shared-runner timing is not a physical-device/WAN latency guarantee; thresholds stay strict.
+- No native runtime behavior, protocol, client version or security policy changed.
+Rollback:
+- Revert this commit; no data or installer migration is involved.
+
 ## 2026-09-27 - Publish local Windows client 0.9.67 patch packages
 
 Task:

@@ -107,10 +107,23 @@ not upgraded in this task:
 | `qs` 6.15.3 | 2 moderate | [GHSA-x5fp-wj9c-mxmx](https://github.com/advisories/GHSA-x5fp-wj9c-mxmx), [GHSA-4mjr-xmp4-gh2g](https://github.com/advisories/GHSA-4mjr-xmp4-gh2g) | 6.16.0 |
 | `vitest` / `@vitest/mocker` 4.1.10 | 2 moderate package findings for one advisory | [GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9) | 4.1.11 |
 
-These remain open security findings. The listed floors are advisory evidence, not reviewed
+At the time of that review these remained open security findings. The listed floors were advisory evidence, not reviewed
 upgrade approvals or a claim that production is exploitable through every listed path.
 Exact replacement package licenses, release age, API compatibility and applicable paths must
 be reviewed before a separate remediation; passing the Node 24 checks does not make this audit clean.
+
+### 2026-09-27 Quality CI security remediation
+
+The CI repair advances the existing build-tool overrides to `fast-uri` 3.1.6 and `js-yaml` 4.3.2.
+The official registry metadata lists BSD-3-Clause and MIT respectively, no install lifecycle scripts,
+no dependencies for fast-uri and the unchanged `argparse ^2.0.1` dependency for js-yaml. Publication
+dates are 2026-08-23 and 2026-08-26, both beyond the unchanged 1,440-minute release-age protection.
+The patched floors are confirmed by the [fast-uri advisory](https://github.com/advisories/GHSA-5jgf-p345-68v8)
+and [js-yaml advisory](https://github.com/advisories/GHSA-2883-xcg3-v3hh). pnpm regenerated the lockfile
+and installed with `--frozen-lockfile`; no new dependency, ignored advisory or age exemption was added.
+
+`pnpm audit --audit-level high` now passes: zero high/critical, four moderate findings remain for
+the existing qs and Vitest/mocker versions listed above. This is not a claim of a clean full audit.
 
 ## Historical 2026-08-18 verification
 

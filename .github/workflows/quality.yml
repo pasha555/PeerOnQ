@@ -36,7 +36,8 @@ jobs:
           -p:ContinuousIntegrationBuild=true -p:EnableNETAnalyzers=true
           -p:AnalysisLevel=latest -warnaserror
       - name: Unit and integration tests
-        run: dotnet test PeerOnQ.slnx --no-restore -c Release --nologo
+        # Do not overlap latency/throughput acceptance with builds or other test projects.
+        run: dotnet test PeerOnQ.slnx --no-restore --no-build -m:1 -c Release --nologo
       - name: Native QUIC 1 GiB per minute regression gate
         timeout-minutes: 3
         env:

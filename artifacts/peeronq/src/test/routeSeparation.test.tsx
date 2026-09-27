@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import { OpenAppButton } from "../components/OpenAppButton";
 import { DownloadsPage } from "../pages/DownloadsPage";
@@ -15,6 +15,13 @@ beforeAll(() => {
       removeEventListener: vi.fn(),
     })),
   });
+});
+
+beforeEach(() => {
+  // jsdom's default user agent contains the runner OS. Use an explicit device
+  // fixture; platform-specific cases below override it for their own scenario.
+  vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+  vi.spyOn(window.navigator, "platform", "get").mockReturnValue("Win32");
 });
 
 afterEach(() => {
