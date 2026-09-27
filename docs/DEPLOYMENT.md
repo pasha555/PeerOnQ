@@ -462,6 +462,13 @@ docker compose --env-file <staging-env> `
 
 ## Single-node production bundle
 
+A requested product patch includes the full versioned server bundle, unless explicitly scoped to
+a website-only or client-only deliverable. Its operator release notes live at
+`src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md` and are included by the existing source
+payload selection. Provide the same notes alongside the bundle. They must identify the server
+version, embedded client version/classification, client changes (or no changes), validation,
+remaining release blockers and rollback. Client installation/update remains a separate device action.
+
 `scripts/windows/build-peeronq-server-run.ps1` creates a self-extracting Linux server deployment
 bundle and SHA-256 file. This `.run` installs the cloud, website, Admin, download, signaling, TURN,
 and observability stack; it is not a Linux desktop client. Every server bundle must explicitly embed

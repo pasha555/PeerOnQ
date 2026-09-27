@@ -137,6 +137,19 @@ The maps only save tokens if they stay true. In the same change:
 
 ## Versioned Development Package Publication
 
+When the user asks to create a "patch", prepare the versioned full server upgrade bundle as part
+of the deliverable; a client MSI or website-only ZIP alone does not satisfy that request unless
+the user explicitly narrows the scope. The user applies server patches to production.
+
+- Include operator-facing release notes in the bundle at
+  `src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md`, and provide them alongside the artifact.
+- State the server version, embedded client version/classification, server/web/portal changes,
+  whether clients changed and their changes, validation results, remaining blockers and rollback.
+- If clients changed, follow the canonical paired Windows publication rules below and embed the
+  exact validated x64 client. Server installation does not automatically upgrade installed clients.
+- Preserve signature and release gates. Never describe an unsigned candidate, a failing release
+  gate or an untested production deployment as ready for production.
+
 `Directory.Build.props` property `PeerOnQWindowsClientVersion` is the single source of truth for the
 distributable Windows client. Never place a default client version in an individual project or build
 script. A client release, public-pilot package, Portable Support package, server-embedded MSI, and

@@ -30,6 +30,34 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Include server and client scope in requested patch deliverables
+
+Task:
+- Record the user's rule that a patch includes the full server upgrade and identifies any client
+  changes because the operator intends to apply it to production.
+Files changed:
+- AGENTS, docs/DEPLOYMENT, PROJECT_MAP, deployment RELEASE_NOTES and this entry.
+Reason:
+- The earlier local 0.6.45 candidate embedded client 0.9.66. Built a new immutable 0.6.46 candidate
+  with the validated canonical 0.9.67 x64 MSI. Release notes are included by the existing src payload
+  selection and copied beside the candidate; no installer/proxy/authentication code was changed.
+- Notes identify the separate server/client versions, Windows client changes, public/portal updates,
+  signing classification, outstanding validation gates and the independent client installation step.
+Validation:
+- Existing server builder publication/version/MSI invariants and embedded x64 MSI validation passed.
+- Verified 680 payload files, safe archive paths, exact embedded release notes, client 0.9.67 metadata,
+  MSI SHA-256, payload SHA-256 and complete bundle checksum. Installer header passed bash -n.
+- Bundle: 79242107 bytes; SHA256 32912908434770df34663a78f4d3f9a8fc33d6113a61391724e3fcc4c5912701.
+- Repository secret scan and git diff --check passed. Generated .run/checksum/notes sidecars remain
+  outside source control. No runtime changes warrant repeating frontend or .NET suites in this task.
+Risk:
+- NOT production approved: no trusted server GPG signature, unsigned pilot MSI and two known GitHub
+  WebRTC latency failures. Existing client release/dependency limitations remain documented in notes.
+  Production signing metadata was requested; no key, signature bypass or deployment was introduced.
+Rollback:
+- Revert these documentation/instruction changes. The candidate has not been installed; no production
+  rollback or database operation was performed. Existing immutable bundles remain intact.
+
 ## 2026-09-27 - Correct cross-platform Quality workflow failures
 
 Task:

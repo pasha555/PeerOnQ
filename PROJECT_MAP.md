@@ -790,6 +790,7 @@ preserves the older update-disabled connectivity-test kit.
 - `src/PeerOnQ.Observability/ServiceDefaults.cs` - common health, low-cardinality metrics, logs and OTel
 - `src/PeerOnQ.Observability/ServiceDrain.cs` - application-stop traffic admission and retryable drain response
 - `src/PeerOnQ.Infrastructure.Deployment/` - Compose, proxy, monitoring, backup/restore and runbooks
+- `src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md` - operator-facing server/client change and release-gate summary included in full server patch bundles; server patches must identify embedded client changes and signing classification
 - `src/PeerOnQ.Infrastructure.Deployment/nginx/default.conf` and `nginx/peeronq.conf.template` - public customer portal with same-origin API, operator-only CIDR hosts, unknown HTTP/TLS host rejection and public metrics denial; `scripts/validate-nginx.sh` exercises these boundaries with locally trusted fixture TLS
 - `src/PeerOnQ.Infrastructure.Deployment/scripts/website-platform-state.sh` - constrained website-overlay deactivate/restore/commit helper used transactionally by full-platform upgrades; stored website releases are retained
 - `src/PeerOnQ.Infrastructure.Deployment/docker-compose.local-phase3-observability.yml` - development-only Prometheus bridge/target override; staging and production inherit empty local targets
