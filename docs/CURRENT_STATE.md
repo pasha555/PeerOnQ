@@ -39,10 +39,11 @@ production approval or a fresh execution of the historical tests farther down th
 - A complete public x64 MSI GET returned 200 and 78602240 bytes; SHA-256 matched the validated
   0.9.70 package: `d72f617c028ee3b435f3106fa6ce8a06420ed50c1a123f46655752a0a696a2bb`.
   Metadata reported 0.9.70 and the response retained `Cache-Control: no-store, max-age=0`.
-- Operator-host CIDR isolation was not established: this workstation received Admin 200 and
-  Grafana/Prometheus 302. It may be an allowed operator source. An independent web-tool attempt
-  could not access those hosts but supplied no usable HTTP status. The configured operator CIDR
-  was requested; do not claim public exposure or successful isolation from these observations.
+- The operator supplied a single-host `/32` allowlist; Get-NetIPAddress confirmed that this
+  workstation's active IPv4 address matches it. Admin 200 and Grafana/Prometheus 302 from this
+  workstation are consistent with permitted operator access, not evidence of public exposure.
+  A live denial check from outside that CIDR remains unverified: the separate web-tool attempt
+  could not access those hosts but supplied no usable HTTP status. No allowlist change was needed.
 - This confirms installation and the tested public endpoints, not release-signing approval,
   account authentication, TURN/media behavior or physical 4K/latency acceptance. Existing client
   installations do not upgrade automatically. No new patch or version bump was needed to record

@@ -30,6 +30,22 @@ Rollback:
 
 ## Entries
 
+## 2026-09-27 - Confirm the workstation matches the operator allowlist
+
+Task:
+- Resolve the pending CIDR clarification from the successful 0.9.70 deployment.
+Files changed:
+- docs/CURRENT_STATE.md and this entry.
+Reason:
+- The user supplied a single-host /32 CIDR; Get-NetIPAddress confirmed this workstation matches it.
+  Its successful operator-host responses are consistent with allowed access.
+Validation:
+- Read-only local IPv4 inspection; no server configuration or package change.
+Risk:
+- Live denial from outside the allowed CIDR remains untested; do not infer universal reachability.
+Rollback:
+- Documentation only; preserve the existing operator allowlist and active 0.9.70 release.
+
 ## 2026-09-27 - Record successful operator deployment of 0.9.70
 
 Task:
