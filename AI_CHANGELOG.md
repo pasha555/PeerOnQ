@@ -50,7 +50,13 @@ Validation:
 - Original local main was preserved as local-history/main-before-publication-20260927; the feature
   branch also retains its history. 538 generated package files, 31 test reports and one attached
   local input were removed from the public index without deleting working files.
-- Publication checks and remote commit verification are recorded after the final push.
+- Gitleaks 8.30.1 scanned the complete public main history with no remaining findings; the scanner
+  download was verified against its official release checksum. Staged whitespace validation passed.
+- Published https://github.com/pasha555/PeerOnQ. Anonymous GitHub API verified public visibility,
+  main as default branch and MIT license detection. git ls-remote confirmed the first pushed source
+  head 7f3cc3e matched the local commit; main now tracks origin/main and origin is the default push remote.
+- GitHub Quality and CodeQL checks started on push and were still pending/running at publication;
+  their completion is not claimed. The publication record is committed and pushed afterward.
 - No application behavior changes in this publication step; the preceding development change's
   known 35 ms latency gate failure remains documented and is not waived.
 Risk:
