@@ -79,6 +79,21 @@ try {
       const args = model.services["web-ui"].build.args;
       assert.equal(model.services["cloud-api"].environment.PeerOnQ__CustomerPortal__EnableMfa, "false");
       assert.equal(model.services["cloud-api"].environment.PeerOnQ__CustomerPortal__Mail__FromAddress, "peeronq@peeronq.com");
+      // Real SMTP must be reachable without opening the private shared networks or app ports.
+      const mailNetwork = "customer-mail-egress";
+      assert.ok(Object.hasOwn(model.services["cloud-api"].networks, mailNetwork), "Cloud API has no SMTP outbound route");
+      assert.deepEqual(Object.keys(model.services["cloud-api"].networks).sort(), ["control", mailNetwork, "observability"].sort());
+      assert.equal(Boolean(model.networks[mailNetwork].internal), false);
+      assert.equal(model.networks.control.internal, true);
+      assert.equal(model.networks.observability.internal, true);
+      for (const name of ["postgres", "redis"]) {
+        for (const network of Object.keys(model.services[name].networks)) {
+          assert.equal(model.networks[network].internal, true, `${name} has an external network`);
+        }
+      }
+      for (const [name, service] of Object.entries(model.services)) {
+        if (name !== "cloud-api") assert.ok(!Object.hasOwn(service.networks ?? {}, mailNetwork), `${name} joined customer mail egress`);
+      }
       assert.equal(args.VITE_PEERONQ_ACCOUNT_PORTAL_URL, "https://portal.peeronq.com");
       assert.equal(args.VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL, "https://download.peeronq.com");
       assert.equal(
@@ -138,6 +153,7 @@ try {
     PEERONQ_DOWNLOAD_HOST: "download.dev.localhost",
     PEERONQ_HTTPS_PORT: "8443",
   });
+  assert.deepEqual(Object.keys(development.services["cloud-api"].networks).sort(), ["control", "observability"]);
   assert.equal(
     development.services["web-ui"].build.args.VITE_PEERONQ_ACCOUNT_PORTAL_URL,
     "https://portal.dev.localhost:8443",
@@ -147,7 +163,7 @@ try {
     "https://download.dev.localhost:8443",
   );
   console.log(
-    "PASS: merged staging/production HTTPS URLs and private ports; development port retained.",
+    "PASS: merged HTTPS URLs, private ports and isolated Cloud API mail egress; development unchanged.",
   );
 } finally {
   rmSync(temporary, { recursive: true, force: true });

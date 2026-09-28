@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.74`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9074`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.75`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9075`. A source
   version does not establish that a matching signed package has been built or published.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.
@@ -26,6 +26,35 @@ production approval or a fresh execution of the historical tests farther down th
 - Runtime, release-license, physical-device and performance gates remain evidence-bound. See
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
+
+## Customer SMTP egress correction candidate - 2026-09-28
+
+After enabling Resend, the operator confirmed an existing customer account but no message in
+Resend Emails. Source inspection found Cloud API attached only to internal control/observability
+networks. A local Docker reproduction could not obtain a Resend SMTP banner with internal-only
+networking; attaching a dedicated outbound bridge returned `220 Resend SMTP Relay ESMTP`.
+No credentials, AUTH or email submission were used in that probe.
+
+Source 0.9.75 adds `customer-mail-egress` only to staging/production Cloud API. Shared internal
+networks, public ingress, direct ports, cookie/CSRF/MFA policy and generic enumeration-safe mail
+responses are unchanged. Development FileSink networking remains internal. This bridge supplies
+outbound routing, not a provider allowlist. Existing Resend credentials/settings must be preserved.
+Client packages advance only the common version; no native behavior or blur fix is included.
+
+Merged Compose regressions and 21 existing deployment configuration tests passed; existing Cloud
+56/56 and Admin 49/49 tests passed using unchanged Release binaries. Portal 82/82 and website 86/86
+tests/typechecks passed. Both 0.9.75 Windows MSIs built and passed payload validation, then were
+published to the restarted :5555 website with full HTTP GET hashes checked. The full server bundle
+passed payload/header/source/version checks; Cloud API/Portal/website production images built
+from that exact archive and the extracted Compose passed network/port regressions. Local HTTP
+smoke tests verified the Portal routes/headers and exact offered x64 bytes. Server candidate:
+`dist/server/peeronq-server-0.9.75.run`, SHA-256
+`fbfb084e697f6c8ec9ef55bf5535d0a620c3da74b6d981a5dea4bb619db1cc4c`.
+These are unsigned public-pilot packages, with no detached server GPG signature.
+Local container STARTTLS to Resend also passed certificate-chain/hostname validation without AUTH
+or mail submission. The operator's mail failure was on production; these local probes validate
+the proposed fix only. Production installation, SMTP authentication, sender authorization and
+actual recipient delivery remain untested. Capabilities or a banner do not prove mail delivery.
 
 ## Operator mail configuration clarification - 2026-09-28
 

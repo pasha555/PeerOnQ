@@ -283,6 +283,29 @@ not provision an SMTP account. Checksums prove byte integrity, not authenticity;
 release gates remain. Rollback: `--rollback --env-file /etc/peeronq/peeronq.env`; separately restore
 prior registration/MFA/mail settings from the protected backup when reverting policy. Preserve data.
 
+### SMTP connectivity and generic recovery responses (0.9.75)
+
+Cloud API in staging/production joins a dedicated `customer-mail-egress` bridge in addition to the
+internal control and observability networks. Earlier releases attached it only to internal networks,
+which prevented reaching external SMTP even when `/auth/capabilities` advertised enabled mail.
+Only Cloud API joins the added bridge; database/cache/metrics remain isolated and no application
+port is published. The bridge provides outbound routing; it is not a destination/port allowlist.
+Apply any required egress restrictions at the host/firewall for the configured SMTP provider.
+Development FileSink networking remains unchanged.
+
+The operator uses an existing Resend account. Preserve its protected SMTP/API key and verified
+sender configuration during upgrades; do not pass `--disable-customer-mail`. Resend SMTP uses
+`smtp.resend.com:587` with STARTTLS, username `resend` and the sending API key as its password.
+Never print that key, include it in command arguments or commit it. SMTP/verification settings and
+the current valid registration mode survive a normal installer upgrade without mail-policy flags.
+
+The generic recovery success page does not prove SMTP delivery. Missing/inactive accounts, a
+one-minute per-account token cooldown and SMTP failure can all return the same accepted response
+to preserve enumeration protection. SMTP failure records `account.mail_delivery_failed` in the
+customer security audit. Check Resend Emails and the approved recipient's mailbox after one request;
+wait at least a minute before retrying. An SMTP 220 banner proves connectivity only, not key/sender
+authorization or inbox delivery. See [Resend SMTP](https://resend.com/docs/send-with-smtp).
+
 Local acceptance: `scripts/windows/test-phase7-customer-portal.ps1` uses trusted
 `https://localhost:8443` and the portal virtual host. It modifies only the local development stack,
 creates unique test accounts, ages only their tokens for expiry/cooldown tests, cycles registration

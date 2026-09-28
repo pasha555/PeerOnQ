@@ -30,6 +30,52 @@ Rollback:
 
 ## Entries
 
+## 2026-09-28 - Restore production Cloud API SMTP egress (0.9.75)
+
+Task: Diagnose the existing-account recovery success screen with no message in Resend Emails.
+Files inspected: CustomerAccountService/CustomerMail/endpoints, production/staging/development
+Compose networks, deployment regression scripts, state/maps/release tooling and Docker/Resend docs.
+Files changed: Staging Compose, merged-model regression script, canonical version, project map,
+deployment/current-state/release notes and this log. Auth, portal and native runtime code unchanged.
+Reason: Cloud API inherited only internal control/observability networks, so enabling Smtp did not
+create an outbound route. Recovery intentionally hides delivery failure to avoid account enumeration;
+the existing account.mail_delivery_failed audit records that case. A generic response is not delivery.
+Changes: Only staging/production Cloud API joins a dedicated customer-mail-egress bridge; shared
+internal networks, private ports and other service attachments are preserved. The bridge supplies
+outbound routing, not a SMTP provider/port firewall allowlist. Development FileSink is unchanged.
+Preserve the operator's existing Resend/API key/sender; normal upgrade commands must not disable mail.
+Validation:
+- New Compose guard failed before the fix (no SMTP outbound route), then passed on real merged
+  staging/production models; it checks exclusive membership, internal database/cache and shared
+  networks, unchanged application/public/operator port boundaries and development isolation.
+- Isolated local Docker probe using the pinned ASP.NET runtime failed to obtain an SMTP banner
+  on an internal-only network; attaching an outbound bridge obtained 220 Resend SMTP Relay ESMTP.
+  No AUTH, API key, email submission or real account data was used; all probe resources were removed.
+- A separate container STARTTLS probe to smtp.resend.com:587 passed certificate-chain and hostname
+  verification. This is outbound/TLS evidence from the development workstation, not production
+  SMTP authentication or inbox delivery. The operator's failed mail attempt was on production.
+- Bootstrap/installer shell contracts and canonical server/client/native UI invariants passed.
+  Existing Release binaries run with --no-build: deployment 21/21, Cloud.Infrastructure 56/56,
+  Admin 49/49. No backend/auth source changed, and the full solution/media suite was not rerun.
+- Portal 82/82 and public website 86/86 tests and both typechecks passed. Matching x64/ARM64
+  0.9.75 MSI builds passed with zero warnings/errors and payload validation. Local :5555 restarted,
+  selected unsigned-public-pilot 0.9.75 and served full HTTP 200 bytes matching both SHA256SUMS.
+- The full server checksum, archive paths, payload/header/source/version and embedded MSI checks
+  passed; generated header shell syntax passed. Cloud API, Portal and website production Docker
+  images built from the exact extracted bundle. That extracted Compose passed the full merged
+  model guard; loopback HTTP checked six Portal routes/security headers and the website's exact
+  x64 download/metadata/portless portal link. No deployment was performed on the production host.
+- Server SHA-256: fbfb084e697f6c8ec9ef55bf5535d0a620c3da74b6d981a5dea4bb619db1cc4c.
+  Windows x64: 9f60108c3d99fc8cebb4404a486a514a6e6478c13d04f90a99af64ff73ab9273;
+  ARM64: 22eb50a67e0389264c125167cd85b7d7eb6fe2c3a5dfe132d21ecfebdd40e620.
+  Server/clients are unsigned public-pilot candidates; no detached GPG signature was created.
+  Physical performance/signing gates remain unchanged; client behavior is unchanged.
+Risk: The production network/firewall, SMTP credentials/sender authorization and actual recipient
+delivery are not proven by the local connectivity probe. No production install was performed here.
+Rollback: Retained server release/volumes/forward migrations remain available; rollback restores the
+old networking and can reintroduce the SMTP issue. Preserve current SMTP settings and never publish
+application/database/cache ports as a workaround.
+
 ## 2026-09-28 - Preserve previously configured Resend SMTP
 
 Task: Explain missing auth links after the operator clarified that Resend worked on an older release.

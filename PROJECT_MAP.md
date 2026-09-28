@@ -889,6 +889,7 @@ place the root-owned public keyring and host agent; later releases can be staged
 
 - `CustomerPortalAuthentication.cs` — separate customer bearer/cookie scheme, DB-backed session validation, CSRF
 - `CustomerAccountService.cs` — capabilities, registration, verification/resend, password change/reset, optional MFA, rotating sessions, privacy requests
+- Production/staging Cloud API additionally joins `customer-mail-egress` for external SMTP. Only Cloud API joins this non-internal bridge; control/observability stay internal and no application port is published. This supplies outbound routing, not an SMTP destination/port firewall allowlist.
 - `CustomerOrganizationService.cs` — tenant-filtered membership, invitations, teams, RBAC, policy, device claim and audit
 - `CustomerIdentityEntities.cs` — customer and organization invariants; no internal Admin role reuse
 - `20260817060948_AddCustomerIdentityOrganizationsAndPolicy.cs` — forward-only schema and append-only customer audit trigger

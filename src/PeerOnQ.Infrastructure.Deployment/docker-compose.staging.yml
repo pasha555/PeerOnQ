@@ -50,6 +50,9 @@ services:
       PeerOnQ__CustomerPortal__Mail__SmtpUseTls: "true"
       PeerOnQ__CustomerPortal__Mail__SmtpUsername: ${PEERONQ_CUSTOMER_SMTP_USERNAME:-}
       PeerOnQ__CustomerPortal__Mail__SmtpPassword: ${PEERONQ_CUSTOMER_SMTP_PASSWORD:-}
+    # SMTP requires outbound routing; keep the shared control/telemetry networks isolated.
+    # This network publishes no application port and is used only by Cloud API.
+    networks: [control, observability, customer-mail-egress]
     restart: always
 
   presence:
@@ -338,6 +341,10 @@ secrets:
 
 networks:
   edge:
+  customer-mail-egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
   control:
     internal: true
     ipam:
