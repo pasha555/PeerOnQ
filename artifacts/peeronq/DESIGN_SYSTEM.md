@@ -119,7 +119,8 @@ actions. The skip-link target is programmatically focusable; the viewport permit
 The hero contains the one device-selected package action alongside Open Portal. Header/mobile
 Download PeerOnQ links navigate to `#client-download`; `#download` explains platform status and links
 back to that selector. `DownloadsPage` displays detected device/architecture, only known release versions and
-explicit unsigned classifications, or an honest unavailable state. It never invents a signed badge
+unsigned classifications in a collapsed native `Installer details` disclosure, or an honest unavailable
+state. The hero has no pilot warning banner. It never invents a signed badge
 or a current version for server-owned/tracked releases. Sign in and Portal links navigate to the
 separately hosted customer portal; operational Admin/monitoring links remain absent.
 `prefers-reduced-motion` reduces transitions and animations globally.

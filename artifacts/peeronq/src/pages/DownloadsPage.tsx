@@ -260,10 +260,13 @@ export function DownloadsPage({ secondaryAction }: { secondaryAction?: ReactNode
         {secondaryAction}
       </div>
       {download && unsignedLabel && (
-        <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
-          <p className="font-semibold">{unsignedLabel}</p>
-          <p className="mt-1 text-muted-foreground">For testing only. This installer is not production-signed.</p>
-        </div>
+        <details className="text-sm text-muted-foreground">
+          <summary className="w-fit cursor-pointer rounded-sm py-2 font-medium text-foreground">Installer details</summary>
+          <div className="mt-1 space-y-1">
+            <p>{unsignedLabel}</p>
+            <p>Digital signature: Not signed.</p>
+          </div>
+        </details>
       )}
       <p id="client-download-status" className="text-sm leading-6 text-muted-foreground" role="status" aria-live="polite">
         {download ? "Selected using your browser's device information." : unavailableReason}

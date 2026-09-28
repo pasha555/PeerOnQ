@@ -30,6 +30,27 @@ Rollback:
 
 ## Entries
 
+## 2026-09-28 - Simplify the public download presentation
+
+Task: Remove the highlighted pilot warning from the production-facing landing page.
+Files inspected: DownloadsPage/LandingPage, route tests, design system, release metadata contracts;
+Admin bootstrap/deployment instructions for the operator's separate credential question.
+Files changed: DownloadsPage, existing route tests, DESIGN_SYSTEM, CURRENT_STATE and this log.
+Reason: The prominent amber pilot/testing notice dominated the primary download action.
+Changes: Replace the warning and testing-only sentence with a collapsed native Installer details
+disclosure containing the existing unsigned classification and factual digital-signature status.
+Package selection, checksums, canonical version and signing gates are unchanged. No new package
+or product version was published. Record the operator-confirmed production Portal recovery,
+separate email verification and successful sign-in without recording personal data or secrets.
+Validation: Public website typecheck, production build and all 86 tests passed. Existing embedded
+download coverage now checks collapsed details and disclosure on click. Local :5555 served the
+revised UI module over HTTP 200 and still selected 0.9.75 unsigned-public-pilot. Repository secret
+scan and git diff --check passed. Browser discovery returned no available browser, so visual and
+real-browser keyboard checks were not performed. Native/backend behavior was not changed/tested.
+Risk: This source/UI change is not deployed to production by the commit. Installer signatures remain
+unchanged; operating the server in production does not certify the downloadable Windows package.
+Rollback: Revert this UI commit; no database/configuration migration is involved.
+
 ## 2026-09-28 - Restore production Cloud API SMTP egress (0.9.75)
 
 Task: Diagnose the existing-account recovery success screen with no message in Resend Emails.

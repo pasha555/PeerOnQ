@@ -210,7 +210,8 @@ describe("route surface separation", () => {
     expect(screen.getByText("Windows · x64")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "View SHA-256 checksums" })).not.toBeInTheDocument();
     expect(screen.getByText("Unsigned development build")).toBeInTheDocument();
-    expect(screen.getByText("For testing only. This installer is not production-signed.")).toBeInTheDocument();
+    expect(screen.getByText("Digital signature: Not signed.")).not.toBeVisible();
+    expect(screen.queryByText("For testing only. This installer is not production-signed.")).not.toBeInTheDocument();
   });
 
   it("fails closed when local Windows download version metadata is missing", () => {
@@ -358,7 +359,7 @@ describe("route surface separation", () => {
     expect(screen.queryByRole("link", { name: "Download PeerOnQ for Windows x64" })).not.toBeInTheDocument();
   });
 
-  it("exposes only the explicitly embedded x64 controlled pilot", () => {
+  it("exposes only the explicitly embedded x64 controlled pilot with expandable installer details", async () => {
     vi.stubEnv("VITE_PEERONQ_EMBEDDED_WINDOWS_X64_URL", "/downloads/PeerOnQ-Windows-x64.msi");
     vi.stubEnv("VITE_PEERONQ_EMBEDDED_WINDOWS_VERSION", "0.5.1");
     vi.stubEnv("VITE_PEERONQ_EMBEDDED_WINDOWS_UNSIGNED_PILOT", "true");
@@ -372,8 +373,11 @@ describe("route surface separation", () => {
     );
     expect(screen.queryByRole("link", { name: "Download PeerOnQ for Windows ARM64" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Detected:/)).not.toBeInTheDocument();
-    expect(screen.getByText("Unsigned controlled pilot")).toBeInTheDocument();
-    expect(screen.getByText("For testing only. This installer is not production-signed.")).toBeInTheDocument();
+    expect(screen.getByText("Unsigned controlled pilot")).not.toBeVisible();
+    expect(screen.queryByText("For testing only. This installer is not production-signed.")).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByText("Installer details"));
+    expect(screen.getByText("Unsigned controlled pilot")).toBeVisible();
+    expect(screen.getByText("Digital signature: Not signed.")).toBeVisible();
     expect(screen.getByText("Version 0.5.1")).toBeInTheDocument();
   });
 

@@ -27,6 +27,17 @@ production approval or a fresh execution of the historical tests farther down th
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
 
+## Production customer sign-in confirmed by the operator - 2026-09-28
+
+The operator received real password-reset email and completed the reset in production. Their
+read-only account/audit query showed an active, unlocked account with successful password resets
+but EmailVerified=false; previous verification deliveries had failed before mail was restored.
+After requesting and completing the separate verification flow, the operator confirmed successful
+Portal sign-in. Preserve SMTP settings, the separate verification requirement and the working
+customer authentication flows. No credentials, tokens or account email are recorded here.
+This confirms that account's recovery/verification/sign-in, not every recipient or a physical-client
+performance/signing release gate. No production database changes were performed by the agent.
+
 ## Customer SMTP egress correction candidate - 2026-09-28
 
 After enabling Resend, the operator confirmed an existing customer account but no message in
@@ -53,8 +64,9 @@ smoke tests verified the Portal routes/headers and exact offered x64 bytes. Serv
 These are unsigned public-pilot packages, with no detached server GPG signature.
 Local container STARTTLS to Resend also passed certificate-chain/hostname validation without AUTH
 or mail submission. The operator's mail failure was on production; these local probes validate
-the proposed fix only. Production installation, SMTP authentication, sender authorization and
-actual recipient delivery remain untested. Capabilities or a banner do not prove mail delivery.
+the proposed fix only. At package validation time, production installation, SMTP authentication,
+sender authorization and actual recipient delivery were untested. The later operator confirmation
+above supplies account-level production evidence. Capabilities or a banner do not prove mail delivery.
 
 ## Operator mail configuration clarification - 2026-09-28
 
