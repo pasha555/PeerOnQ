@@ -30,6 +30,22 @@ Rollback:
 
 ## Entries
 
+## 2026-09-28 - Preserve previously configured Resend SMTP
+
+Task: Explain missing auth links after the operator clarified that Resend worked on an older release.
+Files inspected: Portal capability gates, CustomerMail, installer policy/Compose/active-release
+handling, deployment docs and official Resend SMTP documentation.
+Files changed: docs/CURRENT_STATE.md and this log only; no new version or package.
+Reason: Live HTTPS capabilities returned Closed/registration=false/recovery=false/verification=false.
+The earlier suggested --disable-customer-mail flag explicitly clears SMTP host/username/password;
+the old no-SMTP assumption is superseded. Future upgrades must preserve existing Resend settings.
+Validation: Read-only production capabilities HTTP 200, source-verified STARTTLS/SMTP mapping and
+configuration reload commands. No private server env was read and no live email was sent. Source
+and test execution are unchanged; configuration recovery must be performed on the production host.
+Risk: Original API key availability is unknown. Restore only mail settings from a protected backup
+or use a replacement sending key in the existing Resend account; never paste secrets in chat/Git.
+Rollback: Documentation-only change; no runtime or production data changed.
+
 ## 2026-09-28 - Explicit customer auth navigation (0.9.74)
 
 Task: Fix ambiguous Sign in/Create account/Forgot password/Resend verification navigation.

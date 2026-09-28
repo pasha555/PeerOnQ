@@ -27,6 +27,22 @@ production approval or a fresh execution of the historical tests farther down th
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
 
+## Operator mail configuration clarification - 2026-09-28
+
+The operator clarified that Resend was already configured on an earlier release. This supersedes
+the earlier report of having no SMTP service. A live read-only HTTPS capabilities request returned
+Closed registration with registration/recovery/verification disabled; it did not inspect private
+SMTP credentials or prove whether they can be recovered on the server.
+
+The previously supplied `--disable-customer-mail` command explicitly clears SMTP host, username
+and password in the protected environment. Do not repeat that flag for this installation. Restore
+the existing Resend sender/API key from a protected backup, or provision a replacement sending key
+in the same Resend account if the original is unavailable. Keep secrets off chat and Git.
+Use Smtp, smtp.resend.com:587 with STARTTLS, username resend and a verified sender domain. Enable
+Open registration with email verification only with real delivery configured. Validate the merged
+production Compose configuration, then recreate only cloud-api to apply it. A same-version full
+installer apply rejects replacement of the active release. Live mail acceptance remains pending.
+
 ## Customer auth navigation candidate - 2026-09-28
 
 - Portal sign-in (`/`), registration (`/register`), password recovery (`/forgot-password`) and
