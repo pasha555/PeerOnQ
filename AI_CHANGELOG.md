@@ -30,6 +30,42 @@ Rollback:
 
 ## Entries
 
+## 2026-09-28 - Package the website presentation update as 0.9.76
+
+Task: Deliver a full server patch for the operator's production installation, including the
+previously committed removal of the amber pilot/testing warning.
+Files inspected: Canonical props, server/public-pilot builders, installer/Compose/ingress guards,
+website/Portal Docker inputs and metadata, release/state/maps and source tests.
+Files changed: Directory.Build.props, RELEASE_NOTES, CURRENT_STATE and this log. No runtime change.
+Changes: Advance the shared server/Windows version to 0.9.76 and Android/Apple codes to 9076; rebuild
+and publish the classified x64/ARM64 pair, embed the exact x64 MSI in the full immutable server .run,
+and provide matching release notes. Preserve working SMTP/Portal/Admin policy and native behavior.
+Validation:
+- Website typecheck and 86/86 tests, Portal typecheck and 82/82 tests passed. Canonical Windows/server
+  and native UI/accessibility/open-source invariants passed. Unchanged Release binaries run with
+  --no-build passed Cloud 56/56, Admin 49/49 and deployment 21/21; full solution/media not rerun.
+- Both Windows architectures built with zero warnings/errors and passed installer payload checks.
+  The restarted local :5555 website selects 0.9.76 unsigned-public-pilot; both full HTTP 200 downloads
+  and SHA256SUMS bytes matched. An initial ad-hoc checksum-document string comparison failed due
+  to Python newline normalization; the corrected raw-byte check and both MSI hash checks passed.
+- Full server hash/payload/header/path/source/version/embedded-MSI checks passed (684 files).
+  Generated header shell syntax and extracted/source merged Compose guards passed. The existing
+  real local TLS ingress/installer fixture passed public Portal/API, operator/metrics isolation,
+  unknown-host rejection, embedded download integrity/cache checks and HTTPS header checks.
+- Cloud API, Portal and public-site Docker builds passed using the exact extracted payload.
+  Loopback HTTP checked six Portal SPA routes/security headers and the web bundle's new disclosure,
+  absent old warning, portless Portal link, 0.9.76 metadata and exact served x64 MSI hash.
+- Repository secret scan, staged gitleaks and git diff --check passed. No production deployment,
+  recipient email, real-browser visual or physical-device performance test was performed here.
+Artifacts: Server SHA-256 1bace95042d14cc1f00329bbb65f74973d2938991c0a7ad366ac6eef18652ceb;
+x64 33910917a74d273132e5c54f17e06466308af6e0c0511b229dcf83ff5ce66c97;
+ARM64 b1d9d6e21b2c9d0f7436f1b5315c7a021211443979c9ba0b9bb1bfaaa5fa1e46.
+Risk: Windows packages remain unsigned public pilots; no detached GPG signature was created.
+Production activation and signing/physical acceptance remain separate. Server apply does not
+upgrade installed clients; keep the operator's working Resend environment and registration policy.
+Rollback: Use the retained verified 0.9.75 server release without deleting data/forward migrations;
+its old website notice returns, while its SMTP egress correction and current protected env remain.
+
 ## 2026-09-28 - Simplify the public download presentation
 
 Task: Remove the highlighted pilot warning from the production-facing landing page.

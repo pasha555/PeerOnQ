@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.75`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9075`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.76`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9076`. A source
   version does not establish that a matching signed package has been built or published.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.
@@ -26,6 +26,38 @@ production approval or a fresh execution of the historical tests farther down th
 - Runtime, release-license, physical-device and performance gates remain evidence-bound. See
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
+
+## Download presentation packaged as 0.9.76 - 2026-09-28
+
+The operator requested a server patch for the committed website change. The full .run includes
+the revised download hero: no amber/testing-only banner; existing classification and digital
+signature status remain in Installer details. Customer/Admin auth, SMTP egress and native runtime
+behavior are unchanged. Windows x64 and ARM64 were rebuilt solely for the common version stamp.
+
+Both installer builds completed with zero warnings/errors and passed payload validation. The
+restarted local :5555 preview selects 0.9.76 unsigned-public-pilot; both complete HTTP downloads
+and the checksum document matched their packaged bytes. The server payload/header/archive paths,
+canonical version, source UI and embedded x64 hash passed verification. Cloud API, Portal and
+website Docker images built from the exact extracted bundle. Local HTTP probes checked the six
+Portal routes, security headers, new website copy, portless Portal URL and exact embedded MSI.
+Source and extracted merged Compose guards, generated header shell syntax and local TLS ingress
+tests passed, including public Portal/API, operator CIDRs, private endpoints and unknown hosts.
+
+Public website 86/86 and Portal 82/82 tests/typechecks passed. Canonical client/server and native UI
+invariants passed; unchanged Release backend binaries passed Cloud 56/56, Admin 49/49 and deployment
+21/21 with --no-build. The full media suite, physical devices and real-browser visual acceptance
+were not rerun. Repository/staged secret scans and git diff checks passed.
+
+Artifacts (immutable, unsigned public-pilot candidates; no detached server GPG signature):
+- Server: dist/server/peeronq-server-0.9.76.run, SHA-256
+  1bace95042d14cc1f00329bbb65f74973d2938991c0a7ad366ac6eef18652ceb.
+- Windows x64: 33910917a74d273132e5c54f17e06466308af6e0c0511b229dcf83ff5ce66c97.
+- Windows ARM64: b1d9d6e21b2c9d0f7436f1b5315c7a021211443979c9ba0b9bb1bfaaa5fa1e46.
+
+Production installation/reachability of 0.9.76 remains an operator action; source publication and
+local checks do not deploy it. Preserve the existing environment without --bootstrap or mail/MFA
+overrides. Server installation does not update already installed clients. Rollback to the retained
+0.9.75 restores the old notice and keeps that release's SMTP egress correction.
 
 ## Production customer sign-in confirmed by the operator - 2026-09-28
 
