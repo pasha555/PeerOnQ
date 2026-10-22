@@ -1,6 +1,6 @@
 # PeerOnQ dependency inventory
 
-Status date: 2026-09-27. PeerOnQ remains MIT licensed, but every dependency keeps its own
+Status date: 2026-10-18. PeerOnQ remains MIT licensed, but every dependency keeps its own
 license and redistribution terms. This file identifies the authoritative inventories and the
 current release blockers; it is not a substitute for the exact-artifact SPDX SBOM.
 
@@ -18,23 +18,116 @@ current release blockers; it is not a substitute for the exact-artifact SPDX SBO
 
 | Purpose | Dependency | Pinned version | Current disposition |
 | --- | --- | --- | --- |
-| Hybrid/session cryptography | BouncyCastle.Cryptography | 2.6.2 | MIT; retained with platform FIPS ML-KEM/ML-DSA primitives |
-| WebRTC transport | SIPSorcery | 10.0.15 | Additional license terms remain unresolved; current upstream security advisories require review, including the TURN-over-TLS path |
-| Media abstractions | SIPSorceryMedia.Abstractions | 10.0.15 | Same distribution blocker as SIPSorcery |
+| Hybrid/session cryptography | BouncyCastle.Cryptography | 2.7.0 | MIT; retained with platform FIPS ML-KEM/ML-DSA primitives |
+| WebRTC transport | PeerOnQ.SIPSorcery | 10.0.17.6 (upstream 10.0.17) | User-approved maintained source derivative; seven pinned wakeup/acknowledgement/flow-control/UDP-admission/RTCP-transit patches and native-app notices; unchanged upstream license restrictions and original advisory identity |
+| Media abstractions | SIPSorceryMedia.Abstractions | 10.0.17 | Same distribution blocker as SIPSorcery |
 | VP8 software codec | SIPSorceryMedia.Encoders | 10.0.4 | Native binaries match upstream checked-in files and carry a `v1.9.0` string; exact libvpx source/build, security patch status and bundled notices remain unverified |
 | Windows capture/GPU interop | Vortice.Direct3D11 / Vortice.DXGI | 3.8.3 | MIT; retain notices |
+| Windows hardware video | Vortice.MediaFoundation | 3.8.3 | User-approved on 2026-10-18; MIT interop, installed Windows codecs/drivers remain platform components |
+| Windows system sound | NAudio.Wasapi | 3.2.0 | User-approved on 2026-10-18; MIT; exact transitive inventory belongs in the release SBOM |
+| Optional Windows SCM broker | Microsoft.Extensions.Hosting.WindowsServices | 10.0.13 | User-approved on 2026-10-18; Microsoft MIT package; service has no remote-control/network endpoint |
 | Structured logging | Serilog | 4.4.0 | Apache-2.0; retain notices |
-| Local persistence | Microsoft.Data.Sqlite / SQLitePCLRaw | 10.0.10 / 3.0.4 | Pinned above the recorded SQLitePCLRaw advisory floor |
+| Local persistence | Microsoft.Data.Sqlite / SQLitePCLRaw | 10.0.13 / 3.0.4 | Pinned above the recorded SQLitePCLRaw advisory floor |
 | Postgres / Redis | Npgsql EF provider / StackExchange.Redis | 10.0.3 / 3.0.17 | Server-side infrastructure; exact deployed image/package review still applies |
 | Windows application runtime | Microsoft.WindowsAppSDK | 1.8.251106002 | Microsoft platform redistribution terms apply |
 | Linux application runtime | Avalonia / Avalonia.Desktop / Avalonia.Themes.Fluent | 12.1.0 | NuGet metadata and upstream repository declare MIT; retain exact-package notices and SBOM evidence |
+| Linux VP8 runtime | Distribution libvpx | System `libvpx.so.9` (Ubuntu 24.04: `libvpx9`) | Installed/updated by the distribution; fixed system paths, no bundled Windows codec; exact distro/runtime evidence is separate from Windows native provenance |
 | Installer UI | WixToolset.UI.wixext | 6.0.1 | Review the official binary maintenance-fee agreement's applicability/payment or exemption; source and redistribution rights are addressed separately in its terms |
 
 The full central .NET inventory is intentionally kept in `Directory.Packages.props`; duplicating
 all packages here would create a stale second lockfile. The full production JavaScript license
 inventory is obtained with `pnpm licenses list --prod --json`.
 
-## 2026-09-27 source and package review
+## 2026-10-18 source remediation
+
+Managed Microsoft packages and all .NET server runtime images now select 10.0.13; builders and
+`global.json` select SDK 10.0.402. This closes the previously pinned 10.0.10 runtime exposure;
+updating a NuGet reference alone would not update the container runtime. SIPSorcery/Abstractions
+10.0.17 and BouncyCastle 2.7.0 passed source compatibility checks. The actual upstream TURN/TLS
+receive loop is tested to continue after a packet callback throws. The user approved maintaining
+the narrow DTLS receive wakeup derivative on 2026-10-18 after the external comparison passed six
+cases. `PeerOnQ.SIPSorcery` 10.0.17.4 additionally resets reported duplicate TSNs per SACK, fixing
+unbounded acknowledgment history, and widens the gap-loop counter to avoid ushort wraparound.
+It preserves assembly identity and upstream terms. Package build
+and final consumer validation remain separate from that experiment; existing downloads are unchanged.
+
+Before native restore, run:
+
+```sh
+dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release -- --output eng/sipsorcery/packages
+dotnet restore PeerOnQ.slnx
+```
+
+The SDK-only builder verifies the pinned official archive, reviewed patch, resulting source and
+package identities, and retains license/source provenance. `NuGet.config` restricts the derivative
+ID to the generated local feed; no DLL/package is committed. PeerOnQ maintainers own updates and
+security backports. Changing upstream or the effective patch requires a new dependency revision,
+fresh evidence and all compatibility/security gates. The original SIPSorcery advisory identity is
+queried independently by `scripts/security/test-sipsorcery-upstream-advisories.ps1`; a custom ID's
+empty advisory result is never an upstream security clearance.
+
+Historical 10.0.17.4 source-package checks: two clean builds produced the identical nupkg SHA256
+`35725ea2ff41fad6bcf94a04c34a25cb83458f6c515072ab33523cf98e69cdfd` and core DLL SHA256
+`c41a82602d1bce23827402bd4d32cc20af59aab7767e78b0c0874fa0f531b8ac`.
+Builder self-tests passed 16/16; actual-package compatibility passed 7/7 with the 6,674-entry API
+surface unchanged. Six immutable license/source/patch/provenance files accompany native payloads.
+The fixed ZIP timestamps exposed equal-size stale DLL copies in MSBuild; hash-verified build and
+publish targets now repair them, and six durable regression cases passed. Final SDK402 inventory
+covered 41 solution projects with zero findings; the separate original-ID advisory gate also passed.
+The widened gap-counter patch was code-reviewed and ordinary SCTP regressions passed; no hostile
+boundary runtime probe was executed. These checks do not resolve the legacy large-file slowdown.
+
+The earlier 10.0.17.5 follow-up adds bounded sender flow/recovery, retained receiver credit and UDP
+single-owner receive admission to the original three unchanged patches. Six ordered patch inputs
+produce four final changed source files, embedded with exact hashes in the package/PDB; native
+payloads retain nine license/source/patch/provenance files. The SDK-only builder passed 22/22
+self-tests. Two clean builds produced identical package SHA256
+`009e1a75ce476bb333ae638cfa6efa5bcadefe23c23457b30bae8b37905d7a11`, core DLL SHA256
+`7b7eec4e48fd76a078dc13d3bf14c97452d060850a060d5403e8a5afb4ca3881` and PDB SHA256
+`ae5b3907e2b663d4edf8f0327d09c27ba7e7f45e94a5cc4dcb7672632f5bb41b`.
+That exact emitted core passed 33 ordinary SCTP/UDP regressions and seven compatibility checks;
+the 6,674-entry exported API surface is unchanged. Plain solution restore and the strict whole
+Release build passed with zero warnings/errors. Windows x64, Media.Tests and EndToEnd.Tests
+core hashes match .5; the Windows output's nine retained notice hashes/provenance passed validation.
+The main whole suite passed 1,140 of 1,167 with zero failures and 27 environment skips. The actual
+Ubuntu linux-x64 package passed 48/48, payload integrity/notices and extracted-payload launch,
+close and startup-cancel checks; exact SCTP-lane measurements are recorded in the dated
+performance/current-state documents. No new product version or MSI is implied.
+
+Current 10.0.17.6 preserves all six .5 patches and adds first-packet RTCP transit initialization,
+with seven raw patches, five final embedded sources and ten notices. Actual .5 ordinary-packet
+checks failed six of nine; the one-line candidate passed nine of nine with genuine jitter and
+natural timestamp rollovers preserved. Builder self-tests passed 22/22. Two clean packages are
+byte-identical: nupkg SHA256
+`09039b5ccfd6a8629bde9e63840a5c429dd0834b3437e4fc2aefff6a71ce89ef`, core DLL
+`6c49e690e5fd5bca8ea61f06975106c00de2985da24fdd243f9b8ee0fcfd628b`, PDB
+`c84fbc4bb8b95155df8351b1ca35df9c764fac935e9773c93027220ad62746ee`.
+Exact .6 package compatibility passed 7/7 with all 6,674 exported API entries unchanged. The
+whole Release CI/analyzer build and plain restore passed; Windows x64 and both main media test
+outputs match this core and all ten notices validate. The fresh 41-project managed inventory
+reports zero vulnerable entries. The pre-D3D .6 whole suite passed 1,179/1,206 with zero failures
+and 27 explicit environment skips. Actual Ubuntu .6 checks passed 48/48; archive integrity,
+exact core/ten notices and extracted normal-close/startup-cancel passed. Exact Linux artifact
+and remaining performance gates are recorded in the dated current-state/performance documents.
+License/advisory/publication gates remain unchanged.
+
+The final adopted-D3D source then passed the strict whole build with zero warnings/errors and
+the complete19-project run:1,213 total,1,186 passed,zero failed,27 explicit environment skips.
+Actual x64 solution output and both Media/EndToEnd runtime consumers match exact .6 core.
+The solution output is `src/PeerOnQ.App/bin/x64/Release/...`; retained historical `bin/Release`
+publish trees were neither rebuilt nor relabelled as current. No new product release is implied.
+
+Normal pnpm resolution raised the existing vulnerable dependency floors, preserving
+`minimumReleaseAge` and package-manager/Node gates. The unused `artifacts/mockup-sandbox` remains
+on disk but is excluded from workspace installation; its unpatched transitive dependency is not
+part of the product dependency graph. `pnpm audit --audit-level low` now reports no known
+vulnerabilities. Full frontend typecheck, lint, 228 tests and builds passed under verified Node
+24.21.0. The fresh SDK402 NuGet inventory covered 41 solution projects including transitives and
+the approved new dependencies, with zero reported vulnerable entries. These source/scan results do
+not establish a signed artifact, native libvpx security,
+license approval or production deployment. Historical results below retain their original date.
+
+## Historical 2026-09-27 source and package review
 
 The exact restored NuGet licenses, archive hashes, source commits and native-binary matches are
 recorded in [the license audit](docs/competitive/THIRD_PARTY_LICENSE_AUDIT.md). No package was
@@ -47,7 +140,7 @@ listed when checked. PeerOnQ supports this ICE transport, so the finding cannot 
 unused SIP feature. Separate SIP advisories and their applicability are detailed in the audit.
 The older clean scan below is historical and does not clear these current findings.
 
-The latest listed 10.0.16 still contains the additional license terms and the same 25 ms DTLS
+The then-latest listed 10.0.16 still contained the additional license terms and the same 25 ms DTLS
 receive polling implementation. It is not a demonstrated license, latency or TURN-over-TLS fix.
 The audit records migration options and the required compatibility/security checks separately.
 

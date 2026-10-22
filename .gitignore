@@ -48,6 +48,10 @@ Thumbs.db
 .cache/
 .local/
 
+# Rebuilt from pinned source; never commit maintained dependency packages.
+/eng/sipsorcery/packages/*
+!/eng/sipsorcery/packages/.gitkeep
+
 # Local dev control scripts (peeronq-*.bat) state
 .peeronq-run/
 .peeronq-phase3/
@@ -71,6 +75,8 @@ src/PeerOnQ.Signaling.Server/data/
 # .NET build output
 [Bb]in/
 [Oo]bj/
+# Optional repo-local SDK selected by global.json; never publish SDK binaries.
+/.dotnet/
 
 # Python bytecode cache
 __pycache__/

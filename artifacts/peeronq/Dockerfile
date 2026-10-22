@@ -28,13 +28,17 @@ ENV VITE_PEERONQ_LINUX_ARM64_DOWNLOAD_URL=${VITE_PEERONQ_LINUX_ARM64_DOWNLOAD_UR
 ENV VITE_PEERONQ_ANDROID_DOWNLOAD_URL=${VITE_PEERONQ_ANDROID_DOWNLOAD_URL}
 ENV VITE_PEERONQ_IOS_DOWNLOAD_URL=${VITE_PEERONQ_IOS_DOWNLOAD_URL}
 ENV VITE_PEERONQ_ACCOUNT_PORTAL_URL=${VITE_PEERONQ_ACCOUNT_PORTAL_URL}
-RUN if [ -f /workspace/artifacts/peeronq/public/downloads/embedded-windows-version.txt ]; then \
+RUN set -eu; if [ -f /workspace/artifacts/peeronq/public/downloads/embedded-windows-version.txt ]; then \
       test -f /workspace/artifacts/peeronq/public/downloads/PeerOnQ-Windows-x64.msi; \
+      test -f /workspace/artifacts/peeronq/public/downloads/PeerOnQ-Windows-arm64.msi; \
       test -f /workspace/artifacts/peeronq/public/downloads/SHA256SUMS.txt; \
       test -f /workspace/artifacts/peeronq/public/downloads/embedded-windows-release-type.txt; \
       expected_sha256="$(awk '$2 == "PeerOnQ-Windows-x64.msi" { print $1; exit }' /workspace/artifacts/peeronq/public/downloads/SHA256SUMS.txt)"; \
       actual_sha256="$(sha256sum /workspace/artifacts/peeronq/public/downloads/PeerOnQ-Windows-x64.msi | awk '{ print $1 }')"; \
       test -n "$expected_sha256" && test "$actual_sha256" = "$expected_sha256"; \
+      expected_arm64_sha256="$(awk '$2 == "PeerOnQ-Windows-arm64.msi" { print $1; exit }' /workspace/artifacts/peeronq/public/downloads/SHA256SUMS.txt)"; \
+      actual_arm64_sha256="$(sha256sum /workspace/artifacts/peeronq/public/downloads/PeerOnQ-Windows-arm64.msi | awk '{ print $1 }')"; \
+      test -n "$expected_arm64_sha256" && test "$actual_arm64_sha256" = "$expected_arm64_sha256"; \
       release_type="$(cat /workspace/artifacts/peeronq/public/downloads/embedded-windows-release-type.txt)"; \
       case "$release_type" in \
         signed) test ! -e /workspace/artifacts/peeronq/public/downloads/UNSIGNED-PILOT-NOTICE.txt; export VITE_PEERONQ_EMBEDDED_WINDOWS_UNSIGNED_PILOT=false ;; \
@@ -42,6 +46,7 @@ RUN if [ -f /workspace/artifacts/peeronq/public/downloads/embedded-windows-versi
         *) exit 1 ;; \
       esac; \
       export VITE_PEERONQ_EMBEDDED_WINDOWS_X64_URL=/downloads/PeerOnQ-Windows-x64.msi; \
+      export VITE_PEERONQ_EMBEDDED_WINDOWS_ARM64_URL=/downloads/PeerOnQ-Windows-arm64.msi; \
       export VITE_PEERONQ_EMBEDDED_WINDOWS_VERSION="$(cat /workspace/artifacts/peeronq/public/downloads/embedded-windows-version.txt)"; \
     fi; \
     pnpm --filter @workspace/peeronq run build

@@ -9,11 +9,14 @@ using PeerOnQ.Application.Sessions;
 using PeerOnQ.Domain.Identity;
 using PeerOnQ.Domain.Sessions;
 using PeerOnQ.Infrastructure;
+using PeerOnQ.Infrastructure.Cloud;
+using PeerOnQ.Infrastructure.Configuration;
 using PeerOnQ.Infrastructure.Diagnostics;
 using PeerOnQ.Infrastructure.Persistence;
 using PeerOnQ.Media;
 using PeerOnQ.Platform.Linux;
 using PeerOnQ.Platform.Linux.Security;
+using PeerOnQ.Shared.Contracts.V1;
 using PeerOnQ.Transport;
 using PeerOnQ.Transport.DataPlane;
 
@@ -23,25 +26,34 @@ public sealed class LinuxAppServices : IAsyncDisposable
 {
     private const string DefaultSignalingUrl = "wss://signal.127.0.0.1.sslip.io:5443/ws";
     private const int MaximumCertificateBytes = 128 * 1024;
-    private int _disposed;
+    private readonly Lock _disposalGate = new();
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly DeviceIdentity _identity;
+    private readonly CloudPlatformClient? _cloud;
+    private readonly HttpClient? _cloudHttp;
+    private Task? _disposeTask;
 
     private LinuxAppServices(
         ILoggerFactory loggerFactory,
         DeviceIdentity identity,
         HybridDeviceIdentityService hybridIdentity,
         WebSocketSignalingClient signaling,
-        SessionCoordinator coordinator)
+        SessionCoordinator coordinator,
+        CloudPlatformClient? cloud,
+        HttpClient? cloudHttp)
     {
         LoggerFactory = loggerFactory;
-        Identity = identity;
+        _identity = identity;
         HybridIdentity = hybridIdentity;
         Signaling = signaling;
         Coordinator = coordinator;
+        _cloud = cloud;
+        _cloudHttp = cloudHttp;
     }
 
     public ILoggerFactory LoggerFactory { get; }
 
-    public DeviceIdentity Identity { get; }
+    public DeviceIdentity Identity => _cloud?.Identity ?? _identity;
 
     public HybridDeviceIdentityService HybridIdentity { get; }
 
@@ -54,11 +66,14 @@ public sealed class LinuxAppServices : IAsyncDisposable
         if (!OperatingSystem.IsLinux())
             throw new PlatformNotSupportedException("PeerOnQ Linux must be started on a supported Linux desktop.");
 
+        LinuxNativeLibraryBootstrap.Initialize();
+
         var paths = new PeerOnQPaths(ReadEnvironmentVariable("PEERONQ_DATA_DIR")).EnsureCreated();
         var appVersion = typeof(LinuxAppServices).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
             ?? typeof(LinuxAppServices).Assembly.GetName().Version?.ToString()
             ?? "unknown";
+        var protocolClientVersion = typeof(LinuxAppServices).Assembly.GetName().Version!.ToString(3);
         var loggerFactory = PeerOnQLogging.CreateLoggerFactory(
             paths.LogDirectory,
             appVersion,
@@ -68,6 +83,8 @@ public sealed class LinuxAppServices : IAsyncDisposable
         HybridDeviceIdentityService? hybridIdentity = null;
         WebSocketSignalingClient? signaling = null;
         SessionCoordinator? coordinator = null;
+        CloudPlatformClient? cloud = null;
+        HttpClient? cloudHttp = null;
         try
         {
             var database = new PeerOnQDatabase(paths.DatabaseFile);
@@ -81,13 +98,43 @@ public sealed class LinuxAppServices : IAsyncDisposable
             var identity = await provisioning.GetOrCreateAsync(Environment.MachineName, cancellationToken);
             hybridIdentity = new HybridDeviceIdentityService(secretStore, identity);
 
-            var serverUri = ReadSignalingUri();
+            // This unsigned preview accepts an operator's complete public endpoint manifest.
+            // Compiled metadata takes precedence; the shared parser keeps TLS and completeness checks.
+            var cloudEndpoints = CloudEndpointConfiguration.TryCreate(
+                typeof(LinuxAppServices).Assembly, allowDevelopmentEnvironmentOverrides: true);
+            if (cloudEndpoints is not null)
+            {
+                cloudHttp = new HttpClient(new HttpClientHandler
+                {
+                    AllowAutoRedirect = false,
+                    AutomaticDecompression = System.Net.DecompressionMethods.All,
+                });
+                cloud = new CloudPlatformClient(
+                    cloudHttp,
+                    new CloudPlatformClientOptions
+                    {
+                        Endpoints = cloudEndpoints,
+                        InstallationId = identity.InternalId,
+                        AppVersion = protocolClientVersion,
+                        OsVersion = Environment.OSVersion.VersionString,
+                        Architecture = CloudPlatformClient.CurrentArchitecture,
+                        InstallChannel = InstallChannelV1.Development,
+                        Platform = PlatformKindV1.Linux,
+                    },
+                    identity,
+                    provisioning,
+                    provisioning.AssignServerPublicIdAsync,
+                    new SqliteClientTelemetryOutbox(database),
+                    loggerFactory.CreateLogger<CloudPlatformClient>());
+            }
+
+            var serverUri = cloudEndpoints?.SignalingUri ?? ReadSignalingUri();
             signaling = new WebSocketSignalingClient(
                 new SignalingClientOptions
                 {
                     ServerUri = serverUri,
                     ClientCapabilities = LinuxClientCapabilityProfile.Create(),
-                    ClientVersion = appVersion,
+                    ClientVersion = protocolClientVersion,
                     AutoReconnect = true,
                     MaxReconnectAttempts = 10,
                     MaxReconnectWindow = TimeSpan.FromSeconds(60),
@@ -95,7 +142,8 @@ public sealed class LinuxAppServices : IAsyncDisposable
                     TrustedDevelopmentRootCertificate = ReadDevelopmentCertificate(),
                 },
                 provisioning,
-                loggerFactory.CreateLogger<WebSocketSignalingClient>());
+                loggerFactory.CreateLogger<WebSocketSignalingClient>(),
+                cloud is null ? null : new CloudAttestationProvider(cloud));
 
             var auditKey = await secretStore.TryGetAsync("audit-integrity-key-v1", cancellationToken);
             if (auditKey is null)
@@ -124,7 +172,8 @@ public sealed class LinuxAppServices : IAsyncDisposable
                 hybridIdentity: hybridIdentity,
                 nativeBulkTransportFactory: new ManagedQuicBulkTransportFactory());
 
-            return new LinuxAppServices(loggerFactory, identity, hybridIdentity, signaling, coordinator);
+            cancellationToken.ThrowIfCancellationRequested();
+            return new LinuxAppServices(loggerFactory, identity, hybridIdentity, signaling, coordinator, cloud, cloudHttp);
         }
         catch
         {
@@ -132,27 +181,59 @@ public sealed class LinuxAppServices : IAsyncDisposable
                 await coordinator.DisposeAsync();
             if (signaling is not null)
                 await signaling.DisposeAsync();
+            if (cloud is not null)
+                await cloud.DisposeAsync();
+            cloudHttp?.Dispose();
             hybridIdentity?.Dispose();
             loggerFactory.Dispose();
             throw;
         }
     }
 
-    public Task ConnectAsync(CancellationToken cancellationToken = default) =>
-        Signaling.ConnectAsync(Identity, cancellationToken);
-
-    public async ValueTask DisposeAsync()
+    public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        await Coordinator.DisposeAsync();
-        await Signaling.DisposeAsync();
-        HybridIdentity.Dispose();
-        LoggerFactory.Dispose();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        if (_cloud is not null) await _cloud.RegisterInstallationAsync(linked.Token);
+        await Signaling.ConnectAsync(Identity, linked.Token);
+        _cloud?.Start();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_disposalGate)
+            return new ValueTask(_disposeTask ??= DisposeCoreAsync());
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await _lifetime.CancelAsync();
+        try { await Coordinator.DisposeAsync(); }
+        finally
+        {
+            try { await Signaling.DisposeAsync(); }
+            finally
+            {
+                try
+                {
+                    if (_cloud is not null) await _cloud.DisposeAsync();
+                }
+                finally
+                {
+                    _cloudHttp?.Dispose();
+                    HybridIdentity.Dispose();
+                    LoggerFactory.Dispose();
+                    _lifetime.Dispose();
+                }
+            }
+        }
     }
 
     private static Uri ReadSignalingUri()
     {
-        var configured = ReadEnvironmentVariable("PEERONQ_SIGNALING_URL") ?? DefaultSignalingUrl;
+        var compiled = typeof(LinuxAppServices).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(item => item.Key == "PeerOnQSignalingUrl")?.Value;
+        var configured = !string.IsNullOrWhiteSpace(compiled) ? compiled
+            : ReadEnvironmentVariable("PEERONQ_SIGNALING_URL") ?? DefaultSignalingUrl;
         if (!Uri.TryCreate(configured, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeWss && uri.Scheme != Uri.UriSchemeWs))
         {
@@ -184,6 +265,19 @@ public sealed class LinuxAppServices : IAsyncDisposable
 
     private static string? ReadEnvironmentVariable(string name) =>
         Environment.GetEnvironmentVariable(name) is { Length: > 0 } value ? value : null;
+
+    private sealed class CloudAttestationProvider(CloudPlatformClient cloud) : ISignalingAttestationProvider
+    {
+        public async Task<string?> GetSignalingAttestationAsync(CancellationToken cancellationToken = default)
+        {
+            try { return await cloud.GetSignalingAttestationAsync(cancellationToken); }
+            catch (CloudPlatformException exception) when (exception.Permanent)
+            {
+                throw new PeerOnQ.Domain.Errors.SignalingAuthenticationException(
+                    "Cloud device authentication is no longer valid for signaling.", exception);
+            }
+        }
+    }
 
     private sealed class DenyIncomingPermissionPrompt : IPermissionPrompt
     {

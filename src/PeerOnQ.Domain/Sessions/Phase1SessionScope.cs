@@ -20,6 +20,7 @@ public static class Phase1SessionScope
         SessionPermission permissions,
         SessionAccessKind accessKind) =>
         accessKind is SessionAccessKind.Attended or SessionAccessKind.Unattended or SessionAccessKind.SupportInvitation
+        && (!permissions.HasFlag(SessionPermission.SystemAudio) || accessKind == SessionAccessKind.Attended)
         && !permissions.HasFlag(SessionPermission.ClipboardImage)
         && SessionPermissionPolicy.IsValid(mode, permissions);
 
@@ -29,8 +30,19 @@ public static class Phase1SessionScope
         permissions != SessionPermission.None
         && (permissions & ~SessionPermissionPolicy.KnownPermissions) == 0
         && !permissions.HasFlag(SessionPermission.ClipboardImage)
+        && (!permissions.HasFlag(SessionPermission.SystemAudio)
+            || permissions.HasFlag(SessionPermission.ViewScreen))
         && (!permissions.HasFlag(SessionPermission.ControlInput)
             || permissions.HasFlag(SessionPermission.ViewScreen));
+
+    public static bool IsRemoteScopeSelectionEnvelope(SessionPermission permissions) =>
+        (permissions & ~SessionPermission.SystemAudio) == FullControlPermissions;
+
+    public static bool IsRemoteScopeSelectionGrant(
+        SessionMode mode, SessionPermission permissions, SessionPermission requestedPermissions) =>
+        mode is SessionMode.ViewOnly or SessionMode.FullControl
+        && (permissions & ~SessionPermission.SystemAudio) == SessionPermissionPolicy.ForMode(mode)
+        && (permissions & ~requestedPermissions) == 0;
 
     public static void EnsureAllowed(
         SessionMode mode,

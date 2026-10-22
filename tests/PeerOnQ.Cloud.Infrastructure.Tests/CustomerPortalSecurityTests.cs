@@ -40,8 +40,8 @@ public sealed class CustomerPortalSecurityTests
         using var db = new CloudDbContext(new DbContextOptionsBuilder<CloudDbContext>().Options);
         var service = AccountService(db, DisabledMailOptions());
         var id = Guid.NewGuid();
-        var setup = await Assert.ThrowsAsync<ApiProblemException>(() => service.BeginMfaSetupAsync(id, CancellationToken.None));
-        var confirm = await Assert.ThrowsAsync<ApiProblemException>(() => service.ConfirmMfaAsync(id, "unused", "123456", CancellationToken.None));
+        var setup = await Assert.ThrowsAsync<ApiProblemException>(() => service.BeginMfaSetupAsync(id, Guid.NewGuid(), null, CancellationToken.None));
+        var confirm = await Assert.ThrowsAsync<ApiProblemException>(() => service.ConfirmMfaAsync(id, Guid.NewGuid(), "unused", "123456", CancellationToken.None));
         var disable = await Assert.ThrowsAsync<ApiProblemException>(() => service.DisableMfaAsync(id, "unused", "123456", CancellationToken.None));
         Assert.All(new[] { setup, confirm, disable }, error =>
         {
@@ -248,7 +248,7 @@ public sealed class CustomerPortalSecurityTests
     {
         var context = new DefaultHttpContext();
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, accountId.ToString("D"))], "PeerOnQCustomer"));
+            [new Claim("sub", accountId.ToString("D")), new Claim(CustomerPortalAuthentication.SessionIdClaim, Guid.NewGuid().ToString("D"))], "PeerOnQCustomer"));
         return context;
     }
 

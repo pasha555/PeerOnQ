@@ -85,6 +85,36 @@ public sealed class SignalingAttestationIssuerTests : IDisposable
                 TimeProvider.System));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ManagedAudioIsSignedIndependentlyWithoutChangingVersionTwoPayloadShape(bool audioAllowed)
+    {
+        Directory.CreateDirectory(_root);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var privateKeyPath = Path.Combine(_root, "managed-signing-key.pem");
+        File.WriteAllText(privateKeyPath, key.ExportPkcs8PrivateKeyPem());
+        var now = DateTimeOffset.UtcNow;
+        using var issuer = new EcdsaSignalingAttestationIssuer(Options.Create(new SignalingAttestationIssuerOptions
+        {
+            Issuer = "https://identity.peeronq.test", Audience = "peeronq-signaling", Lifetime = TimeSpan.FromMinutes(5), PrivateKeyFile = privateKeyPath
+        }), new FixedTimeProvider(now));
+        var policy = new ManagedDevicePolicyAttestation(Guid.NewGuid(), true, true, false, false, false, false, string.Empty, string.Empty, audioAllowed);
+        var issued = issuer.Issue(new SignalingAttestationIssueRequest("123-456-789-012", new string('a', 64), Guid.NewGuid(), Guid.NewGuid(), policy));
+        var spki = key.ExportSubjectPublicKeyInfo();
+        var keys = new Dictionary<string, byte[]> { [SignalingAttestationTokenV1.ComputeKeyId(spki)] = spki };
+        Assert.True(SignalingAttestationTokenV1.TryValidate(issued.Token, keys, "https://identity.peeronq.test", "peeronq-signaling",
+            now, TimeSpan.Zero, TimeSpan.FromMinutes(5), out var claims, out _));
+        Assert.Equal(audioAllowed, (claims!.OrganizationPolicyFlags & SignalingOrganizationPolicyFlags.SystemAudio) != 0);
+        Assert.Equal(0, claims.OrganizationPolicyFlags & SignalingOrganizationPolicyFlags.HybridRequired);
+        var payload = issued.Token.Split('.')[1].Replace('-', '+').Replace('_', '/');
+        payload = payload.PadRight((payload.Length + 3) / 4 * 4, '=');
+        using var json = System.Text.Json.JsonDocument.Parse(Convert.FromBase64String(payload));
+        Assert.Equal(2, json.RootElement.GetProperty("v").GetInt32());
+        Assert.Equal(15, json.RootElement.EnumerateObject().Count());
+        Assert.Throws<ArgumentException>(() => SignalingAttestationTokenV1.Issue(claims with { OrganizationPolicyFlags = claims.OrganizationPolicyFlags | 128 }, key));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);

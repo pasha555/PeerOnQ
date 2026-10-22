@@ -52,6 +52,33 @@ public sealed class SecretToolDeviceSecretStoreTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.TryGetAsync("device-private-key"));
     }
 
+    [Theory]
+    [InlineData(2, "")]
+    [InlineData(127, "")]
+    [InlineData(0, " ")]
+    public async Task TryGetAsync_DoesNotTreatHelperFailureOrCorruptEmptyValueAsMissing(int exitCode, string output)
+    {
+        var store = new SecretToolDeviceSecretStore(new RecordingRunner(new SecretToolResult(exitCode, output)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.TryGetAsync("device-private-key"));
+    }
+
+    [Fact]
+    public async Task TryGetAsync_ReturnsMissingOnlyForLookupNotFound()
+    {
+        var store = new SecretToolDeviceSecretStore(new RecordingRunner(new SecretToolResult(1, "")));
+
+        Assert.Null(await store.TryGetAsync("device-private-key"));
+    }
+
+    [Fact]
+    public async Task TryGetAsync_DistinguishesExitOneWithKeyringErrorsFromMissing()
+    {
+        var store = new SecretToolDeviceSecretStore(new RecordingRunner(new SecretToolResult(1, "", HasErrorOutput: true)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.TryGetAsync("device-private-key"));
+    }
+
     private sealed class RecordingRunner(SecretToolResult result) : ISecretToolRunner
     {
         public IReadOnlyList<string>? Arguments { get; private set; }

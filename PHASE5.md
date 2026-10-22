@@ -12,8 +12,9 @@ remain separate gates. See [current state](docs/CURRENT_STATE.md) and the
 
 ## Current source version
 
-`Directory.Build.props` defines `PeerOnQWindowsClientVersion = 0.9.66`; Linux, Android and Apple
-client versions derive from it. Source version alone does not establish a current downloadable
+`Directory.Build.props` defines the canonical `PeerOnQWindowsClientVersion`; Linux, Android and
+Apple client versions derive from it. See [current state](docs/CURRENT_STATE.md) for the checked
+source version. Source version alone does not establish a current downloadable
 artifact. Each Windows publication requires the matching validated x64/ARM64 pair and checksums
 on every intended download surface; historical artifacts below cannot satisfy that gate.
 

@@ -30,7 +30,8 @@ public static class SignalingOrganizationPolicyFlags
     public const int Unattended = 1 << 3;
     public const int Clipboard = 1 << 4;
     public const int HybridRequired = 1 << 5;
-    public const int Known = ViewOnly | FullControl | FileTransfer | Unattended | Clipboard | HybridRequired;
+    public const int SystemAudio = 1 << 6;
+    public const int Known = ViewOnly | FullControl | FileTransfer | Unattended | Clipboard | HybridRequired | SystemAudio;
 }
 
 public enum SignalingAttestationValidationError

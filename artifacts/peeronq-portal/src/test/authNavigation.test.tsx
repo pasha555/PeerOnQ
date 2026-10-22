@@ -49,7 +49,7 @@ describe('explicit customer auth navigation', () => {
 
   it.each(routes)('supports direct navigation to %s', async (_label, path, heading, field) => {
     setup(path);
-    expect(await screen.findByLabelText(field)).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText(field)).toHaveFocus());
     expect(screen.getByRole('heading', { name: heading })).toBeVisible();
     expect(window.location.pathname).toBe(path);
   });
@@ -63,7 +63,7 @@ describe('explicit customer auth navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeVisible();
     act(() => window.history.forward());
     await waitFor(() => expect(window.location.pathname).toBe(path));
-    expect(await screen.findByLabelText(field)).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText(field)).toHaveFocus());
     await user.click(screen.getByRole('link', { name: 'Back to sign in' }));
     await user.click(screen.getByRole('link', { name: 'Forgot password?' }));
     expect(window.location.pathname).toBe('/forgot-password');

@@ -1,7 +1,9 @@
 {
   "sdk": {
-    "version": "10.0.302",
+    "version": "10.0.402",
     "rollForward": "latestPatch",
-    "allowPrerelease": false
+    "allowPrerelease": false,
+    "paths": [ ".dotnet", "$host$" ],
+    "errorMessage": "Install .NET SDK 10.0.402 system-wide or extract the official SDK archive into the repository's ignored .dotnet directory. See https://dotnet.microsoft.com/download/dotnet/10.0."
   }
 }

@@ -53,6 +53,9 @@ if (Test-Path -LiteralPath $output) { throw "Portable Support output already exi
 $architecturesToBuild = @($Architectures | Select-Object -Unique)
 if ($architecturesToBuild.Count -eq 0) { throw 'Select at least one client architecture.' }
 $archives = @()
+& dotnet run --project (Join-Path $repoRoot 'eng/PeerOnQ.DependencyBuilder') -c Release -- `
+    --output (Join-Path $repoRoot 'eng/sipsorcery/packages')
+if ($LASTEXITCODE -ne 0) { throw 'Maintained media dependency build failed.' }
 foreach ($architecture in $architecturesToBuild) {
     $runtime = "win-$architecture"
     $publish = Join-Path $output "$architecture\PeerOnQ-Portable-Support"

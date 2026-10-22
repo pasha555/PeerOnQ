@@ -11,4 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\PeerOnQ.App.Linux\PeerOnQ.App.Linux.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures\vp8-color-frames.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

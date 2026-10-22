@@ -77,7 +77,9 @@ public interface IMachineLearningConnectionPolicyProvider : IConnectionPolicyPro
 /// <summary>Production deterministic connection policy used by the existing media pipeline.</summary>
 public sealed class ConnectionPolicyProvider : IConnectionPolicyProvider
 {
-    private const int MaximumManagedBulkKbps = 1_000_000;
+    // The wire/statistics contract uses Int32 kbps. Keep its numeric bound, not a 1 Gbps
+    // product speed cap; measured delivery and congestion still determine usable capacity.
+    private const int MaximumManagedBulkKbps = int.MaxValue;
     private const int MaximumProvisionalBulkKbps = 150_000;
     private const int InputPressureInteractiveReserveKbps = 1_024;
     public const double TargetInputToInjectionP95Ms = 35;
@@ -98,6 +100,13 @@ public sealed class ConnectionPolicyProvider : IConnectionPolicyProvider
         resolution is CaptureResolution.P2160 or CaptureResolution.Native
             ? TargetFourKCaptureToPresentP95Ms
             : TargetCaptureToPresentP95Ms;
+
+    public static double GetTargetCaptureToPresentP95Ms(
+        CaptureResolution resolution, int encodedWidth, int encodedHeight) =>
+        resolution == CaptureResolution.Automatic && encodedWidth > 0 && encodedHeight > 0
+            && (long)encodedWidth * encodedHeight >= 3840L * 2160
+                ? TargetFourKCaptureToPresentP95Ms
+                : GetTargetCaptureToPresentP95Ms(resolution);
 
     public static bool HasReliableInputPressure(double latencyP95Ms, double clockUncertaintyMs) =>
         IsFiniteNonNegative(latencyP95Ms)
@@ -144,6 +153,7 @@ public sealed class ConnectionPolicyProvider : IConnectionPolicyProvider
             || !double.IsFinite(statistics.AvailableOutgoingBitrateKbps)
             || statistics.AvailableOutgoingBitrateKbps < 0
             || statistics.TargetBitrateKbps < 0
+            || statistics.SystemAudioReservationKbps < 0
             || !double.IsFinite(statistics.InputToInjectionLatencyP95Ms)
             || statistics.InputToInjectionLatencyP95Ms < 0
             || !double.IsFinite(statistics.InputClockUncertaintyMs)
@@ -159,7 +169,8 @@ public sealed class ConnectionPolicyProvider : IConnectionPolicyProvider
         var reliableInputPressure = HasReliableInputPressure(
             statistics.InputToInjectionLatencyP95Ms,
             statistics.InputClockUncertaintyMs);
-        var mediaDemand = Math.Max(statistics.CurrentBitrateKbps, statistics.TargetBitrateKbps);
+        var mediaDemand = Math.Max(statistics.CurrentBitrateKbps, statistics.TargetBitrateKbps)
+                          + statistics.SystemAudioReservationKbps;
         if (mediaDemand <= 0)
         {
             if (reliableInputPressure)
@@ -230,7 +241,7 @@ public sealed class ConnectionPolicyProvider : IConnectionPolicyProvider
                 interactiveReserve,
                 mediaReserve);
         }
-        var measuredSpare = Math.Max(0, available - mediaReserve - interactiveReserve);
+        var measuredSpare = (int)Math.Max(0L, (long)available - mediaReserve - interactiveReserve);
         var healthyBulk = available > 0
             ? Math.Max(minimumBulk, measuredSpare)
             : UnknownBulkKbps(mode);

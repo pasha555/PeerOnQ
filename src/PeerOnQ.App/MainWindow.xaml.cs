@@ -19,6 +19,8 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.Extensions.Logging;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Pickers;
@@ -118,17 +120,12 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            if (services.IsLanDevelopmentClient)
-            {
-                QualityPicker.SelectedItem = QualityPicker.Items.OfType<ComboBoxItem>()
-                    .Single(item => Equals(item.Tag, nameof(QualityProfile.Quality)));
-                ResolutionPicker.SelectedItem = ResolutionPicker.Items.OfType<ComboBoxItem>()
-                    .Single(item => Equals(item.Tag, nameof(CaptureResolution.P2160)));
-            }
-
             _services = services;
             App.Services = _services;
-            ApplySelectedQualityProfile();
+            _services.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic) with
+            {
+                Resolution = CaptureResolution.P1080,
+            };
 
             RefreshRoutingEnrollmentUi();
             DeviceNameText.Text = $"Name: {_services.Identity.DisplayName}";
@@ -384,6 +381,7 @@ public sealed partial class MainWindow : Window
         var ready = _services.RoutingIdentityReady;
         DeviceIdText.Text = ready ? _services.Identity.PublicId.Display : "Enrollment pending";
         CopyIdButton.IsEnabled = ready;
+        LinkOrganizationButton.IsEnabled = ready && _services.CloudPlatform is not null && !App.IsPortableSupport;
         ConnectButton.IsEnabled = ready;
         if (!ready)
         {
@@ -504,7 +502,7 @@ public sealed partial class MainWindow : Window
                     ? $"Requesting password authorization from {target.MaskedDisplay}..."
                     : $"Sending connection request to {target.MaskedDisplay}...";
                 var sessionId = remoteScopeSelectionRequired
-                    ? await _services.Coordinator.RequestRemoteSelectedSessionAsync(target)
+                    ? await _services.Coordinator.RequestRemoteSelectedSessionAsync(target, RequestSystemSoundCheckBox.IsChecked == true)
                     : await _services.Coordinator.RequestSessionAsync(
                         target,
                         effectiveMode,
@@ -850,6 +848,7 @@ public sealed partial class MainWindow : Window
                         onActivated: SelectActiveSession,
                         onClosed: OnViewerClosed);
                     _viewers.Add(info.SessionId, viewer);
+                    viewer.AttachSystemAudio(_services?.Coordinator.CollaborationFor(info.SessionId)?.SystemAudio);
                     created = true;
                 }
                 _viewer = viewer;
@@ -894,6 +893,7 @@ public sealed partial class MainWindow : Window
             _currentSession = null;
             _currentSessionInfo = null;
             _collaboration = null;
+            RefreshHostSystemAudio();
             _controlRevoked = false;
             EndSessionButton.IsEnabled = false;
             RevokeControlButton.IsEnabled = false;
@@ -989,6 +989,7 @@ public sealed partial class MainWindow : Window
             : "The remote owner chooses View Only or Full Control. Full Control includes screen control and file transfer.";
         if (!unattended)
             RemoteUnattendedPasswordBox.Password = string.Empty;
+        RefreshSystemSoundRequestAvailability();
     }
 
     private void OnSupportInvitationToggled(object sender, RoutedEventArgs e)
@@ -1007,6 +1008,7 @@ public sealed partial class MainWindow : Window
             SupportInvitationPasswordBox.Password = string.Empty;
             SupportInvitationLinkBox.Text = string.Empty;
         }
+        RefreshSystemSoundRequestAvailability();
     }
 
     public void ApplySupportInvitationUri(string value)
@@ -1159,6 +1161,7 @@ public sealed partial class MainWindow : Window
         {
             _collaborations[context.SessionId] = context;
             _viewers.GetValueOrDefault(context.SessionId)?.AttachRemoteInput(context.RemoteInput);
+            AttachSystemAudio(context);
             if (_currentSession == context.SessionId)
             {
                 _collaboration = context;
@@ -1255,6 +1258,7 @@ public sealed partial class MainWindow : Window
     private void RefreshCollaborationAvailability(SessionCollaborationContext context)
     {
         if (!ReferenceEquals(_collaboration, context)) return;
+        RefreshHostSystemAudio();
         var effectivePermissions = _controlRevoked
             ? context.Permissions & ~SessionPermission.ControlInput
             : context.Permissions;
@@ -1861,6 +1865,71 @@ public sealed partial class MainWindow : Window
             });
         }
         RevokeSupportInvitationButton.IsEnabled = false;
+    }
+
+    private async void OnLinkOrganization(object sender, RoutedEventArgs e)
+    {
+        if (_services?.CloudPlatform is not { } cloud || App.IsPortableSupport || Content?.XamlRoot is not { } root) return;
+        LinkOrganizationButton.IsEnabled = false;
+        try
+        {
+            var link = await cloud.CreateDeviceOwnershipLinkAsync(_shutdownCancellation.Token);
+            var code = new TextBox { Text = link.Code, IsReadOnly = true, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas") };
+            AutomationProperties.SetName(code, "One-time device linking code");
+            var status = new TextBlock
+            {
+                Text = "Paste this code into Portal > Devices and confirm the intended organization. Then refresh here to apply its policy.",
+                TextWrapping = TextWrapping.Wrap,
+            };
+            AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(code);
+            panel.Children.Add(new TextBlock { Text = $"Expires {link.ExpiresAtUtc.ToLocalTime():G}. This code can be used once.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(status);
+            var dialog = new ContentDialog
+            {
+                XamlRoot = root,
+                Title = "Link this device to an organization",
+                Content = panel,
+                PrimaryButtonText = "Refresh after linking",
+                CloseButtonText = "Close",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            dialog.PrimaryButtonClick += async (_, args) =>
+            {
+                var deferral = args.GetDeferral();
+                args.Cancel = true;
+                try
+                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCancellation.Token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(55));
+                    var ownership = await cloud.GetDeviceOwnershipLinkStatusAsync(timeout.Token);
+                    if (!ownership.Linked)
+                    {
+                        status.Text = "This device has not been linked yet. Complete the Portal confirmation before refreshing.";
+                        return;
+                    }
+                    status.Text = "Device linked. Refreshing its organization policy...";
+                    await cloud.RefreshOwnershipPolicyAsync(timeout.Token);
+                    await _services.Signaling.RequestRegistrationRefreshAsync(timeout.Token);
+                    StatusText.Text = "Device linked to an organization. Its current policy is now applied to signaling.";
+                    args.Cancel = false;
+                }
+                catch (Exception)
+                {
+                    status.Text = "The link or policy refresh could not be confirmed. Check the connection and refresh again.";
+                }
+                finally { deferral.Complete(); }
+            };
+            await dialog.ShowAsync();
+            code.Text = string.Empty;
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            ShowError("A one-time device linking code could not be created. Check the cloud connection and try again.");
+        }
+        finally { RefreshRoutingEnrollmentUi(); }
     }
 
     private async void OnEnableUnattended(object sender, RoutedEventArgs e)
@@ -2472,25 +2541,6 @@ public sealed partial class MainWindow : Window
             BlockedDevicesStatusBar.Severity = InfoBarSeverity.Error;
             BlockedDevicesStatusBar.Message = "The device could not be unblocked. Try again.";
             BlockedDevicesStatusBar.IsOpen = true;
-        }
-    }
-
-    private void OnQualitySelected(object sender, SelectionChangedEventArgs e)
-        => ApplySelectedQualityProfile();
-
-    private void ApplySelectedQualityProfile()
-    {
-        if (_services is null
-            || QualityPicker.SelectedItem is not ComboBoxItem { Tag: string qualityValue }
-            || ResolutionPicker.SelectedItem is not ComboBoxItem { Tag: string resolutionValue })
-        {
-            return;
-        }
-
-        if (Enum.TryParse<QualityProfile>(qualityValue, out var quality)
-            && Enum.TryParse<CaptureResolution>(resolutionValue, out var resolution))
-        {
-            _services.Coordinator.Profile = MediaProfile.For(quality) with { Resolution = resolution };
         }
     }
 

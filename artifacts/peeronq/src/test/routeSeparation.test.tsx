@@ -48,6 +48,11 @@ function expectDownloadsLinksToUseDocumentNavigation() {
   }
 }
 
+function chooseWindowsArchitecture(architecture = "x64") {
+  fireEvent.click(screen.getByText("Choose another device or architecture"));
+  fireEvent.change(screen.getByLabelText("Architecture"), { target: { value: architecture } });
+}
+
 describe("route surface separation", () => {
   it("renders public routes without the desktop sidebar", () => {
     window.history.replaceState(null, "", "/features");
@@ -68,12 +73,14 @@ describe("route surface separation", () => {
     expect(screen.queryByRole("link", { name: "Admin console" })).not.toBeInTheDocument();
   });
 
-  it("shows exactly one device-matched Download action on the public page", () => {
+  it("shows exactly one Download action for the chosen architecture on the public page", () => {
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOADS_AVAILABLE", "true");
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOAD_VERSION", "0.9.30");
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOAD_ARTIFACT_QUALIFIER", "unsigned-development");
     window.history.replaceState(null, "", "/");
     render(<App />);
+
+    chooseWindowsArchitecture();
 
     const header = screen.getByRole("banner");
     expect(within(header).getByRole("link", { name: "Download PeerOnQ", exact: true })).toHaveAttribute("href", "/#client-download");
@@ -195,12 +202,14 @@ describe("route surface separation", () => {
     expect(screen.queryByRole("link", { name: "Admin console" })).not.toBeInTheDocument();
   });
 
-  it("offers one device-matched local Windows download", () => {
+  it("offers one explicit-architecture local Windows download", () => {
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOADS_AVAILABLE", "true");
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOAD_VERSION", "0.9.30");
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOAD_ARTIFACT_QUALIFIER", "unsigned-development");
     window.history.replaceState(null, "", "/downloads");
     render(<App />);
+
+    chooseWindowsArchitecture();
 
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toHaveAttribute(
       "href",
@@ -237,6 +246,8 @@ describe("route surface separation", () => {
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOAD_ARTIFACT_QUALIFIER", "unsigned-public-pilot");
     window.history.replaceState(null, "", "/downloads");
     render(<App />);
+
+    chooseWindowsArchitecture();
 
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toHaveAttribute(
       "href",
@@ -350,11 +361,15 @@ describe("route surface separation", () => {
     window.history.replaceState(null, "", "/downloads");
     const { unmount } = render(<App />);
 
+    chooseWindowsArchitecture();
+
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toBeInTheDocument();
 
     unmount();
     vi.stubEnv("VITE_PEERONQ_WINDOWS_DOWNLOADS_AVAILABLE", "false");
     render(<App />);
+
+    chooseWindowsArchitecture();
 
     expect(screen.queryByRole("link", { name: "Download PeerOnQ for Windows x64" })).not.toBeInTheDocument();
   });
@@ -366,6 +381,8 @@ describe("route surface separation", () => {
     vi.stubEnv("VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL", "https://download.peeronq.com");
     window.history.replaceState(null, "", "/downloads");
     render(<App />);
+
+    chooseWindowsArchitecture();
 
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toHaveAttribute(
       "href",
@@ -387,6 +404,8 @@ describe("route surface separation", () => {
     window.history.replaceState(null, "", "/downloads");
     render(<App />);
 
+    chooseWindowsArchitecture();
+
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toHaveAttribute(
       "href",
       "/downloads/PeerOnQ-Windows-x64.msi",
@@ -402,6 +421,8 @@ describe("route surface separation", () => {
     vi.stubEnv("VITE_PEERONQ_EMBEDDED_WINDOWS_UNSIGNED_PILOT", "false");
     window.history.replaceState(null, "", "/downloads");
     render(<App />);
+
+    chooseWindowsArchitecture();
 
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toBeInTheDocument();
     expect(screen.queryByText("Unsigned controlled pilot")).not.toBeInTheDocument();
@@ -422,6 +443,8 @@ describe("route surface separation", () => {
     vi.stubEnv("VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL", "https://download.peeronq.example");
     window.history.replaceState(null, "", "/downloads");
     render(<App />);
+
+    chooseWindowsArchitecture();
 
     expect(screen.getByRole("link", { name: "Download PeerOnQ for Windows x64" })).toHaveAttribute(
       "href",
@@ -495,7 +518,7 @@ describe("route surface separation", () => {
     expect(screen.getByText(/reconnection is not guaranteed/)).toBeInTheDocument();
     expect(screen.getByText(/Windows host must remain running in a signed-in user session/)).toBeInTheDocument();
     expect(screen.getByText(/Invalid or unverifiable updates are rejected/)).toBeInTheDocument();
-    expect(screen.getByText(/Real-world NAT coverage, sustained 4K performance/)).toBeInTheDocument();
+    expect(screen.getByText(/Sessions currently support up to 1080p/)).toBeInTheDocument();
     expect(screen.getByText("Client workflow illustration. Connections run in the installed app.")).toBeInTheDocument();
   });
 

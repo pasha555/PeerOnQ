@@ -7,6 +7,7 @@ import { AuthFrame } from './brand';
 import { NewPasswordFields, PasswordField, passwordError } from './passwordFields';
 import { ConfirmAction, EmptyState, ErrorState, LoadingState, Notice, Page } from './components';
 import { useOrganization } from './shell';
+import { MemberActions, OrganizationLifecycle, TeamMembers } from './organizationActions';
 import type { Invitation, Member, Organization, Policy, Profile, SecurityEvent, Session, Team, TrustedDevice } from './types';
 
 function message(cause: unknown) { return cause instanceof ApiError ? cause.message : 'The request could not be completed.'; }
@@ -202,6 +203,7 @@ export function OrganizationsPage() {
     <form className="inline-form panel" onSubmit={(event) => void create(event)} aria-busy={busy}><label>New organization name<input name="name" required maxLength={128} /></label><button className="button primary" disabled={busy}>{busy ? 'Creating...' : 'Create organization'}</button></form>
     {error ? <Notice tone="danger">{error}</Notice> : null}
     {loading ? <LoadingState /> : organizationError ? <p>Use Retry organizations above to restore your memberships.</p> : !organizations.length ? <EmptyState title="No organizations">Create an organization or use an invitation from its administrator.</EmptyState> : <div className="cards">{organizations.map((item) => <article className="card" key={item.id}><h2>{item.name}</h2><p>Role: {item.role}</p><span className="badge">{selected?.id === item.id ? 'Active organization' : 'Member organization'}</span>{selected?.id !== item.id ? <div><button className="button secondary" onClick={() => select(item.id)}>Switch to {item.name}</button></div> : null}</article>)}</div>}
+    {selected?.role === 'Owner' ? <OrganizationLifecycle key={selected.id} organization={selected} /> : null}
   </Page>;
 }
 
@@ -216,7 +218,7 @@ export function TeamsPage() {
   return <Page title="Teams" description="Groups of members within your selected organization.">
     {canManage ? <form className="inline-form panel" onSubmit={(event) => void create(event)} aria-busy={busy}><label>Team name<input name="name" required maxLength={128} /></label><button className="button primary" disabled={busy}>{busy ? 'Creating...' : 'Create team'}</button></form> : <Notice>An organization Owner or Administrator can create teams.</Notice>}
     {error ? <Notice tone="danger">{error}</Notice> : null}
-    {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No teams">No teams have been created in this organization.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={item.id}><h2>{item.name}</h2><p>Created {formatDate(item.createdAtUtc)}</p></article>)}</div>}
+    {state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No teams">No teams have been created in this organization.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={item.id}><h2>{item.name}</h2><p>Created {formatDate(item.createdAtUtc)}</p><TeamMembers team={item} /></article>)}</div>}
   </Page>;
 }
 
@@ -268,7 +270,7 @@ export function SecurityPage() {
   const { profile, reload, capabilities } = useAuth(); const { selected } = useOrganization();
   const [setup, setSetup] = useState<{ secret: string; setupToken: string; otpAuthUri: string } | null>(null);
   const [codes, setCodes] = useState<string[] | null>(null); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  const begin = async () => { setError(null); setBusy(true); try { setSetup(await post('/account/mfa/setup')); } catch (cause) { setError(message(cause)); } finally { setBusy(false); } };
+  const begin = async (proof?: { currentPassword: string; currentMfaCode: string }) => { setError(null); setCodes(null); setBusy(true); try { setSetup(await post('/account/mfa/setup', proof)); } catch (cause) { setError(message(cause)); } finally { setBusy(false); } };
   const confirm = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); if (!setup) return; const code = String(new FormData(event.currentTarget).get('code')); setError(null); setBusy(true);
     try { const result = await post<{ recoveryCodes: string[] }>('/account/mfa/confirm', { setupToken: setup.setupToken, code }); setCodes(result.recoveryCodes); setSetup(null); await reload(); } catch (cause) { setError(message(cause)); } finally { setBusy(false); }
@@ -278,6 +280,12 @@ export function SecurityPage() {
     <ChangePasswordForm />
     {capabilities?.mfaAvailable ? <section className="panel security-panel"><div className="section-heading"><h2>Multi-factor authentication</h2><span className={profile?.mfaEnabled ? 'badge success' : 'badge muted'}>{profile?.mfaEnabled ? 'Enabled' : 'Not enabled'}</span></div><p>An authenticator adds a second sign-in check. Recovery codes provide one-time access if your authenticator is unavailable.</p>
       {!profile?.mfaEnabled && !setup ? <button className="button primary" disabled={busy} onClick={() => void begin()}>{busy ? 'Preparing…' : 'Set up MFA'}</button> : null}
+      {profile?.mfaEnabled && !setup ? <form className="form-grid" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); void begin({ currentPassword: String(data.get('currentPassword')), currentMfaCode: String(data.get('currentMfaCode')) }).then(() => form.reset()); }}>
+        <p>Replacing your authenticator requires your current password and a current authenticator or recovery code. Existing MFA stays enabled until the replacement is confirmed.</p>
+        <PasswordField name="currentPassword" label="Current password for MFA replacement" autoComplete="current-password" />
+        <label>Current MFA or recovery code<input name="currentMfaCode" required autoComplete="one-time-code" /></label>
+        <button className="button secondary" disabled={busy}>{busy ? 'Preparing…' : 'Replace authenticator'}</button>
+      </form> : null}
       {setup ? <form className="form-grid" onSubmit={(event) => void confirm(event)} aria-busy={busy}><div className="setup-secret"><p>1. Add this setup key to your authenticator. Keep it private.</p><code>{setup.secret}</code></div><label>6-digit code<input name="code" inputMode="numeric" pattern="[0-9]{6}" required autoComplete="one-time-code" aria-describedby="mfa-help" autoFocus /></label><p className="field-help" id="mfa-help">2. Enter the current code from your authenticator to finish setup.</p><div className="form-actions"><button className="button primary" disabled={busy}>{busy ? 'Confirming…' : 'Confirm MFA'}</button><button type="button" className="button secondary" disabled={busy} onClick={() => setSetup(null)}>Cancel setup</button></div></form> : null}
       {codes ? <Notice tone="success"><strong>Save these one-time recovery codes now:</strong><p>Keep them somewhere private. Leaving this page clears this copy.</p><pre>{codes.join('\n')}</pre></Notice> : null}
     </section> : null}
@@ -290,6 +298,7 @@ const policyControls = [
   ['fullControlAllowed', 'Full Control allowed', 'Allow remote keyboard and pointer control within an approved session.'],
   ['fileTransferAllowed', 'File Transfer allowed', 'Allow file transfer where the client and connection support it.'],
   ['clipboardAllowed', 'Clipboard allowed', 'Allow clipboard sharing within the approved session scope.'],
+  ['systemAudioAllowed', 'System sound allowed', 'Allow attended system sound only after a separate per-session request and host consent. This does not allow microphone or unattended audio capture.'],
   ['unattendedAccessAllowed', 'Unattended Access allowed', 'Permit unattended requests. The host still needs separate setup and trust.'],
   ['mfaRequired', 'MFA required', 'Require the account to have MFA enabled for organization policy evaluation.'],
   ['hybridSecurityRequired', 'Hybrid session security required', 'Require hybrid security to be active during organization policy evaluation.'],
@@ -303,14 +312,14 @@ export function PolicyPage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); if (!selected || !state.data || !canEdit) return;
     const data = new FormData(event.currentTarget); const value = (name: string) => data.get(name) === 'on'; setSaved(false); setError(null); setBusy(true);
-    try { await put(`/organizations/${selected.id}/policy`, { ...state.data, viewOnlyAllowed: value('viewOnlyAllowed'), fullControlAllowed: value('fullControlAllowed'), fileTransferAllowed: value('fileTransferAllowed'), clipboardAllowed: value('clipboardAllowed'), unattendedAccessAllowed: value('unattendedAccessAllowed'), mfaRequired: value('mfaRequired'), hybridSecurityRequired: value('hybridSecurityRequired'), trustedDeviceLifetimeDays: Number(data.get('trustedDeviceLifetimeDays')), auditRetentionDays: Number(data.get('auditRetentionDays')), approvedRelayRegionsCsv: data.get('approvedRelayRegionsCsv'), minimumClientVersion: data.get('minimumClientVersion') }); setSaved(true); state.reload(); }
+    try { await put(`/organizations/${selected.id}/policy`, { ...state.data, viewOnlyAllowed: value('viewOnlyAllowed'), fullControlAllowed: value('fullControlAllowed'), fileTransferAllowed: value('fileTransferAllowed'), clipboardAllowed: value('clipboardAllowed'), ...(typeof state.data.systemAudioAllowed === 'boolean' ? { systemAudioAllowed: value('systemAudioAllowed') } : {}), unattendedAccessAllowed: value('unattendedAccessAllowed'), mfaRequired: value('mfaRequired'), hybridSecurityRequired: value('hybridSecurityRequired'), trustedDeviceLifetimeDays: Number(data.get('trustedDeviceLifetimeDays')), auditRetentionDays: Number(data.get('auditRetentionDays')), approvedRelayRegionsCsv: data.get('approvedRelayRegionsCsv'), minimumClientVersion: data.get('minimumClientVersion') }); setSaved(true); state.reload(); }
     catch (cause) { setError(message(cause)); } finally { setBusy(false); }
   };
   return <Page title="Organization policy" description="Rules for your selected organization. Allowing a capability here does not grant remote access or replace host approval.">
     {saved ? <Notice tone="success">Policy saved.</Notice> : null}{error ? <Notice tone="danger">{error}</Notice> : null}
     {!selected ? <EmptyState title="No organization selected">Choose an organization before reviewing its policy.</EmptyState> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : <form className="panel policy-form" onSubmit={(event) => void submit(event)} aria-busy={busy}>
       {!canEdit ? <Notice>You can review this policy. An organization Owner or Administrator can edit it.</Notice> : null}
-      <fieldset disabled={!canEdit || busy}><legend>Access & security</legend><div className="policy-options">{policyControls.filter(([name]) => name !== 'mfaRequired' || capabilities?.mfaAvailable).map(([name, label, description]) => <div className="policy-option" key={name}><label className="check"><input name={name} type="checkbox" defaultChecked={state.data![name]} aria-describedby={`${name}-help`} />{label}</label><p id={`${name}-help`}>{description}</p></div>)}</div></fieldset>
+      <fieldset disabled={!canEdit || busy}><legend>Access & security</legend><div className="policy-options">{policyControls.filter(([name]) => name !== 'mfaRequired' || capabilities?.mfaAvailable).map(([name, label, description]) => <div className="policy-option" key={name}><label className="check"><input name={name} type="checkbox" defaultChecked={state.data![name]} disabled={name === 'systemAudioAllowed' && typeof state.data!.systemAudioAllowed !== 'boolean'} aria-describedby={`${name}-help`} />{label}</label><p id={`${name}-help`}>{description}{name === 'systemAudioAllowed' && typeof state.data!.systemAudioAllowed !== 'boolean' ? ' Unavailable on this server version; upgrade the server before enabling system sound.' : ''}</p></div>)}</div></fieldset>
       <fieldset className="form-grid" disabled={!canEdit || busy}><legend>Trust, retention & connection requirements</legend>
         <label>Trusted-device lifetime (days)<input name="trustedDeviceLifetimeDays" type="number" min="1" max="3650" required defaultValue={state.data.trustedDeviceLifetimeDays} /></label>
         <label>Audit retention (days)<input name="auditRetentionDays" type="number" min="1" max="3650" required defaultValue={state.data.auditRetentionDays} /></label>
@@ -335,5 +344,5 @@ export function PrivacyPage() {
 
 export function MembersPage() {
   const { selected } = useOrganization(); const state = useLoad(() => selected ? api<Member[]>(`/organizations/${selected.id}/members`) : Promise.resolve([]), [selected?.id]);
-  return <Page title="Members" description="Roles are tenant-scoped and separate from internal server administrator roles.">{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No members">No members were returned for this organization.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={item.accountId}><h2>{item.displayName}</h2><p>{item.email}</p><span className="badge">{item.role}</span></article>)}</div>}</Page>;
+  return <Page title="Members" description="Roles are tenant-scoped and separate from internal server administrator roles.">{state.error ? <ErrorState message={state.error} retry={state.reload} /> : !state.data ? <LoadingState /> : !state.data.length ? <EmptyState title="No members">No members were returned for this organization.</EmptyState> : <div className="cards">{state.data.map((item) => <article className="card" key={`${item.accountId}:${item.role}`}><h2>{item.displayName}</h2><p>{item.email}</p><span className="badge">{item.role}</span><MemberActions member={item} onChanged={state.reload} /></article>)}</div>}</Page>;
 }

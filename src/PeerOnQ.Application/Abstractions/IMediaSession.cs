@@ -11,6 +11,8 @@ public sealed record MediaStatistics
     public long FramesEncoded { get; init; }
     public long FramesDropped { get; init; }
     public long FramesRendered { get; init; }
+    public int VideoPresentationQueueDepth { get; init; }
+    public long VideoPresentationFramesReplaced { get; init; }
     public long BytesSent { get; init; }
     public long BytesReceived { get; init; }
     public double CurrentFps { get; init; }
@@ -63,6 +65,10 @@ public sealed record MediaStatistics
     public string? QualityChangeReason { get; init; }
     public int TargetFps { get; init; }
     public int TargetBitrateKbps { get; init; }
+    public int SystemAudioReservationKbps { get; init; }
+    public long SystemAudioBufferedBytes { get; init; }
+    public int SystemAudioOutstandingFrames { get; init; }
+    public int SystemAudioOutstandingBytes { get; init; }
     public int EncoderQueueDepth { get; init; }
     public TransferPriorityMode TransferPriorityMode { get; init; } = TransferPriorityMode.Balanced;
     public ConnectionPath ConnectionPath { get; init; } = ConnectionPath.UnknownNegotiating;
@@ -242,6 +248,27 @@ public interface IMediaSession : IAsyncDisposable
 
     bool IsNativeBulkTransportNegotiated => false;
 
+    bool IsSystemAudioLaneReady => false;
+
+    /// <summary>Authenticated borrowed memory, valid only inside the synchronous handler. Copy before retaining.</summary>
+    event EventHandler<ReadOnlyMemory<byte>>? SystemAudioFrameReceived
+    {
+        add { }
+        remove { }
+    }
+
+    event EventHandler? SystemAudioUnavailable
+    {
+        add { }
+        remove { }
+    }
+
+    /// <summary>Returns false on bounded real-time admission pressure; never uses the primary lane.</summary>
+    bool TrySendSystemAudioFrame(ReadOnlySpan<byte> frame) => false;
+
+    void CloseSystemAudioTransmission() { }
+    void SetSystemAudioCaptureActive(bool active) { }
+
     /// <summary>
     /// Selected peer address used only to attempt an authenticated same-LAN native bulk path.
     /// It is never included in diagnostics or application messages.
@@ -353,7 +380,7 @@ public sealed record MediaProfile
     public int MaxBitrateKbps { get; init; } = 4000;
     public bool IncludeCursor { get; init; } = true;
 
-    /// <summary>The current protocol does not negotiate audio.</summary>
+    /// <summary>Default profiles never request audio; system sound requires a separate explicit permission.</summary>
     public static bool AudioEnabled => false;
 
     public static MediaProfile Conservative { get; } = new();
@@ -385,8 +412,8 @@ public sealed record MediaProfile
         {
             Quality = quality,
             TargetFps = 30,
-            Resolution = CaptureResolution.P2160,
-            MaxBitrateKbps = 36_000,
+            Resolution = CaptureResolution.P1080,
+            MaxBitrateKbps = 12_000,
         },
         QualityProfile.Office => new MediaProfile
         {
@@ -399,7 +426,7 @@ public sealed record MediaProfile
         {
             Quality = quality,
             TargetFps = 15,
-            Resolution = CaptureResolution.P720,
+            Resolution = CaptureResolution.P1080,
             MaxBitrateKbps = 1200,
         },
         _ => throw new ArgumentOutOfRangeException(nameof(quality)),

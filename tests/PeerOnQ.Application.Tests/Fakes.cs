@@ -334,6 +334,19 @@ public sealed class FakeSignalingClient :
         return Task.CompletedTask;
     }
 
+    public Task RequestSupportSessionAsync(
+        SessionId sessionId,
+        PeerOnQId target,
+        SessionMode mode,
+        SessionPermission permissions,
+        string invitationToken,
+        string? invitationPassword,
+        QualityProfile quality,
+        CaptureResolution resolution,
+        CancellationToken cancellationToken = default) =>
+        RequestSessionAsync(sessionId, target, mode, permissions, SessionAccessKind.SupportInvitation,
+            null, null, quality, resolution, cancellationToken);
+
     public Task<UnattendedChallenge> RequestUnattendedChallengeAsync(
         PeerOnQId target,
         CancellationToken cancellationToken = default) =>
@@ -538,6 +551,7 @@ public sealed class FakeMediaSession(SessionId sessionId, SessionRole role) : IM
     public List<byte[]> SentData { get; } = [];
     public List<DataMessagePriority> SentDataPriorities { get; } = [];
     public FakeMediaSession? DataPeer { get; set; }
+    public Func<ReadOnlyMemory<byte>, CancellationToken, Task>? BeforeSendData { get; set; }
     public bool IsVideoFrameTelemetryNegotiated { get; set; }
     public bool IsInputAcknowledgementNegotiated { get; set; }
     public bool IsBulkDataLaneNegotiated { get; set; }
@@ -556,18 +570,18 @@ public sealed class FakeMediaSession(SessionId sessionId, SessionRole role) : IM
 
     public bool IsDataChannelReady => _dataChannelReady;
 
-    public Task SendDataAsync(
+    public async Task SendDataAsync(
         ReadOnlyMemory<byte> payload,
         CancellationToken cancellationToken = default,
         DataMessagePriority priority = DataMessagePriority.Normal)
     {
         if (!_dataChannelReady)
-            return Task.FromException(new InvalidOperationException("Fake data channel is not ready."));
+            throw new InvalidOperationException("Fake data channel is not ready.");
 
         SentData.Add(payload.ToArray());
         SentDataPriorities.Add(priority);
+        if (BeforeSendData is { } beforeSend) await beforeSend(payload, cancellationToken);
         DataPeer?.EmitData(payload);
-        return Task.CompletedTask;
     }
 
     public Task<string> CreateOfferAsync(CancellationToken cancellationToken = default) =>
@@ -662,11 +676,23 @@ public sealed class FakeInputSafetyController : IInputSafetyController
 public sealed class FakeRemoteInputSink : IRemoteInputSink
 {
     public CaptureTargetInfo? CaptureTarget { get; private set; }
+    public bool IsEnabled { get; private set; }
+    public List<RemoteInputEvent> Inputs { get; } = [];
 
-    public void SetCaptureTarget(CaptureTargetInfo? target) => CaptureTarget = target;
-    public void RestoreApprovedScope(SessionPermission approvedPermissions) { }
-    public void DisableAndReleaseAll() { }
-    public bool TryInject(RemoteInputEvent input) => true;
+    public void SetCaptureTarget(CaptureTargetInfo? target)
+    {
+        IsEnabled = false;
+        CaptureTarget = target;
+    }
+    public void RestoreApprovedScope(SessionPermission approvedPermissions) =>
+        IsEnabled = CaptureTarget is not null && approvedPermissions.HasFlag(SessionPermission.ControlInput);
+    public void DisableAndReleaseAll() => IsEnabled = false;
+    public bool TryInject(RemoteInputEvent input)
+    {
+        if (!IsEnabled) return false;
+        Inputs.Add(input);
+        return true;
+    }
     public void ReleaseAll() { }
 }
 
@@ -744,6 +770,11 @@ public sealed class FakeCaptureSource : IScreenCaptureSource, IAdaptiveCaptureSo
 
     public Task SwitchTargetAsync(CaptureTargetInfo target, CancellationToken cancellationToken = default)
     {
+        if (SwitchException is not null)
+        {
+            IsCapturing = false;
+            throw SwitchException;
+        }
         Target = target;
         SwitchedTargets.Add(target);
         return Task.CompletedTask;
@@ -757,7 +788,9 @@ public sealed class FakeCaptureSource : IScreenCaptureSource, IAdaptiveCaptureSo
     public bool Disposed { get; private set; }
     public CaptureRequest? LastRequest { get; private set; }
     public Exception? StartException { get; set; }
+    public Exception? SwitchException { get; set; }
     public bool EmitFrameOnStart { get; set; }
+    public CaptureStoppedReason? StopOnStart { get; set; }
 
     public event EventHandler<CapturedFrame>? FrameArrived;
     public event EventHandler<CaptureStoppedReason>? CaptureStopped;
@@ -769,6 +802,7 @@ public sealed class FakeCaptureSource : IScreenCaptureSource, IAdaptiveCaptureSo
         Target = request.Target;
         IsCapturing = true;
         if (EmitFrameOnStart) EmitFrame();
+        if (StopOnStart is { } reason) EmitStopped(reason);
         return Task.CompletedTask;
     }
 
@@ -788,6 +822,12 @@ public sealed class FakeCaptureSource : IScreenCaptureSource, IAdaptiveCaptureSo
         Timestamp = TimeSpan.Zero,
         SequenceNumber = 1,
     });
+
+    public void EmitStopped(CaptureStoppedReason reason)
+    {
+        IsCapturing = false;
+        CaptureStopped?.Invoke(this, reason);
+    }
 
     public ValueTask DisposeAsync()
     {

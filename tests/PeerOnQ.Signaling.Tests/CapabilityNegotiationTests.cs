@@ -9,6 +9,92 @@ namespace PeerOnQ.Signaling.Tests;
 public sealed class CapabilityNegotiationTests
 {
     [Fact]
+    public void Audio_requires_explicit_abilities_and_exact_optional_format_on_both_endpoints()
+    {
+        var legacy = TestClientCapabilities.All(optionalFeatures: []);
+        var current = legacy with
+        {
+            Capabilities = [.. legacy.Capabilities, EndpointCapabilityNames.SystemAudioCapture, EndpointCapabilityNames.SystemAudioPlayback],
+            OptionalFeatures = [OptionalProtocolFeatureNames.SystemAudio],
+        };
+        var scope = SessionPermission.ViewScreen | SessionPermission.SystemAudio;
+        var accepted = CapabilityNegotiator.NegotiateSession(current, current, scope, SessionAccessKind.Attended);
+        Assert.True(accepted.IsCompatible);
+        Assert.Contains(OptionalProtocolFeatureNames.SystemAudio, accepted.NegotiatedOptionalFeatures);
+        var oldHost = CapabilityNegotiator.NegotiateSession(current, legacy, scope, SessionAccessKind.Attended);
+        Assert.False(oldHost.IsCompatible);
+        Assert.Contains(EndpointCapabilityNames.SystemAudioCapture, oldHost.MissingTargetCapabilities);
+        var oldViewer = CapabilityNegotiator.NegotiateSession(legacy, current, scope, SessionAccessKind.Attended);
+        Assert.False(oldViewer.IsCompatible);
+        Assert.Contains(EndpointCapabilityNames.SystemAudioPlayback, oldViewer.MissingRequesterCapabilities);
+        var missingFormat = current with { OptionalFeatures = [] };
+        Assert.False(CapabilityNegotiator.NegotiateSession(current, missingFormat, scope, SessionAccessKind.Attended).IsCompatible);
+        Assert.False(CapabilityNegotiator.NegotiateSession(missingFormat, current, scope, SessionAccessKind.Attended).IsCompatible);
+        var ordinary = CapabilityNegotiator.NegotiateSession(current, legacy, SessionPermission.ViewScreen, SessionAccessKind.Attended);
+        Assert.True(ordinary.IsCompatible);
+        Assert.DoesNotContain(OptionalProtocolFeatureNames.SystemAudio, ordinary.NegotiatedOptionalFeatures);
+    }
+
+    [Theory]
+    [InlineData(EndpointCapabilityNames.SystemAudioCapture)]
+    [InlineData(EndpointCapabilityNames.SystemAudioPlayback)]
+    public void Audio_ability_cannot_be_declared_without_its_screen_boundary(string capability)
+    {
+        var manifest = TestClientCapabilities.All(capabilities: [capability]);
+        Assert.False(CapabilityNegotiator.TryNormalize(manifest, out _, out var error));
+        Assert.Contains(capability, error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Canonical_audio_hello_matches_the_shared_utf8_vector_and_old_vectors_remain_unchanged()
+    {
+        var vector = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "TestVectors", "hello-windows-audio.json"));
+        var message = new HelloMessage
+        {
+            MessageId = "vector-audio-v3", DeviceId = "123-456-789-012", DisplayName = "Windows Audio",
+            ClientVersion = "0.8.0", ProtocolVersion = SignalingProtocol.CurrentVersion,
+            ClientCapabilities = new ClientCapabilityManifest
+            {
+                Platform = PeerOnQClientPlatforms.Windows,
+                Capabilities = [EndpointCapabilityNames.SystemAudioCapture, EndpointCapabilityNames.SystemAudioPlayback,
+                    EndpointCapabilityNames.ScreenCapture, EndpointCapabilityNames.ScreenRender,
+                    EndpointCapabilityNames.SessionHost, EndpointCapabilityNames.SessionViewer],
+                OptionalFeatures = [OptionalProtocolFeatureNames.SystemAudio],
+                RequiredServerCapabilities = [SignalingServerCapabilityNames.SessionRouting],
+            },
+        };
+        Assert.Equal(vector, SignalingCodec.Encode(message).Append((byte)'\n').ToArray());
+        var decoded = Assert.IsType<HelloMessage>(SignalingCodec.Decode(vector.AsSpan(0, vector.Length - 1)));
+        Assert.Contains(OptionalProtocolFeatureNames.SystemAudio, decoded.ClientCapabilities!.OptionalFeatures);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Unicode_input_is_enabled_only_when_both_peers_advertise_it(bool sharerSupportsUnicode)
+    {
+        await using var harness = await SignalingHarness.StartAsync();
+        using var viewer = new TestDevice("Unicode viewer");
+        using var sharer = new TestDevice("Unicode sharer");
+        var supported = TestClientCapabilities.All(optionalFeatures: [OptionalProtocolFeatureNames.UnicodeInput]);
+        var legacy = TestClientCapabilities.All(optionalFeatures: []);
+        await using var viewerClient = viewer.CreateClient(harness.WebSocketUri, supported);
+        await using var sharerClient = sharer.CreateClient(harness.WebSocketUri, sharerSupportsUnicode ? supported : legacy);
+        await viewerClient.ConnectAsync(viewer.Identity);
+        await sharerClient.ConnectAsync(sharer.Identity);
+        var incoming = new TaskCompletionSource<IncomingSessionNotification>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var permission = new TaskCompletionSource<PermissionResultNotification>(TaskCreationOptions.RunContinuationsAsynchronously);
+        sharerClient.SessionRequested += (_, notification) => incoming.TrySetResult(notification);
+        viewerClient.PermissionResolved += (_, notification) => permission.TrySetResult(notification);
+        var id = SessionId.New();
+        await viewerClient.RequestSessionAsync(id, sharer.Id, SessionMode.FullControl);
+        Assert.Equal(sharerSupportsUnicode, (await Wait.ForAsync(incoming)).UnicodeInput);
+        await sharerClient.SendPermissionDecisionAsync(id, PermissionDecision.Accept);
+        Assert.Equal(sharerSupportsUnicode, (await Wait.ForAsync(permission)).UnicodeInput);
+        Assert.Equal(sharerSupportsUnicode, (await harness.Service<ISessionStore>().GetAsync(id.ToString()))!.UnicodeInputEnabled);
+    }
+
+    [Fact]
     public void Capability_manifest_is_bounded_canonical_and_dependency_checked()
     {
         var unsorted = TestClientCapabilities.All(

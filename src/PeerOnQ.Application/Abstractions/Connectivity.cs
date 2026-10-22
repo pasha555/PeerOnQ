@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using PeerOnQ.Domain.Sessions;
 
 namespace PeerOnQ.Application.Abstractions;
@@ -130,6 +131,7 @@ public enum RemoteInputEventKind
     PointerButton = 1,
     PointerWheel = 2,
     Key = 3,
+    Text = 4,
 }
 
 public enum RemotePointerButton
@@ -148,6 +150,7 @@ public enum RemotePointerButton
 /// </summary>
 public sealed record RemoteInputEvent
 {
+    public const int MaximumTextLength = 256;
     public required RemoteInputEventKind Kind { get; init; }
     public double NormalizedX { get; init; }
     public double NormalizedY { get; init; }
@@ -157,6 +160,8 @@ public sealed record RemoteInputEvent
     public bool IsHorizontalWheel { get; init; }
     public ushort VirtualKey { get; init; }
     public bool IsExtendedKey { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; init; }
 
     public bool IsValid() => Kind switch
     {
@@ -166,8 +171,23 @@ public sealed record RemoteInputEvent
         RemoteInputEventKind.PointerWheel =>
             HasValidPosition() && WheelDelta is >= -1200 and <= 1200 and not 0,
         RemoteInputEventKind.Key => VirtualKey is > 0 and <= 254,
+        RemoteInputEventKind.Text => IsValidText(Text),
         _ => false,
     };
+
+    public static bool IsValidText(string? text)
+    {
+        if (text is not { Length: > 0 and <= MaximumTextLength }) return false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var character = text[i];
+            if (char.IsControl(character) && character is not ('\r' or '\n' or '\t')) return false;
+            if (!char.IsSurrogate(character)) continue;
+            if (!char.IsHighSurrogate(character) || i + 1 >= text.Length || !char.IsLowSurrogate(text[++i]))
+                return false;
+        }
+        return true;
+    }
 
     private bool HasValidPosition() =>
         double.IsFinite(NormalizedX) && double.IsFinite(NormalizedY)

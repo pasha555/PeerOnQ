@@ -1,6 +1,6 @@
 # PeerOnQ real-time protocol compliance
 
-Source contracts reviewed on 2026-09-27. Runtime evidence is from the explicitly dated historical
+Source contracts reviewed on 2026-10-18. Runtime evidence is from the explicitly dated historical
 runs below and is not a fresh test result. This is an implementation and evidence map, not an IETF
 conformance certification.
 
@@ -8,12 +8,12 @@ conformance certification.
 
 | Component | Pinned/current version | Role |
 | --- | --- | --- |
-| SIPSorcery | `10.0.15` | ICE, SDP offer/answer, DTLS-SRTP, RTP/RTCP, SCTP data channels |
-| SIPSorceryMedia.Abstractions | `10.0.15` | media contracts |
+| PeerOnQ.SIPSorcery | `10.0.17.6`, official upstream `10.0.17` | Seven maintained wakeup/acknowledgement/flow-control/UDP-admission/RTCP-transit patches; native-app notices retained; ICE/SDP/DTLS/RTP/SCTP framing unchanged |
+| SIPSorceryMedia.Abstractions | `10.0.17` | media contracts |
 | SIPSorceryMedia.Encoders | `10.0.4` | VP8 decode integration |
-| Bouncy Castle | `2.6.2` | X25519 and Ed25519 classical hybrid components |
+| Bouncy Castle | `2.7.0` | X25519 and Ed25519 classical hybrid components |
 | coturn | `4.15.0-r0`, digest-pinned in deployment | STUN/TURN UDP, TCP, TLS and DTLS |
-| .NET | `global.json`: SDK `10.0.302`, `latestPatch`; historical local gate used `10.0.303` | WSS client/server, TLS and cancellation |
+| .NET | `global.json`: SDK `10.0.402`, `latestPatch`; server runtime `10.0.13` | WSS client/server, TLS and cancellation |
 | Nginx | `1.28.3-alpine` | TLS termination and WebSocket upgrade proxy |
 
 ## Standards and recorded evidence
@@ -66,6 +66,12 @@ a short-lived Cloud attestation bound to the alias and public key. Session resum
 random, short-lived, single-use rotating credential stored server-side only as SHA-256 and bound to
 the original session/device/mode/participants. SDP, ICE candidates, credentials and tokens are not
 written to normal logs or diagnostic exports.
+
+Quality reports retain finite numeric/reason validation and accepted-session/current-connection
+ownership checks. The 2026-10-18 follow-up adds the two already-emitted policy literals
+`awaiting_network_feedback` and `viewer_video_stall` to that finite allowlist; both actual relay
+regressions failed before and passed after, while an unknown literal and excessive latency remain
+rejected. This corrects compatibility without changing fields or signaling version.
 
 Phase 7 extends the Cloud-signed attestation payload for **managed** devices with organization ID,
 allowed connection-mode flags, minimum client version, approved relay regions, and the currently

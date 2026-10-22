@@ -167,6 +167,10 @@ if (Test-Path -LiteralPath $output) { throw "Development output already exists: 
 [IO.Directory]::CreateDirectory($output) | Out-Null
 $artifactQualifier = if ($AllowUnsignedPublicPilot) { 'unsigned-public-pilot' } else { 'unsigned-development' }
 
+& dotnet run --project (Join-Path $repoRoot 'eng/PeerOnQ.DependencyBuilder') -c Release -- `
+    --output (Join-Path $repoRoot 'eng/sipsorcery/packages')
+if ($LASTEXITCODE -ne 0) { throw 'Maintained media dependency build failed.' }
+
 foreach ($architecture in $architecturesToBuild) {
     $runtime = "win-$architecture"
     $publish = Join-Path $output "$architecture\app"
@@ -205,6 +209,10 @@ foreach ($architecture in $architecturesToBuild) {
     }
     & dotnet @publishArguments
     if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
+    & dotnet publish 'src\PeerOnQ.Service.Windows\PeerOnQ.Service.Windows.csproj' -c Release `
+        -r $runtime --self-contained true -o (Join-Path $publish 'SessionBroker') `
+        "-p:Version=$Version" "-p:AssemblyVersion=$Version.0" "-p:FileVersion=$Version.0"
+    if ($LASTEXITCODE -ne 0) { throw 'Session broker publish failed.' }
     if ($rootCertificatePath) {
         Copy-Item -LiteralPath $rootCertificatePath `
             -Destination (Join-Path $publish 'PeerOnQ-Local-Development-Root.cer')

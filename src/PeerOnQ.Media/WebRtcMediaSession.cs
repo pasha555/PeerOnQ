@@ -27,6 +27,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private readonly RTCPeerConnection? _inputPeer;
     private readonly RTCPeerConnection? _bulkPeer;
     private readonly MediaStatisticsCollector _statistics = new();
+    private readonly SelectedIcePathResolver _selectedIcePathResolver = new();
     private readonly VideoFrameQueue _queue;
     // A capacity-one signal wakes the encoder as soon as a newer desktop frame replaces the
     // previous one. This removes the otherwise unavoidable half-frame polling delay without
@@ -115,7 +116,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         IScreenCaptureSource? capture,
         SessionPermission permissions,
         ILogger log,
-        IEncodedVideoFrameSink? encodedVideoSink = null)
+        IEncodedVideoFrameSink? encodedVideoSink = null,
+        Func<IHardwareH264Encoder?>? hardwareH264EncoderFactory = null,
+        IH264VideoDecoder? h264Decoder = null)
     {
         SessionId = sessionId;
         Role = role;
@@ -128,6 +131,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         _permissions = permissions;
         _log = log;
         _encodedVideoSink = encodedVideoSink;
+        InitializeVideoCodecs(hardwareH264EncoderFactory, h264Decoder);
+        InitializeSystemAudio(peer.getConfiguration());
         if (_bulkPeer is not null)
             _bulkInboundDispatchLoop = Task.Run(() => DispatchBulkRecordsAsync(_lifetime.Token));
         // Remote control favors the newest desktop state over a backlog of stale 4K frames.
@@ -327,7 +332,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         RTCConfiguration? configuration = null,
         VideoEncoderSelector? encoderSelector = null,
         IceConfiguration? iceConfiguration = null,
-        SessionPermission permissions = SessionPermission.ViewScreen)
+        SessionPermission permissions = SessionPermission.ViewScreen,
+        Func<IHardwareH264Encoder?>? hardwareH264EncoderFactory = null)
     {
         Phase1SessionScope.EnsureInteractiveMediaPermissions(permissions);
         var peerConfiguration = configuration ?? DefaultConfiguration;
@@ -355,9 +361,11 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             iceConfiguration ?? IceConfiguration.DirectOnly,
             capture,
             permissions,
-            logger ?? NullLogger.Instance);
+            logger ?? NullLogger.Instance,
+            hardwareH264EncoderFactory: (encoderSelector ?? new VideoEncoderSelector(() => false)).Select().IsHardware
+                ? hardwareH264EncoderFactory : null);
 
-        session.Encoder = (encoderSelector ?? new VideoEncoderSelector(() => false)).Select();
+        session.Encoder = session._hardwareEncoding!.Selection;
         LogEncoderSelected(session._log, sessionId, session.Encoder);
 
         // Every interactive profile supplies a maximum, not a promise to congest the link.
@@ -368,7 +376,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             profile.TargetFps,
             profile.MaxBitrateKbps,
             policy: session._connectionPolicy,
-            allowResolutionDownscale: profile.Quality != QualityProfile.Quality);
+            allowResolutionDownscale: profile.Quality != QualityProfile.Quality
+                && profile.Resolution is not (CaptureResolution.Automatic or CaptureResolution.Native or CaptureResolution.P2160));
         session.Adaptive.LevelChanged += session.OnQualityLevelChanged;
 
         if (capture is not null && permissions.HasFlag(SessionPermission.ViewScreen))
@@ -403,7 +412,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         RTCConfiguration? configuration = null,
         IceConfiguration? iceConfiguration = null,
         SessionPermission permissions = SessionPermission.ViewScreen,
-        IEncodedVideoFrameSink? encodedVideoSink = null)
+        IEncodedVideoFrameSink? encodedVideoSink = null,
+        IH264VideoDecoder? h264Decoder = null)
     {
         Phase1SessionScope.EnsureInteractiveMediaPermissions(permissions);
         var peerConfiguration = configuration ?? DefaultConfiguration;
@@ -432,7 +442,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             null,
             permissions,
             logger ?? NullLogger.Instance,
-            encodedVideoSink);
+            encodedVideoSink,
+            h264Decoder: h264Decoder);
     }
 
     private static RTCPeerConnection? CreateDirectBulkPeer(
@@ -503,7 +514,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             _networkFeedback.SetConnected(mapped == MediaConnectionState.Connected);
             State = mapped;
             if (mapped == MediaConnectionState.Connected && Role == SessionRole.Sharer)
-                _encoder?.ForceKeyFrame();
+                _lossRecovery.RequestKeyFrame();
             LogMediaStateChanged(_log, SessionId, mapped);
             StateChanged?.Invoke(this, mapped);
         };
@@ -576,6 +587,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 }
                 _videoSecurityFailures.RecordSuccess();
                 byte[]? telemetryEncodedFrame = null;
+                byte[]? codecEncodedFrame = null;
                 try
                 {
                     var captureTimestampUnixMicroseconds = 0L;
@@ -597,6 +609,24 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                         vp8Frame = telemetryEncodedFrame;
                     }
 
+                    if (IsH264PayloadNegotiated)
+                    {
+                        if (!VideoPayloadEnvelope.TryDecode(vp8Frame, out var codec, out var width,
+                                out var height, out var keyFrame, out codecEncodedFrame)
+                            || !TryAcceptVideoCodec(codec, keyFrame, out var changed))
+                        {
+                            RequestPictureLossIndication();
+                            return;
+                        }
+                        vp8Frame = codecEncodedFrame;
+                        if (codec == VideoPayloadCodec.H264)
+                        {
+                            DecodeH264Frame(width, height, vp8Frame, changed,
+                                captureTimestampUnixMicroseconds, captureSequenceNumber);
+                            return;
+                        }
+                    }
+
                     if (_encodedVideoSink is not null)
                     {
                         if (!_encodedVideoSink.TrySubmit(new AuthenticatedVp8Frame(
@@ -616,9 +646,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                     VideoSample[] images;
                     lock (_decoderGate)
                     {
-                        // The VP8 decoder returns packed 24-bit BGR; the format travels with
-                        // the frame so the renderer never has to infer the layout.
-                        images = _decoder!.Decode(vp8Frame);
+                    // Native VP8 reference decoding returns independent I420 planes. Color
+                    // conversion/presentation happens after this ordered decode step.
+                        images = _decoder!.DecodeI420(vp8Frame);
                     }
 
                     if (images.Length == 0)
@@ -631,19 +661,11 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                     {
                         var decodedTimestamp = Stopwatch.GetTimestamp();
                         _statistics.FrameDecoded(vp8Frame.Length, (int)image.Width, (int)image.Height);
-                        RemoteFrameReceived?.Invoke(this, new RemoteVideoFrame(
-                            (int)image.Width,
-                            (int)image.Height,
-                            image.Sample,
-                            RemotePixelFormat.Bgr24,
-                            TimeSpan.Zero)
-                        {
-                            BufferOwnershipCanTransfer = true,
-                            PipelineDecodedTimestamp = decodedTimestamp,
-                            CaptureTimestampUnixMicroseconds = captureTimestampUnixMicroseconds,
-                            CaptureSequenceNumber = captureSequenceNumber,
-                            PeerClockEstimate = GetPeerClockEstimate(),
-                        });
+                        // Reference decoding stays ordered on the authenticated receive path.
+                        // Only independent decoded planes enter the bounded latest-image worker.
+                        _videoPresentation!.Enqueue(new DecodedVideoPresentation(
+                            (int)image.Width, (int)image.Height, image.Sample, decodedTimestamp,
+                            captureTimestampUnixMicroseconds, captureSequenceNumber, GetPeerClockEstimate()));
                     }
                 }
                 catch (Exception ex)
@@ -653,6 +675,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 }
                 finally
                 {
+                    if (codecEncodedFrame is not null)
+                        CryptographicOperations.ZeroMemory(codecEncodedFrame);
                     if (telemetryEncodedFrame is not null)
                         CryptographicOperations.ZeroMemory(telemetryEncodedFrame);
                     CryptographicOperations.ZeroMemory(encodedFrame);
@@ -862,8 +886,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
             if (lane == DataLane.Bulk)
             {
-                if (!_bulkInboundRecords.Writer.TryWrite(protectedPayload))
-                    SecurityError?.Invoke(this, "bulk_receive_queue_overflow");
+                QueueBulkRecord(protectedPayload);
                 return;
             }
 
@@ -879,6 +902,27 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
         if (lane == DataLane.Primary && channel.readyState == RTCDataChannelState.open)
             DataChannelReady?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal void QueueBulkRecord(ReadOnlyMemory<byte> protectedPayload)
+    {
+        try
+        {
+            // This callback runs on the dedicated bulk association. Wait for the bounded disk/
+            // decrypt consumer instead of losing an ordered protected record during a burst.
+            // The input/control associations remain independent, and CloseAsync cancels this
+            // wait before closing any peer, including when the consumer itself is blocked.
+            _bulkInboundRecords.Writer.WriteAsync(protectedPayload, _lifetime.Token)
+                .AsTask().GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            // Session teardown.
+        }
+        catch (ChannelClosedException) when (_lifetime.IsCancellationRequested)
+        {
+            // The queue can complete concurrently with session teardown.
+        }
     }
 
     private async Task DispatchBulkRecordsAsync(CancellationToken cancellationToken)
@@ -964,7 +1008,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                     ReceiverFrameAgeClockUncertaintyMs =
                         remoteQuality?.FrameAgeClockUncertaintyMs ?? 0,
                     ReceiverCaptureToPresentTargetMs =
-                        ConnectionPolicyProvider.GetTargetCaptureToPresentP95Ms(_profile.Resolution),
+                        ConnectionPolicyProvider.GetTargetCaptureToPresentP95Ms(
+                            _profile.Resolution, snapshot.EncodedWidth, snapshot.EncodedHeight),
                     ReceiverInputToInjectionLatencyP95Ms =
                         remoteQuality?.InputToInjectionLatencyP95Ms ?? 0,
                     ReceiverInputClockUncertaintyMs = remoteQuality?.InputClockUncertaintyMs ?? 0,
@@ -1082,29 +1127,28 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                     input = frame.I420.ToArray();
                 }
 
-                var encoded = EncodeFrameForTransport(
-                    _encoder!,
-                    _lossRecovery,
-                    frame.Width,
-                    frame.Height,
-                    input);
+                var (codec, encoded) = EncodeVideoFrame(frame.Width, frame.Height, input);
 
                 if (encoded is { Length: > 0 })
                 {
                     // 90 kHz clock: one frame period in RTP units.
                     var durationRtpUnits = (uint)(90000 / Math.Max(1, _rateLimiter.TargetFps));
                     byte[]? telemetryEnvelope = null;
-                    ReadOnlySpan<byte> plaintextFrame = encoded;
+                    var codecEnvelope = IsH264PayloadNegotiated
+                        ? VideoPayloadEnvelope.Encode(codec, frame.Width, frame.Height, encoded) : null;
+                    ReadOnlySpan<byte> plaintextFrame = codecEnvelope ?? encoded;
                     if (IsVideoFrameTelemetryNegotiated)
                     {
                         telemetryEnvelope = VideoFrameTelemetryCodec.Encode(
-                            encoded,
+                            plaintextFrame,
                             frame.CaptureTimestampUnixMicroseconds,
                             frame.SequenceNumber);
                         plaintextFrame = telemetryEnvelope;
                     }
 
                     var protectedFrame = protector.ProtectVideoFrame(plaintextFrame);
+                    if (codecEnvelope is not null)
+                        CryptographicOperations.ZeroMemory(codecEnvelope);
                     if (telemetryEnvelope is not null)
                         CryptographicOperations.ZeroMemory(telemetryEnvelope);
                     _peer.SendVideo(durationRtpUnits, protectedFrame);
@@ -1201,6 +1245,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         var offer = _peer.createOffer();
         await _peer.setLocalDescription(offer);
         var advertisedOffer = AdvertiseVideoFrameTelemetry(offer.sdp);
+        advertisedOffer = AdvertiseVideoCodec(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.ControlInput))
             advertisedOffer = AdvertiseInputAcknowledgement(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.FileTransfer))
@@ -1213,12 +1258,14 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             advertisedOffer = AdvertiseBulkDataLane(
                 advertisedOffer,
                 await CreateAuxiliaryOfferAsync(_bulkPeer));
-        return advertisedOffer;
+        return await AddSystemAudioOfferAsync(advertisedOffer, restart: false, cancellationToken);
     }
 
     public async Task<string> CreateAnswerAsync(string remoteOffer, CancellationToken cancellationToken = default)
     {
+        var audioAnswer = await CreateSystemAudioAnswerAsync(remoteOffer, cancellationToken);
         var telemetryOffered = HasVideoFrameTelemetry(remoteOffer);
+        var h264Offered = _canOfferH264 && HasH264Payload(remoteOffer);
         var inputAcknowledgementOffered = _permissions.HasFlag(SessionPermission.ControlInput)
                                            && HasInputAcknowledgement(remoteOffer);
         var nativeBulkTransportOffered = _permissions.HasFlag(SessionPermission.FileTransfer)
@@ -1236,7 +1283,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         var result = _peer.setRemoteDescription(new RTCSessionDescriptionInit
         {
             type = RTCSdpType.offer,
-            sdp = RemoveBulkDescription(RemoveInputDescription(remoteOffer)),
+            sdp = RemoveSystemAudioDescription(RemoveBulkDescription(RemoveInputDescription(remoteOffer))),
         });
 
         if (result != SetDescriptionResultEnum.OK)
@@ -1254,6 +1301,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         var answer = _peer.createAnswer();
         await _peer.setLocalDescription(answer);
         Volatile.Write(ref _videoFrameTelemetryNegotiated, telemetryOffered ? 1 : 0);
+        SetVideoCodecNegotiated(h264Offered);
         Volatile.Write(ref _inputAcknowledgementNegotiated, inputAcknowledgementOffered ? 1 : 0);
         Volatile.Write(ref _nativeBulkTransportNegotiated, nativeBulkTransportOffered ? 1 : 0);
         CompleteAuxiliaryDataLaneNegotiation(DataLane.Input, inputDataLaneOffered);
@@ -1263,17 +1311,20 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             : answer.sdp;
         if (inputAcknowledgementOffered)
             negotiatedAnswer = AdvertiseInputAcknowledgement(negotiatedAnswer);
+        if (h264Offered)
+            negotiatedAnswer = AppendVideoCodec(negotiatedAnswer);
         if (nativeBulkTransportOffered)
             negotiatedAnswer = AdvertiseNativeBulkTransport(negotiatedAnswer);
         if (inputDataLaneOffered)
             negotiatedAnswer = AdvertiseInputDataLane(negotiatedAnswer, inputAnswerSdp!);
         if (bulkDataLaneOffered)
             negotiatedAnswer = AdvertiseBulkDataLane(negotiatedAnswer, bulkAnswerSdp!);
-        return negotiatedAnswer;
+        return AddSystemAudioAnswer(negotiatedAnswer, audioAnswer);
     }
 
     public async Task ApplyRemoteAnswerAsync(string answer, CancellationToken cancellationToken = default)
     {
+        ApplySystemAudioAnswer(answer);
         var hasInputAnswerDescription = TryGetInputDescription(answer, out var inputAnswerSdp);
         var inputDataLaneAccepted = _permissions.HasFlag(SessionPermission.ControlInput)
                                     && _inputPeer is not null
@@ -1287,13 +1338,14 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         var result = _peer.setRemoteDescription(new RTCSessionDescriptionInit
         {
             type = RTCSdpType.answer,
-            sdp = RemoveBulkDescription(RemoveInputDescription(answer)),
+            sdp = RemoveSystemAudioDescription(RemoveBulkDescription(RemoveInputDescription(answer))),
         });
 
         if (result != SetDescriptionResultEnum.OK)
         {
             throw new InvalidOperationException($"Remote answer rejected: {result}");
         }
+        SetVideoCodecNegotiated(_videoCodecOffered && HasH264Payload(answer));
 
         Volatile.Write(
             ref _videoFrameTelemetryNegotiated,
@@ -1358,6 +1410,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     public Task AddRemoteIceCandidateAsync(
         string candidate, string? sdpMid, ushort sdpMLineIndex, CancellationToken cancellationToken = default)
     {
+        if (TryAddSystemAudioIceCandidate(candidate, sdpMid, sdpMLineIndex)) return Task.CompletedTask;
         var lane = IsInputIceCandidateSdpMid(sdpMid)
             ? DataLane.Input
             : IsBulkIceCandidateSdpMid(sdpMid)
@@ -1598,11 +1651,12 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     public async Task<string> RestartIceAsync(CancellationToken cancellationToken = default)
     {
         _networkFeedback.Reset();
-        _encoder?.ForceKeyFrame();
+        _lossRecovery.RequestKeyFrame();
         _peer.restartIce();
         var offer = _peer.createOffer();
         await _peer.setLocalDescription(offer);
         var advertisedOffer = AdvertiseVideoFrameTelemetry(offer.sdp);
+        advertisedOffer = AdvertiseVideoCodec(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.ControlInput))
             advertisedOffer = AdvertiseInputAcknowledgement(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.FileTransfer))
@@ -1621,7 +1675,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 advertisedOffer,
                 await CreateAuxiliaryOfferAsync(_bulkPeer));
         }
-        return advertisedOffer;
+        return await AddSystemAudioOfferAsync(advertisedOffer, restart: true, cancellationToken);
     }
 
     public void ReportFrameRendered(long decodedTimestamp = 0, int width = 0, int height = 0)
@@ -1899,7 +1953,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                            && (statistics.FramesCaptured > 0
                                || statistics.FramesEncoded > 0
                                || statistics.FramesRendered > 0
-                               || statistics.CurrentBitrateKbps > 0);
+                               || statistics.CurrentBitrateKbps > 0
+                               || statistics.SystemAudioReservationKbps > 0);
         if (!hasLiveMedia)
         {
             statistics = statistics with
@@ -1957,6 +2012,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         var primaryBufferedBytes = SaturatingInt64(_dataChannel?.bufferedAmount ?? 0);
         var inputBufferedBytes = SaturatingInt64(Volatile.Read(ref _inputDataChannel)?.bufferedAmount ?? 0);
         var bulkBufferedBytes = SaturatingInt64(_bulkDataChannel?.bufferedAmount ?? 0);
+        var audioOutstandingFrames = _audioSendWindow.OutstandingFrames;
         var totalFrames = measured.FramesEncoded + measured.FramesDropped;
         var decision = Adaptive?.LastDecision ?? _connectionPolicy.Evaluate(new ConnectionPolicyInput
         {
@@ -1983,10 +2039,17 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         {
             ConnectionHealth = decision.Health,
             ActiveQualityProfile = _profile.Quality,
+            VideoPresentationQueueDepth = _videoPresentation?.PendingFrames ?? 0,
+            VideoPresentationFramesReplaced = _videoPresentation?.DroppedFrames ?? 0,
             AdaptiveQualityLevel = Adaptive?.Current.Index,
             QualityChangeReason = decision.ReasonCode,
             TargetFps = Adaptive?.Current.TargetFps ?? _profile.TargetFps,
             TargetBitrateKbps = Volatile.Read(ref _targetBitrateKbps),
+            SystemAudioReservationKbps = SystemAudioReservationKbps,
+            SystemAudioBufferedBytes = SaturatingInt64(_audioChannel?.bufferedAmount ?? 0),
+            SystemAudioOutstandingFrames = audioOutstandingFrames,
+            SystemAudioOutstandingBytes = audioOutstandingFrames
+                * (SystemAudioFrameCodec.EncodedBytes + SessionTrafficProtector.RecordOverheadBytes),
             EncoderQueueDepth = _queue.Count,
             InputDataLaneNegotiated = IsInputDataLaneNegotiated,
             InputDataLaneReady = IsInputDataLaneReady,
@@ -1996,7 +2059,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             NativeBulkTransportNegotiated = IsNativeBulkTransportNegotiated,
             SctpAssociationBufferedBytes = SaturatingAdd(
                 SaturatingAdd(primaryBufferedBytes, inputBufferedBytes),
-                bulkBufferedBytes),
+                SaturatingAdd(bulkBufferedBytes, SaturatingInt64(_audioChannel?.bufferedAmount ?? 0))),
             InteractiveSctpBufferedBytes = SaturatingAdd(primaryBufferedBytes, inputBufferedBytes),
             InputSctpBufferedBytes = inputBufferedBytes,
             BulkSctpBufferedBytes = bulkBufferedBytes,
@@ -2007,8 +2070,10 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             TransferPriorityMode = (TransferPriorityMode)Volatile.Read(ref _transferPriorityMode),
             EncoderName = Role == SessionRole.Sharer ? Encoder.Kind.ToString() : null,
             EncoderHardwareAccelerated = Role == SessionRole.Sharer ? Encoder.IsHardware : null,
-            DecoderName = Role == SessionRole.Viewer ? "libvpx VP8" : null,
-            DecoderHardwareAccelerated = Role == SessionRole.Viewer ? false : null,
+            DecoderName = Role == SessionRole.Viewer
+                ? _receivedVideoCodec == VideoPayloadCodec.H264 ? _h264Decoder?.Name : "libvpx VP8" : null,
+            DecoderHardwareAccelerated = Role == SessionRole.Viewer
+                ? _receivedVideoCodec == VideoPayloadCodec.H264 && _h264Decoder?.HardwareAccelerated == true : null,
         };
     }
 
@@ -2057,9 +2122,10 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         return rtt is >= 0 and <= 60_000 ? rtt : 0;
     }
 
-    private ConnectionPath GetSelectedPath()
+    private ConnectionPath GetSelectedPath() => GetSelectedPath(_peer.GetRtpChannel().NominatedEntry);
+
+    private ConnectionPath GetSelectedPath(ChecklistEntry? nominated)
     {
-        var nominated = _peer.GetRtpChannel().NominatedEntry;
         if (nominated is null || !nominated.Nominated) return ConnectionPath.UnknownNegotiating;
 
         var local = nominated.LocalCandidate;
@@ -2070,22 +2136,14 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
         // A viable local route can be nominated as peer-reflexive when checks beat trickled host
         // candidates. Classify the selected endpoints, not merely their candidate labels.
-        if (!TryGetAddress(local.address, out var localAddress)
-            || !TryGetAddress(remote.address, out var remoteAddress))
-        {
-            return ConnectionPath.UnknownNegotiating;
-        }
-
-        return IsPrivate(localAddress) && IsPrivate(remoteAddress)
-            ? ConnectionPath.DirectLan
-            : ConnectionPath.DirectInternet;
+        return _selectedIcePathResolver.Classify(nominated, local.address, remote.address, remote.port);
     }
 
     public IPAddress? GetSelectedRemoteAddress()
     {
-        if (GetSelectedPath() != ConnectionPath.DirectLan) return null;
         var nominated = _peer.GetRtpChannel().NominatedEntry;
-        return nominated is { Nominated: true }
+        return GetSelectedPath(nominated) == ConnectionPath.DirectLan
+               && nominated is { Nominated: true }
                && TryGetAddress(nominated.RemoteCandidate.address, out var address)
             ? address
             : null;
@@ -2093,24 +2151,6 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
     private static bool TryGetAddress(string value, out IPAddress address) =>
         IPAddress.TryParse(value, out address!);
-
-    private static bool IsPrivate(IPAddress address)
-    {
-        if (IPAddress.IsLoopback(address)) return true;
-
-        var bytes = address.GetAddressBytes();
-        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-        {
-            return bytes[0] == 10
-                   || bytes[0] == 127
-                   || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
-                   || (bytes[0] == 192 && bytes[1] == 168)
-                   || (bytes[0] == 169 && bytes[1] == 254);
-        }
-
-        return address.IsIPv6LinkLocal
-               || (bytes.Length == 16 && (bytes[0] & 0xfe) == 0xfc);
-    }
 
     public async Task CloseAsync(CancellationToken cancellationToken = default)
     {
@@ -2122,6 +2162,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         }
 
         _queue.Clear();
+        _videoPresentation?.Close();
         _bulkDataReassembler.Clear();
         _bulkInboundRecords.Writer.TryComplete();
         lock (_auxiliaryIceGate)
@@ -2129,6 +2170,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             foreach (var pending in _pendingAuxiliaryIceCandidates.Values) pending.Clear();
         }
         Volatile.Write(ref _trafficProtector, null);
+        CloseSystemAudio();
         _inputPeer?.close();
         _bulkPeer?.close();
         _peer.close();
@@ -2165,10 +2207,13 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         }
 
         _encoder?.Dispose();
+        _hardwareEncoding?.Dispose();
+        if (_videoPresentation is not null) await _videoPresentation.DisposeAsync();
 
         lock (_decoderGate)
         {
             _decoder?.Dispose();
+            _h264Decoder?.Dispose();
         }
 
         if (_encodedVideoSink is not null)
@@ -2178,6 +2223,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         }
 
         _peer.Dispose();
+        await DisposeSystemAudioAsync();
         _lifetime.Dispose();
     }
 }
@@ -2186,7 +2232,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 public sealed class WebRtcMediaEngine(
     ILoggerFactory? loggerFactory = null,
     Func<bool>? hardwareH264Available = null,
-    Func<SessionId, IEncodedVideoFrameSink?>? viewerVideoSinkFactory = null) : IMediaEngine
+    Func<SessionId, IEncodedVideoFrameSink?>? viewerVideoSinkFactory = null,
+    Func<IHardwareH264Encoder?>? hardwareH264EncoderFactory = null,
+    Func<IH264VideoDecoder?>? h264DecoderFactory = null) : IMediaEngine
 {
     private readonly ILogger _log = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WebRtcMediaEngine>();
 
@@ -2194,20 +2242,22 @@ public sealed class WebRtcMediaEngine(
     /// Platform detection is injected so this layer stays free of Windows dependencies; the
     /// app passes the real Media Foundation probe.
     /// </summary>
-    private readonly VideoEncoderSelector _encoderSelector = new(hardwareH264Available ?? (() => false));
+    private readonly VideoEncoderSelector _encoderSelector = new(hardwareH264Available ?? (() => false),
+        () => hardwareH264EncoderFactory is not null);
     private readonly Func<SessionId, IEncodedVideoFrameSink?> _viewerVideoSinkFactory =
         viewerVideoSinkFactory ?? (_ => null);
 
     public Task<IMediaSession> CreateSharerSessionAsync(
         SessionId sessionId, IScreenCaptureSource capture, MediaProfile profile, CancellationToken cancellationToken = default) =>
         Task.FromResult<IMediaSession>(
-            WebRtcMediaSession.CreateSharer(sessionId, capture, profile, _log, encoderSelector: _encoderSelector));
+            WebRtcMediaSession.CreateSharer(sessionId, capture, profile, _log, encoderSelector: _encoderSelector,
+                hardwareH264EncoderFactory: hardwareH264EncoderFactory));
 
     public Task<IMediaSession> CreateViewerSessionAsync(SessionId sessionId, CancellationToken cancellationToken = default) =>
         Task.FromResult<IMediaSession>(WebRtcMediaSession.CreateViewer(
             sessionId,
             _log,
-            encodedVideoSink: _viewerVideoSinkFactory(sessionId)));
+            encodedVideoSink: _viewerVideoSinkFactory(sessionId), h264Decoder: h264DecoderFactory?.Invoke()));
 
     public Task<IMediaSession> CreateSharerSessionAsync(
         SessionId sessionId,
@@ -2222,7 +2272,7 @@ public sealed class WebRtcMediaEngine(
             _log,
             WebRtcMediaSession.BuildConfiguration(iceConfiguration),
             _encoderSelector,
-            iceConfiguration));
+            iceConfiguration, hardwareH264EncoderFactory: hardwareH264EncoderFactory));
 
     public Task<IMediaSession> CreateViewerSessionAsync(
         SessionId sessionId,
@@ -2233,7 +2283,7 @@ public sealed class WebRtcMediaEngine(
             _log,
             WebRtcMediaSession.BuildConfiguration(iceConfiguration),
             iceConfiguration,
-            encodedVideoSink: _viewerVideoSinkFactory(sessionId)));
+            encodedVideoSink: _viewerVideoSinkFactory(sessionId), h264Decoder: h264DecoderFactory?.Invoke()));
 
     public Task<IMediaSession> CreateSharerSessionAsync(
         SessionId sessionId,
@@ -2250,7 +2300,7 @@ public sealed class WebRtcMediaEngine(
             WebRtcMediaSession.BuildConfiguration(iceConfiguration, permissions),
             _encoderSelector,
             iceConfiguration,
-            permissions));
+            permissions, hardwareH264EncoderFactory));
 
     public Task<IMediaSession> CreateViewerSessionAsync(
         SessionId sessionId,
@@ -2263,7 +2313,7 @@ public sealed class WebRtcMediaEngine(
             WebRtcMediaSession.BuildConfiguration(iceConfiguration, permissions),
             iceConfiguration,
             permissions,
-            _viewerVideoSinkFactory(sessionId)));
+            _viewerVideoSinkFactory(sessionId), h264DecoderFactory?.Invoke()));
 }
 
 internal sealed class Vp8LossRecoveryController

@@ -53,11 +53,11 @@ internal sealed class ProcessSecretToolRunner : ISecretToolRunner
             await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
 
             var output = await outputTask.ConfigureAwait(false);
-            _ = await errorTask.ConfigureAwait(false);
+            var hasErrorOutput = !string.IsNullOrWhiteSpace(await errorTask.ConfigureAwait(false));
             if (output.Length > MaxOutputCharacters)
                 throw new InvalidOperationException("The Linux keyring returned an unexpectedly large response.");
 
-            return new SecretToolResult(process.ExitCode, output);
+            return new SecretToolResult(process.ExitCode, output, hasErrorOutput);
         }
         catch (OperationCanceledException exception)
         {

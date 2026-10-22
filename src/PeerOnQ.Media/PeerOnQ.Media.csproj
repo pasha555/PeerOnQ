@@ -9,9 +9,33 @@
     <ProjectReference Include="..\PeerOnQ.Application\PeerOnQ.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="SIPSorcery" />
+    <PackageReference Include="PeerOnQ.SIPSorcery" />
     <PackageReference Include="SIPSorceryMedia.Abstractions" />
     <PackageReference Include="SIPSorceryMedia.Encoders" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
+  <Target Name="RequireMaintainedSipsorceryPackage" BeforeTargets="CollectPackageReferences;ResolvePackageAssets">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../../eng/sipsorcery/packages/PeerOnQ.SIPSorcery.$(PeerOnQSipsorceryPackageVersion).nupkg')"
+           Text="The maintained SIPSorcery package is missing. Run: dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release -- --output eng/sipsorcery/packages" />
+  </Target>
+  <Target Name="CheckMaintainedSipsorceryCache" BeforeTargets="CollectPackageReferences;ResolvePackageAssets"
+          DependsOnTargets="RequireMaintainedSipsorceryPackage">
+    <PropertyGroup>
+      <_PeerOnQSipsorceryFeedPackage>$(MSBuildThisFileDirectory)../../eng/sipsorcery/packages/PeerOnQ.SIPSorcery.$(PeerOnQSipsorceryPackageVersion).nupkg</_PeerOnQSipsorceryFeedPackage>
+      <_PeerOnQSipsorceryCacheRoot Condition="'$(RestorePackagesPath)' != ''">$(RestorePackagesPath)/peeronq.sipsorcery/$(PeerOnQSipsorceryPackageVersion)</_PeerOnQSipsorceryCacheRoot>
+      <_PeerOnQSipsorceryCacheRoot Condition="'$(_PeerOnQSipsorceryCacheRoot)' == '' and '$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)/peeronq.sipsorcery/$(PeerOnQSipsorceryPackageVersion)</_PeerOnQSipsorceryCacheRoot>
+      <_PeerOnQSipsorceryCacheRoot Condition="'$(_PeerOnQSipsorceryCacheRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)/peeronq.sipsorcery/$(PeerOnQSipsorceryPackageVersion)</_PeerOnQSipsorceryCacheRoot>
+      <_PeerOnQSipsorceryCachedPackage>$(_PeerOnQSipsorceryCacheRoot)/peeronq.sipsorcery.$(PeerOnQSipsorceryPackageVersion).nupkg</_PeerOnQSipsorceryCachedPackage>
+    </PropertyGroup>
+    <!-- A first restore may have no cache. Existing same-version bytes must never
+         silently shadow a newly rebuilt, verified local package. -->
+    <GetFileHash Files="$(_PeerOnQSipsorceryFeedPackage)" Condition="'$(_PeerOnQSipsorceryCacheRoot)' != '' and Exists('$(_PeerOnQSipsorceryCachedPackage)')">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQSipsorceryFeedHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(_PeerOnQSipsorceryCachedPackage)" Condition="'$(_PeerOnQSipsorceryCacheRoot)' != '' and Exists('$(_PeerOnQSipsorceryCachedPackage)')">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQSipsorceryCachedHash" />
+    </GetFileHash>
+    <Error Condition="'$(_PeerOnQSipsorceryCachedHash)' != '' and '$(_PeerOnQSipsorceryCachedHash)' != '$(_PeerOnQSipsorceryFeedHash)'"
+           Text="The cached maintained SIPSorcery package differs from the verified local feed. Select a fresh NUGET_PACKAGES directory and restore again, or refresh only this verified custom package cache; do not reuse stale same-version binaries." />
+  </Target>
 </Project>

@@ -152,6 +152,7 @@ public sealed partial class ViewerWindow : Window
         Closed += async (_, _) =>
         {
             _closed = true;
+            DetachSystemAudio();
             _onClosed?.Invoke(_sessionId);
             if (_remoteInput is not null)
                 _remoteInput.ControlPermissionChanged -= OnControlPermissionChanged;

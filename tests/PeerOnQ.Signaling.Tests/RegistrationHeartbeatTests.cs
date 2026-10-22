@@ -9,6 +9,24 @@ namespace PeerOnQ.Signaling.Tests;
 public sealed class RegistrationHeartbeatTests
 {
     [Fact]
+    public async Task Explicit_policy_refresh_waits_for_registration_without_replacing_the_connection()
+    {
+        await using var harness = await SignalingHarness.StartAsync();
+        using var device = new TestDevice("Policy refresh");
+        await using var client = device.CreateClient(harness.WebSocketUri, heartbeatInterval: TimeSpan.FromMilliseconds(50));
+        await client.ConnectAsync(device.Identity);
+        var initialExpiry = client.TokenExpiresAt;
+        var registry = harness.Service<DeviceRegistry>();
+        Assert.True(registry.TryGet(device.Id, out var original));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(client.RequestRegistrationRefreshAsync(timeout.Token), client.RequestRegistrationRefreshAsync(timeout.Token));
+        Assert.True(client.TokenExpiresAt > initialExpiry);
+        Assert.True(registry.TryGet(device.Id, out var refreshed));
+        Assert.Same(original, refreshed);
+        Assert.Equal(SignalingConnectionState.Registered, client.State);
+    }
+
+    [Fact]
     public async Task Pending_attestation_refresh_keeps_the_existing_connection_alive()
     {
         await using var harness = await SignalingHarness.StartAsync(options =>

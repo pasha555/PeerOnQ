@@ -13,6 +13,18 @@ OpenTelemetry Collector, Prometheus, Grafana, Loki and Tempo.
 Each component is governed by the license attached to its pinned package/image/source. The PeerOnQ
 MIT license does not replace those terms, trademark rules, platform SDK terms, or notices.
 
+Source-only update, 2026-10-18: the user approved derivative maintenance; source selects `PeerOnQ.SIPSorcery` 10.0.17.6,
+derived from official SIPSorcery 10.0.17 with seven pinned patches for DTLS receive wakeup, bounded
+SCTP acknowledgements, sender/receiver flow control, single-owner UDP receive admission and first-packet RTCP transit initialization. Its package
+retains the exact upstream license and source provenance; PeerOnQ's MIT license does not override
+those terms. Maintenance approval is not redistribution/legal approval. Abstractions is 10.0.17;
+the source-build/advisory contract is in [DEPENDENCIES.md](DEPENDENCIES.md).
+
+The Linux viewer preview uses the desktop distribution's separately installed `libvpx.so.9`
+from fixed system directories. Its portable payload excludes Windows `vpxmd.dll`; install and
+update the Linux library through the distribution package manager. This does not resolve the
+bundled Windows codec's provenance or the maintained transport's redistribution gates.
+
 The 2026-08-18 Phase 6.5 findings were rechecked against the restored packages on 2026-09-27:
 
 - SIPSorcery and SIPSorceryMedia.Abstractions 10.0.15 both ship `LICENSE.md` with BSD-3-Clause

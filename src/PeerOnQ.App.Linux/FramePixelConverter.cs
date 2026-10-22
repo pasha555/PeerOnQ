@@ -7,6 +7,14 @@ internal static class FramePixelConverter
     private const int MaximumDimension = 16_384;
     private const int MaximumPixels = 33_554_432;
 
+    internal static PresentedVideoFrame DescribePresentation(RemoteVideoFrame frame) => new(
+        frame.PipelineDecodedTimestamp,
+        frame.Width,
+        frame.Height,
+        frame.CaptureTimestampUnixMicroseconds,
+        frame.CaptureSequenceNumber,
+        frame.PeerClockEstimate);
+
     public static bool TryConvertToBgra(RemoteVideoFrame frame, out byte[] pixels)
     {
         pixels = [];

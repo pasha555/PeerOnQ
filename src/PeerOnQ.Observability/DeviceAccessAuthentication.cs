@@ -16,6 +16,8 @@ public static class DeviceAccessAuthentication
     public const string Policy = "device";
     public const string DeviceIdClaim = "device_id";
     public const string InstallationIdClaim = "installation_id";
+    public const string IdentityVersionClaim = "identity_version";
+    public const string ProofBindingVersionClaim = "proof_binding_version";
 
     public static AuthenticationBuilder AddPeerOnQDeviceAuthentication(
         this IServiceCollection services,
@@ -93,6 +95,8 @@ public sealed class DeviceAccessAuthenticationHandler(
                 new Claim(ClaimTypes.NameIdentifier, principal.DeviceId.ToString("N")),
                 new Claim(DeviceAccessAuthentication.DeviceIdClaim, principal.DeviceId.ToString("N")),
                 new Claim(DeviceAccessAuthentication.InstallationIdClaim, principal.InstallationId.ToString("N")),
+                new Claim(DeviceAccessAuthentication.IdentityVersionClaim, principal.IdentityVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                new Claim(DeviceAccessAuthentication.ProofBindingVersionClaim, principal.ProofBindingVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 new Claim("exp", principal.ExpiresAtUtc.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture)),
             ], Scheme.Name);
             var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name);
@@ -141,7 +145,17 @@ public static class DevicePrincipalExtensions
         return new DeviceAccessPrincipal(
             principal.RequireDeviceId(),
             principal.RequireInstallationId(),
-            DateTimeOffset.FromUnixTimeSeconds(expiresUnix));
+            DateTimeOffset.FromUnixTimeSeconds(expiresUnix),
+            ParseVersion(principal, DeviceAccessAuthentication.IdentityVersionClaim),
+            ParseVersion(principal, DeviceAccessAuthentication.ProofBindingVersionClaim));
+    }
+
+    private static int ParseVersion(ClaimsPrincipal principal, string claimType)
+    {
+        var raw = principal.FindFirst(claimType)?.Value;
+        if (raw is null) return 0; // Older issued tokens remain compatible outside ownership linking.
+        return int.TryParse(raw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) && value >= 0
+            ? value : throw new UnauthorizedAccessException("The device identity version claim is invalid.");
     }
 
     private static Guid ParseRequiredGuid(ClaimsPrincipal principal, string claimType) =>

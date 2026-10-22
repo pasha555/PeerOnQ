@@ -14,27 +14,48 @@ public sealed partial class App : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            var startupCancellation = new CancellationTokenSource();
+            var startupToken = startupCancellation.Token;
             var window = new MainWindow();
             desktop.MainWindow = window;
-            window.Opened += async (_, _) =>
+            var startupTask = Task.CompletedTask;
+            window.CancelStartupAsync = () =>
             {
-                try
-                {
-                    _services = await LinuxAppServices.CreateAsync();
-                    await window.AttachAsync(_services);
-                }
-                catch (Exception exception)
-                {
-                    window.ShowStartupError(exception);
-                }
+                startupCancellation.Cancel();
+                return startupTask;
             };
-            desktop.ShutdownRequested += async (_, _) =>
+            window.Opened += (_, _) => startupTask = InitializeWindowAsync(window, startupToken);
+            desktop.Exit += (_, _) =>
             {
-                if (_services is not null)
-                    await _services.DisposeAsync();
+                startupCancellation.Cancel();
+                startupCancellation.Dispose();
             };
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private async Task InitializeWindowAsync(MainWindow window, CancellationToken startupToken)
+    {
+        try
+        {
+            _services = await LinuxAppServices.CreateAsync(startupToken);
+            startupToken.ThrowIfCancellationRequested();
+            await window.AttachAsync(_services, startupToken);
+        }
+        catch (OperationCanceledException) when (startupToken.IsCancellationRequested)
+        {
+            // The closing window awaits this task before the desktop lifetime exits.
+        }
+        catch (Exception exception)
+        {
+            if (!startupToken.IsCancellationRequested)
+                window.ShowStartupError(exception);
+        }
+        finally
+        {
+            if (startupToken.IsCancellationRequested && _services is not null)
+                await _services.DisposeAsync();
+        }
     }
 }

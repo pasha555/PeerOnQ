@@ -10,6 +10,8 @@
             <CommandBar.PrimaryCommands>
                 <AppBarButton x:Name="FullScreenButton" Icon="FullScreen" Label="Fullscreen" Click="OnFullScreen"
                               ToolTipService.ToolTip="Fullscreen (F11 exits during Full Control)" />
+                <AppBarButton x:Name="SystemSoundButton" Icon="Volume" Label="Play system sound" Visibility="Collapsed"
+                              Click="OnSystemSound" ToolTipService.ToolTip="Play or mute the system sound explicitly allowed by the host" />
                 <AppBarButton x:Name="FileTransferButton" Icon="OpenFile" Label="File Transfer"
                               Click="OnChooseFiles" IsEnabled="False" Visibility="Collapsed"
                               AutomationProperties.Name="Choose files to send to the remote device"

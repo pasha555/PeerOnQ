@@ -245,7 +245,7 @@ public sealed class MainViewController : UIViewController
         };
         controls.AddArrangedSubview(inputRow);
 
-        _textInput = CreateTextField("Short ASCII text", "Text to type on the remote device");
+        _textInput = CreateTextField("Short text", "Text to type on the remote device");
         _textInput.AutocorrectionType = UITextAutocorrectionType.No;
         _textInput.SpellCheckingType = UITextSpellCheckingType.No;
         _textInput.EditingChanged += (_, _) => UpdateActions();
@@ -638,16 +638,22 @@ public sealed class MainViewController : UIViewController
         if (_remoteInput is not { IsLocallyEnabled: true } input) return;
         var text = _textInput.Text ?? string.Empty;
         if (text.Length == 0) return;
-        if (text.Length > 256 || text.Any(character => !AppleInputMapper.TryMapAscii(character, out _, out _)))
+        if (!RemoteInputEvent.IsValidText(text))
         {
-            ShowError("Remote text is limited to 256 printable ASCII characters.");
+            ShowError("Enter up to 256 valid text characters.");
+            return;
+        }
+        if (!input.IsUnicodeTextAvailable && text.Any(character => !AppleInputMapper.TryMapAscii(character, out _, out _)))
+        {
+            ShowError("This peer supports ASCII text only. Update both clients and the server to send Unicode text.");
             return;
         }
 
         _sendTextButton.Enabled = false;
         try
         {
-            foreach (var character in text)
+            if (input.IsUnicodeTextAvailable) await input.SendTextAsync(text);
+            else foreach (var character in text)
             {
                 AppleInputMapper.TryMapAscii(character, out var virtualKey, out var shift);
                 if (shift) await input.SendKeyAsync(0x10, true, false);

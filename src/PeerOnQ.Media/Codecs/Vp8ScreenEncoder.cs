@@ -16,6 +16,7 @@ internal sealed class Vp8ScreenEncoder : IDisposable
 
     private const int EncoderAbiVersion = 23;
     private const int RealtimeDeadline = 1;
+    private const int ClockRate = 90_000;
     private const int ForceKeyFrameFlag = 1;
     private const uint DefaultErrorResilientFlag = 1;
     // Chromium Remote Desktop uses libvpx's fastest VP8 realtime setting for full-screen desktop
@@ -26,22 +27,39 @@ internal sealed class Vp8ScreenEncoder : IDisposable
     // One 8K I420 frame is about 47.5 MiB; bound the pinned frame and native working set.
     private const int MaximumI420FrameBytes = 64 * 1024 * 1024;
     private readonly Lock _gate = new();
+    private readonly Func<VpxCodecCtx, VpxCodecEncCfg, VpxCodecErrT> _setConfiguration;
+    private readonly Func<int> _getNativeVersion;
 
     private VpxCodecCtx? _context;
     private VpxImage? _image;
+    private VpxCodecEncCfg? _configuration;
     private uint _width;
     private uint _height;
     private long _presentationTimestamp;
+    private int _durationRemainder;
     private bool _forceKeyFrame = true;
     private bool _disposed;
     private int _targetKbps;
     private int _targetFps;
 
-    public Vp8ScreenEncoder(int targetKbps, int targetFps)
+    public Vp8ScreenEncoder(int targetKbps, int targetFps) : this(targetKbps, targetFps, null)
+    {
+    }
+
+    internal Vp8ScreenEncoder(int targetKbps, int targetFps,
+        Func<VpxCodecCtx, VpxCodecEncCfg, VpxCodecErrT>? setConfiguration,
+        Func<int>? getNativeVersion = null)
     {
         _targetKbps = ClampBitrate(targetKbps);
         _targetFps = ClampFrameRate(targetFps);
+        _setConfiguration = setConfiguration ?? vpx_encoder.VpxCodecEncConfigSet;
+        _getNativeVersion = getNativeVersion ?? vpx_codec.VpxCodecVersion;
     }
+
+    internal int InitialisationCount { get; private set; }
+    internal int ReconfigurationCount { get; private set; }
+    internal long LastSubmittedTimestamp { get; private set; }
+    internal uint LastSubmittedDuration { get; private set; }
 
     internal int TargetKbps
     {
@@ -60,7 +78,8 @@ internal sealed class Vp8ScreenEncoder : IDisposable
             if (bounded == _targetKbps) return;
 
             _targetKbps = bounded;
-            ResetEncoder();
+            if (TryReconfigureEncoder()) _forceKeyFrame = true;
+            else ResetEncoder();
         }
     }
 
@@ -73,7 +92,9 @@ internal sealed class Vp8ScreenEncoder : IDisposable
             if (bounded == _targetFps) return;
 
             _targetFps = bounded;
-            ResetEncoder();
+            _durationRemainder = 0;
+            if (TryReconfigureEncoder()) _forceKeyFrame = true;
+            else ResetEncoder();
         }
     }
 
@@ -134,14 +155,21 @@ internal sealed class Vp8ScreenEncoder : IDisposable
                     }
 
                     var flags = _forceKeyFrame ? ForceKeyFrameFlag : 0;
+                    var ticks = ClockRate + _durationRemainder;
+                    var duration = (uint)(ticks / _targetFps);
+                    _durationRemainder = ticks % _targetFps;
+                    var timestamp = _presentationTimestamp;
+                    _presentationTimestamp = checked(timestamp + duration);
                     var result = vpx_encoder.VpxCodecEncode(
                         _context!,
                         _image!,
-                        _presentationTimestamp++,
-                        1,
+                        timestamp,
+                        duration,
                         flags,
                         RealtimeDeadline);
                     EnsureSuccess(result, "encode a VP8 frame");
+                    LastSubmittedTimestamp = timestamp;
+                    LastSubmittedDuration = duration;
 
                     _forceKeyFrame = false;
                     IntPtr iterator = IntPtr.Zero;
@@ -164,15 +192,48 @@ internal sealed class Vp8ScreenEncoder : IDisposable
         }
     }
 
+    private bool TryReconfigureEncoder()
+    {
+        if (_context is null || _configuration is null) return false;
+        _configuration.RcTargetBitrate = (uint)_targetKbps;
+        _configuration.KfMaxDist = (uint)(_targetFps * 2);
+        try
+        {
+            if (_setConfiguration(_context, _configuration) != VpxCodecErrT.VPX_CODEC_OK)
+                return false;
+            ReconfigurationCount++;
+            return true;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Older native runtimes retain the existing recreate-and-key-frame behavior.
+            return false;
+        }
+        catch
+        {
+            // Never reuse a context after an unexpected partial configuration failure.
+            ResetEncoder();
+            throw;
+        }
+    }
+
+    internal static bool IsSupportedEncoderVersion(int version) => version == 0x010900;
+
     private void Initialise(uint width, uint height)
     {
+        var nativeVersion = _getNativeVersion();
+        if (!IsSupportedEncoderVersion(nativeVersion))
+            throw new PlatformNotSupportedException(
+                $"VP8 encoding requires the reviewed libvpx 1.9.0 configuration layout (ABI 23); native version {nativeVersion} is unsupported.");
+
         VpxCodecCtx? candidateContext = new();
         VpxImage? candidateImage = null;
+        VpxCodecEncCfg? candidateConfiguration = null;
         var contextInitialised = false;
 
         try
         {
-            using var configuration = new VpxCodecEncCfg();
+            var configuration = candidateConfiguration = new VpxCodecEncCfg();
             var codecInterface = vp8cx.VpxCodecVp8Cx();
 
             EnsureSuccess(
@@ -198,7 +259,8 @@ internal sealed class Vp8ScreenEncoder : IDisposable
             configuration.KfMinDist = 0;
             configuration.KfMaxDist = (uint)(_targetFps * 2);
 
-            using (var timebase = new VpxRational { Num = 1, Den = _targetFps })
+            // libvpx caches this ratio at initialization. Keep it fixed when FPS changes.
+            using (var timebase = new VpxRational { Num = 1, Den = ClockRate })
             {
                 configuration.GTimebase = timebase;
             }
@@ -235,13 +297,17 @@ internal sealed class Vp8ScreenEncoder : IDisposable
             candidateImage = new VpxImage();
             _context = candidateContext;
             _image = candidateImage;
+            _configuration = candidateConfiguration;
             candidateContext = null;
             candidateImage = null;
+            candidateConfiguration = null;
 
             _width = width;
             _height = height;
             _presentationTimestamp = 0;
+            _durationRemainder = 0;
             _forceKeyFrame = true;
+            InitialisationCount++;
         }
         finally
         {
@@ -262,7 +328,8 @@ internal sealed class Vp8ScreenEncoder : IDisposable
             }
             finally
             {
-                candidateImage?.Dispose();
+                try { candidateImage?.Dispose(); }
+                finally { candidateConfiguration?.Dispose(); }
             }
         }
     }
@@ -271,8 +338,10 @@ internal sealed class Vp8ScreenEncoder : IDisposable
     {
         var context = _context;
         var image = _image;
+        var configuration = _configuration;
         _context = null;
         _image = null;
+        _configuration = null;
 
         try
         {
@@ -281,15 +350,29 @@ internal sealed class Vp8ScreenEncoder : IDisposable
         }
         finally
         {
-            context?.Dispose();
-            // VpxImgWrap uses the caller-owned pinned frame and allocates no native image buffer.
-            // The generated wrapper owns only the descriptor allocated by its constructor.
-            image?.Dispose();
-
-            _width = 0;
-            _height = 0;
-            _presentationTimestamp = 0;
-            _forceKeyFrame = true;
+            try { context?.Dispose(); }
+            finally
+            {
+                try
+                {
+                    // VpxImgWrap borrows only the pinned frame; the wrapper owns its descriptor.
+                    image?.Dispose();
+                }
+                finally
+                {
+                    try { configuration?.Dispose(); }
+                    finally
+                    {
+                        _width = 0;
+                        _height = 0;
+                        _presentationTimestamp = 0;
+                        _durationRemainder = 0;
+                        LastSubmittedTimestamp = 0;
+                        LastSubmittedDuration = 0;
+                        _forceKeyFrame = true;
+                    }
+                }
+            }
         }
     }
 

@@ -12,7 +12,7 @@ using PeerOnQ.Cloud.Infrastructure.Persistence;
 
 namespace PeerOnQ.Cloud.Infrastructure.Tests;
 
-public sealed class PostgreSqlMigrationTests
+public sealed partial class PostgreSqlMigrationTests
 {
     [Fact]
     public void ModelEnforcesIdentityIdempotencyAndAuditIndexes()
@@ -68,6 +68,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Contains("CREATE TABLE \"OrganizationMemberships\"", script, StringComparison.Ordinal);
         Assert.Contains("CREATE TABLE \"OrganizationInvitations\"", script, StringComparison.Ordinal);
         Assert.Contains("CREATE TABLE \"OrganizationPolicies\"", script, StringComparison.Ordinal);
+        Assert.Contains("ADD \"SystemAudioAllowed\" boolean NOT NULL DEFAULT FALSE", script, StringComparison.Ordinal);
         Assert.Contains("CREATE UNIQUE INDEX \"IX_OrganizationInvitations_TokenHash\"", script, StringComparison.Ordinal);
         Assert.Contains("TR_CustomerSecurityEvents_AppendOnly", script, StringComparison.Ordinal);
         Assert.Contains("peeronq_apply_audit_retention", script, StringComparison.Ordinal);
@@ -145,12 +146,12 @@ public sealed class PostgreSqlMigrationTests
         Assert.DoesNotContain(names, name => name.Equals("UploadToken", StringComparison.OrdinalIgnoreCase));
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task MigrationAppliesToExplicitPostgreSqlTestDatabase()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         await using var context = CreateContext(connectionString, enableRetry: true);
         await MigrateForTestAsync(context, connectionString);
@@ -164,12 +165,12 @@ public sealed class PostgreSqlMigrationTests
         Assert.True(await context.Database.SqlQueryRaw<int>("SELECT 1 AS \"Value\" FROM \"Devices\" LIMIT 0").ToListAsync() is not null);
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task NoInheritMigratorCanUpgradeFunctionsAlreadyOwnedByRetentionExecutor()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         var suffix = Guid.NewGuid().ToString("N")[..16];
         var migratorRole = $"peeronq_migrator_{suffix}";
@@ -227,12 +228,12 @@ public sealed class PostgreSqlMigrationTests
         }
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task DiagnosticRetentionClaimsThenFinalizesWithoutLosingDeleteKey()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         await using var context = CreateContext(connectionString, enableRetry: true);
         await MigrateForTestAsync(context, connectionString);
@@ -260,12 +261,12 @@ public sealed class PostgreSqlMigrationTests
         Assert.Null(expired.StorageObjectKey);
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task EndedHeartbeatSessionRemainsEligibleForSessionRetention()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         await using var context = CreateContext(connectionString);
         await MigrateForTestAsync(context, connectionString);
@@ -294,12 +295,12 @@ public sealed class PostgreSqlMigrationTests
         await transaction.RollbackAsync();
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task OverviewAndDistributionsUseConnectedSessionsDistinctDevicesAndActiveInstallations()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         await using var context = CreateContext(connectionString);
         await MigrateForTestAsync(context, connectionString);
@@ -376,12 +377,12 @@ public sealed class PostgreSqlMigrationTests
         await transaction.RollbackAsync();
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task PostgreSqlTriggerRejectsAuditMutation()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         await using var context = CreateContext(connectionString);
         await MigrateForTestAsync(context, connectionString);
@@ -397,12 +398,12 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal("42501", error.SqlState);
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task GovernedRetentionIsBoundedHonorsLegalHoldAndWritesImmutableEvidence()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         await using var context = CreateContext(connectionString);
         await MigrateForTestAsync(context, connectionString);
@@ -485,12 +486,12 @@ public sealed class PostgreSqlMigrationTests
         Assert.Equal("42501", evidenceUpdateError.SqlState);
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task RuntimeRoleCanExecuteGovernedRetentionButCannotMutateTablesOrSchema()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         await using var context = CreateContext(connectionString);
         await MigrateForTestAsync(context, connectionString);
@@ -611,12 +612,12 @@ public sealed class PostgreSqlMigrationTests
         }
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_POSTGRES")]
     [Trait("Category", "ExternalIntegration")]
     public async Task ProofBootstrapIsAtomicStableCollisionSafeAndMigratesLegacyAlias()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_POSTGRES");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_POSTGRES is required for this integration test.");
 
         var options = new DbContextOptionsBuilder<CloudDbContext>()
             .UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure(3))

@@ -154,6 +154,19 @@ public enum CaptureResolution
     P2160 = 5,
 }
 
+/// <summary>Current streaming limit; legacy wire values remain readable for older peers.</summary>
+public static class CaptureResolutionPolicy
+{
+    public const int MaximumShortEdge = 1080;
+
+    public static CaptureResolution Normalize(CaptureResolution resolution) => resolution switch
+    {
+        CaptureResolution.P720 or CaptureResolution.P1080 => resolution,
+        CaptureResolution.Automatic or CaptureResolution.Native or CaptureResolution.P1440 or CaptureResolution.P2160 => CaptureResolution.P1080,
+        _ => throw new ArgumentOutOfRangeException(nameof(resolution)),
+    };
+}
+
 /// <summary>
 /// One captured frame in a WebRTC-compatible layout (I420). Consumers must copy a buffer they
 /// retain beyond the callback unless the producer explicitly transfers ownership below.

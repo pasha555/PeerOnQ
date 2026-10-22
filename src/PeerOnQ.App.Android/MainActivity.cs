@@ -466,16 +466,22 @@ public sealed class MainActivity : Activity
         if (_remoteInput is not { IsLocallyEnabled: true } input) return;
         var text = _textInput.Text ?? string.Empty;
         if (text.Length == 0) return;
-        if (text.Any(character => !TryMapAscii(character, out _, out _)))
+        if (!RemoteInputEvent.IsValidText(text))
         {
-            ShowError("Short text can contain printable ASCII characters only.");
+            ShowError("Enter up to 256 valid text characters.");
+            return;
+        }
+        if (!input.IsUnicodeTextAvailable && text.Any(character => !TryMapAscii(character, out _, out _)))
+        {
+            ShowError("This peer supports ASCII text only. Update both clients and the server to send Unicode text.");
             return;
         }
 
         _sendTextButton.Enabled = false;
         try
         {
-            foreach (var character in text)
+            if (input.IsUnicodeTextAvailable) await input.SendTextAsync(text);
+            else foreach (var character in text)
             {
                 TryMapAscii(character, out var virtualKey, out var shift);
                 if (shift) await input.SendKeyAsync(0x10, true, false);

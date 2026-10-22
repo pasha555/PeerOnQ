@@ -23,7 +23,60 @@ public sealed class Phase6CloudPlatformClientTests : IDisposable
     private readonly List<string> _databaseConnectionStrings = [];
 
     [Fact]
-    public async Task ProofFirstRegistrationPersistsAliasBeforeAuthenticatedConfirmation()
+    public async Task Device_link_is_explicit_authenticated_and_refreshes_policy_only_after_status_confirmation()
+    {
+        var installationId = Guid.NewGuid();
+        var deviceId = Guid.NewGuid();
+        var authentications = 0;
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>[] authentication =
+        [
+            (_, _) => Task.FromResult(Json(HttpStatusCode.OK, Challenge("ownership-challenge", "opaque", DateTimeOffset.UtcNow.AddSeconds(60)))),
+            (_, _) => Task.FromResult(Json(HttpStatusCode.OK, new DeviceAuthenticationResultV1(
+                "memory-only-token", DateTimeOffset.UtcNow.AddMinutes(10), deviceId, installationId,
+                "246-802-468-024", $"policy-attestation-{++authentications}", DateTimeOffset.UtcNow.AddMinutes(5)))),
+            (_, _) => Task.FromResult(Json(HttpStatusCode.OK, new InstallationRegistrationResultV1(
+                installationId, DateTimeOffset.UtcNow, false, false, null))),
+        ];
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(2);
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>[] linking =
+        [
+            (request, _) =>
+            {
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.Equal("/v1/devices/ownership-links", request.RequestUri!.AbsolutePath);
+                Assert.Null(request.Content);
+                Assert.Equal("memory-only-token", request.Headers.Authorization?.Parameter);
+                return Task.FromResult(Json(HttpStatusCode.OK, new CreateDeviceOwnershipLinkResponse(new string('a', 43), expiry)));
+            },
+            (request, _) =>
+            {
+                Assert.Equal(HttpMethod.Get, request.Method);
+                Assert.Equal("/v1/devices/ownership-links/status", request.RequestUri!.AbsolutePath);
+                Assert.Equal("memory-only-token", request.Headers.Authorization?.Parameter);
+                return Task.FromResult(Json(HttpStatusCode.OK, new DeviceOwnershipLinkStatusResponse(false)));
+            },
+            (_, _) => Task.FromResult(Json(HttpStatusCode.OK, new DeviceOwnershipLinkStatusResponse(true))),
+        ];
+        var handler = new SequenceHandler([.. authentication, .. linking, .. authentication]);
+        var fixture = CreateClient(handler, new RecordingProofProvider(), installationId,
+            timeProvider: new AdjustableTimeProvider(DateTimeOffset.UtcNow.AddMinutes(-4)));
+        await using var client = fixture.Client;
+        Assert.Equal(0, handler.CallCount);
+        var code = await client.CreateDeviceOwnershipLinkAsync();
+        Assert.Equal(new string('a', 43), code.Code);
+        Assert.Equal(expiry, code.ExpiresAtUtc);
+        Assert.False((await client.GetDeviceOwnershipLinkStatusAsync()).Linked);
+        Assert.Equal(1, authentications);
+        Assert.True((await client.GetDeviceOwnershipLinkStatusAsync()).Linked);
+        await client.RefreshOwnershipPolicyAsync();
+        Assert.Equal("policy-attestation-2", await client.GetSignalingAttestationAsync());
+        Assert.Equal(9, handler.CallCount);
+    }
+
+    [Theory]
+    [InlineData(PlatformKindV1.Windows)]
+    [InlineData(PlatformKindV1.Linux)]
+    public async Task ProofFirstRegistrationPersistsAliasBeforeAuthenticatedConfirmation(PlatformKindV1 platform)
     {
         var installationId = Guid.NewGuid();
         var deviceId = Guid.NewGuid();
@@ -41,7 +94,7 @@ public sealed class Phase6CloudPlatformClientTests : IDisposable
                 var body = await request.Content!.ReadFromJsonAsync<DeviceRegistrationRequestV1>(cancellationToken);
                 Assert.Equal(installationId, body!.InstallationId);
                 Assert.NotEmpty(body.PublicKeySpkiBase64);
-                Assert.Equal(PlatformKindV1.Windows, body.Platform);
+                Assert.Equal(platform, body.Platform);
                 return Json(HttpStatusCode.OK, challenge);
             },
             async (request, cancellationToken) =>
@@ -65,10 +118,12 @@ public sealed class Phase6CloudPlatformClientTests : IDisposable
                 Assert.Equal("246-802-468-024", persisted.PublicId.Display);
                 var body = await request.Content!.ReadFromJsonAsync<InstallationRegistrationRequestV1>(cancellationToken);
                 Assert.Equal(installationId, body!.InstallationId);
+                Assert.Equal(platform, body.Platform);
                 return Json(HttpStatusCode.OK, new InstallationRegistrationResultV1(
                     installationId, DateTimeOffset.UtcNow, false, false, null));
             });
-        var fixture = CreateClient(handler, proof, installationId);
+        var fixture = CreateClient(handler, proof, installationId,
+            platform: platform == PlatformKindV1.Windows ? null : platform);
         repository = fixture.Repository;
         await using var client = fixture.Client;
 
@@ -357,7 +412,8 @@ public sealed class Phase6CloudPlatformClientTests : IDisposable
         string? initialAlias = null,
         TimeProvider? timeProvider = null,
         int? maximumReconnectAttempts = null,
-        TimeSpan? reconnectCooldown = null)
+        TimeSpan? reconnectCooldown = null,
+        PlatformKindV1? platform = null)
     {
         Directory.CreateDirectory(_root);
         var database = new PeerOnQDatabase(Path.Combine(_root, $"{Guid.NewGuid():N}.db"));
@@ -403,6 +459,7 @@ public sealed class Phase6CloudPlatformClientTests : IDisposable
                 ReconnectCooldown = reconnectCooldown ?? options.ReconnectCooldown,
             };
         }
+        if (platform is not null) options = options with { Platform = platform.Value };
         var client = new CloudPlatformClient(
             new HttpClient(handler),
             options,

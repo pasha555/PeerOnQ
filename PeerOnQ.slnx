@@ -23,6 +23,7 @@
     <Project Path="src/PeerOnQ.Observability/PeerOnQ.Observability.csproj" />
     <Project Path="src/PeerOnQ.Presence.Server/PeerOnQ.Presence.Server.csproj" />
     <Project Path="src/PeerOnQ.Shared.Contracts/PeerOnQ.Shared.Contracts.csproj" />
+    <Project Path="src/PeerOnQ.Service.Windows/PeerOnQ.Service.Windows.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PeerOnQ.App.Linux.Tests/PeerOnQ.App.Linux.Tests.csproj" />
@@ -43,5 +44,6 @@
     <Project Path="tests/PeerOnQ.Downloads.Tests/PeerOnQ.Downloads.Tests.csproj" />
     <Project Path="tests/PeerOnQ.Observability.Tests/PeerOnQ.Observability.Tests.csproj" />
     <Project Path="tests/PeerOnQ.Presence.Tests/PeerOnQ.Presence.Tests.csproj" />
+    <Project Path="tests/PeerOnQ.Service.Windows.Tests/PeerOnQ.Service.Windows.Tests.csproj" />
   </Folder>
 </Solution>

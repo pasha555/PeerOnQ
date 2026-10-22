@@ -1,13 +1,224 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using PeerOnQ.Media.Codecs;
 using SIPSorceryMedia.Abstractions;
 using SIPSorceryMedia.Encoders;
+using vpxmd;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace PeerOnQ.Media.Tests;
 
-public sealed class Vp8ScreenEncoderTests
+public sealed class Vp8ScreenEncoderTests(ITestOutputHelper output)
 {
+    [Theory]
+    [InlineData(0x010900, true)]
+    [InlineData(0x010901, false)]
+    [InlineData(0x010800, false)]
+    [InlineData(0x010a00, false)]
+    [InlineData(0x010e00, false)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    public void Only_the_reviewed_native_encoder_layout_version_is_accepted(int version, bool expected) =>
+        Assert.Equal(expected, Vp8ScreenEncoder.IsSupportedEncoderVersion(version));
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(0x010e00)]
+    public void Unsupported_native_version_is_rejected_before_initialisation_without_poisoning_targets(int version)
+    {
+        var nativeVersion = version;
+        var configCalls = 0;
+        using var encoder = new Vp8ScreenEncoder(4_000, 30, (context, configuration) =>
+        {
+            configCalls++;
+            return vpx_encoder.VpxCodecEncConfigSet(context, configuration);
+        }, () => nativeVersion);
+        using var decoder = new VpxVideoEncoder();
+        encoder.SetTargetKbps(2_000);
+        encoder.SetTargetFps(20);
+        var source = CreateCheckerboard(160, 90, 8, 0);
+        var error = Assert.Throws<PlatformNotSupportedException>(() => encoder.EncodeI420(160, 90, source));
+        Assert.Contains("configuration layout", error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, encoder.InitialisationCount);
+        Assert.Equal(0, encoder.ReconfigurationCount);
+        Assert.Equal(0, configCalls);
+        Assert.Equal(2_000, encoder.TargetKbps);
+        Assert.Equal((uint)0, encoder.LastSubmittedDuration);
+
+        nativeVersion = 0x010900;
+        var first = encoder.EncodeI420(160, 90, source);
+        AssertKeyFrame(first);
+        Assert.Single(decoder.DecodeVideo(first, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8));
+        Assert.Equal(1, encoder.InitialisationCount);
+        Assert.Equal(0, encoder.LastSubmittedTimestamp);
+        Assert.Equal((uint)4_500, encoder.LastSubmittedDuration);
+        encoder.SetTargetKbps(1_000);
+        encoder.SetTargetFps(15);
+        var changed = encoder.EncodeI420(160, 90, source);
+        AssertKeyFrame(changed);
+        Assert.Single(decoder.DecodeVideo(changed, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8));
+        Assert.Equal(1, encoder.InitialisationCount);
+        Assert.Equal(2, configCalls);
+        Assert.Equal((uint)6_000, encoder.LastSubmittedDuration);
+    }
+
+    [Fact]
+    public void Loaded_native_codec_version_build_and_exact_module_are_recorded()
+    {
+        var version = vpx_codec.VpxCodecVersionStr();
+        var build = vpx_codec.VpxCodecBuildConfig();
+        Assert.False(string.IsNullOrWhiteSpace(version));
+        Assert.False(string.IsNullOrWhiteSpace(build));
+        using var process = Process.GetCurrentProcess();
+        var native = Assert.Single(process.Modules.Cast<ProcessModule>(), module =>
+            module.ModuleName.StartsWith("vpxmd", StringComparison.OrdinalIgnoreCase)
+            || module.ModuleName.StartsWith("libvpx", StringComparison.OrdinalIgnoreCase));
+        using var stream = File.OpenRead(native.FileName);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(stream));
+        output.WriteLine($"Native libvpx version={version}; number={vpx_codec.VpxCodecVersion()}; build={build}");
+        output.WriteLine($"Loaded native module={native.FileName}; SHA256={hash}");
+    }
+
+    [Fact]
+    public void Live_bitrate_and_fps_changes_reconfigure_real_context_and_preserve_recovery()
+    {
+        var nativeSetCalls = 0;
+        using var encoder = new Vp8ScreenEncoder(4_000, 30, (context, configuration) =>
+        {
+            using var timebase = configuration.GTimebase;
+            Assert.Equal(1, timebase.Num);
+            Assert.Equal(90_000, timebase.Den);
+            Assert.Equal((uint)2, configuration.RcMinQuantizer);
+            Assert.Equal((uint)56, configuration.RcMaxQuantizer);
+            nativeSetCalls++;
+            return vpx_encoder.VpxCodecEncConfigSet(context, configuration);
+        });
+        using var decoder = new VpxVideoEncoder();
+        const int width = 320;
+        const int height = 180;
+        var frame = CreateCheckerboard(width, height, 8, 0);
+        long nextTimestamp = 0;
+        EncodeAndDecode(expectKeyFrame: true);
+        encoder.SetTargetKbps(4_000);
+        encoder.SetTargetFps(30);
+        Assert.Equal(0, nativeSetCalls);
+        Assert.Equal(1, encoder.InitialisationCount);
+
+        foreach (var (fps, kbps) in new[] { (30, 3_500), (20, 3_000), (15, 2_500), (30, 4_000) })
+        {
+            encoder.SetTargetFps(fps);
+            encoder.SetTargetKbps(kbps);
+            EncodeAndDecode(expectKeyFrame: true);
+            Assert.Equal((uint)(90_000 / fps), encoder.LastSubmittedDuration);
+            Assert.Equal(1, encoder.InitialisationCount);
+        }
+        Assert.Equal(7, nativeSetCalls);
+        Assert.Equal(nativeSetCalls, encoder.ReconfigurationCount);
+        encoder.ForceKeyFrame();
+        EncodeAndDecode(expectKeyFrame: true);
+        Assert.Equal(1, encoder.InitialisationCount);
+        Assert.Equal(7, nativeSetCalls);
+
+        var resized = encoder.EncodeI420(160, 90, CreateCheckerboard(160, 90, 8, 0));
+        AssertKeyFrame(resized);
+        var image = decoder.DecodeVideo(resized, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8).Single();
+        Assert.Equal((uint)160, image.Width);
+        Assert.Equal((uint)90, image.Height);
+        Assert.Equal(2, encoder.InitialisationCount);
+        Assert.Equal(0, encoder.LastSubmittedTimestamp);
+
+        void EncodeAndDecode(bool expectKeyFrame)
+        {
+            var encoded = encoder.EncodeI420(width, height, frame);
+            if (expectKeyFrame) AssertKeyFrame(encoded);
+            var image = decoder.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8).Single();
+            Assert.Equal((uint)width, image.Width);
+            Assert.Equal((uint)height, image.Height);
+            Assert.Equal(nextTimestamp, encoder.LastSubmittedTimestamp);
+            nextTimestamp += encoder.LastSubmittedDuration;
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(15)]
+    [InlineData(29)]
+    [InlineData(59)]
+    [InlineData(119)]
+    [InlineData(120)]
+    public void Fixed_timebase_preserves_exact_nominal_second_and_decodable_frames(int fps)
+    {
+        using var encoder = new Vp8ScreenEncoder(2_000, fps);
+        using var decoder = new VpxVideoEncoder();
+        var source = CreateCheckerboard(96, 64, 8, 0);
+        long timestamp = 0;
+        for (var frame = 0; frame < fps; frame++)
+        {
+            var encoded = encoder.EncodeI420(96, 64, source);
+            Assert.NotEmpty(encoded);
+            Assert.Single(decoder.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8));
+            Assert.Equal(timestamp, encoder.LastSubmittedTimestamp);
+            Assert.InRange(encoder.LastSubmittedDuration, (uint)(90_000 / fps), (uint)((90_000 + fps - 1) / fps));
+            timestamp += encoder.LastSubmittedDuration;
+        }
+        Assert.Equal(90_000, timestamp);
+        Assert.Equal(1, encoder.InitialisationCount);
+    }
+
+    [Theory]
+    [InlineData("result", false)]
+    [InlineData("result", true)]
+    [InlineData("missing", false)]
+    [InlineData("missing", true)]
+    [InlineData("exception", false)]
+    [InlineData("exception", true)]
+    public void Failed_reconfiguration_disposes_real_native_state_and_restarts_with_desired_targets(
+        string failure, bool changeFps)
+    {
+        VpxCodecCtx? rejectedContext = null;
+        VpxCodecEncCfg? rejectedConfiguration = null;
+        var expectedFps = changeFps ? 20 : 30;
+        var expectedKbps = changeFps ? 4_000 : 2_000;
+        using var encoder = new Vp8ScreenEncoder(4_000, 30, (context, configuration) =>
+        {
+            rejectedContext = context;
+            rejectedConfiguration = configuration;
+            Assert.NotEqual(nint.Zero, context.__Instance);
+            Assert.Equal((uint)expectedKbps, configuration.RcTargetBitrate);
+            Assert.Equal((uint)(expectedFps * 2), configuration.KfMaxDist);
+            return failure switch
+            {
+                "result" => VpxCodecErrT.VPX_CODEC_ERROR,
+                "missing" => throw new EntryPointNotFoundException("Ordinary test-only unsupported configuration API."),
+                _ => throw new InvalidOperationException("Ordinary test-only configuration failure."),
+            };
+        });
+        using var decoder = new VpxVideoEncoder();
+        var source = CreateCheckerboard(160, 90, 8, 0);
+        AssertKeyFrame(encoder.EncodeI420(160, 90, source));
+        if (failure == "exception") Assert.Throws<InvalidOperationException>(ChangeTarget);
+        else ChangeTarget();
+        Assert.NotNull(rejectedContext);
+        Assert.NotNull(rejectedConfiguration);
+        Assert.Equal(nint.Zero, rejectedContext.__Instance);
+        Assert.Equal(nint.Zero, rejectedConfiguration.__Instance);
+        Assert.Equal(0, encoder.ReconfigurationCount);
+        Assert.Equal(expectedKbps, encoder.TargetKbps);
+        var recovered = encoder.EncodeI420(160, 90, source);
+        AssertKeyFrame(recovered);
+        Assert.Single(decoder.DecodeVideo(recovered, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8));
+        Assert.Equal(2, encoder.InitialisationCount);
+        Assert.Equal(0, encoder.LastSubmittedTimestamp);
+        Assert.Equal((uint)(90_000 / expectedFps), encoder.LastSubmittedDuration);
+
+        void ChangeTarget()
+        {
+            if (changeFps) encoder.SetTargetFps(expectedFps);
+            else encoder.SetTargetKbps(expectedKbps);
+        }
+    }
+
     [Theory]
     [InlineData(1280, 720, 8)]
     [InlineData(1920, 1080, 12)]

@@ -31,6 +31,9 @@ public sealed class RemoteInputSession : IAsyncDisposable
     private readonly ICollaborationTransport _transport;
     private readonly IRemoteInputSink? _sink;
     private readonly RemoteInputFocusCoordinator? _focusCoordinator;
+    private readonly Func<CaptureTargetInfo?>? _captureTarget;
+    private CaptureTargetInfo? _boundCaptureTarget;
+    private readonly bool _unicodeInputEnabled;
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _transportSendGate = new(1, 1);
     private readonly SemaphoreSlim _focusChangeGate = new(1, 1);
@@ -67,7 +70,9 @@ public sealed class RemoteInputSession : IAsyncDisposable
         ICollaborationTransport transport,
         IRemoteInputSink? sink = null,
         RemoteInputFocusCoordinator? focusCoordinator = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<CaptureTargetInfo?>? captureTarget = null,
+        bool unicodeInputEnabled = false)
     {
         if (sessionId == default) throw new ArgumentException("A session binding is required.", nameof(sessionId));
         if (!transport.Permissions.HasFlag(SessionPermission.ControlInput))
@@ -80,6 +85,8 @@ public sealed class RemoteInputSession : IAsyncDisposable
         _transport = transport;
         _sink = sink;
         _focusCoordinator = focusCoordinator;
+        _captureTarget = captureTarget;
+        _unicodeInputEnabled = unicodeInputEnabled;
         _time = timeProvider ?? TimeProvider.System;
         _transport.MessageReceived += OnMessageReceived;
         _transport.ProtocolError += OnProtocolError;
@@ -88,6 +95,7 @@ public sealed class RemoteInputSession : IAsyncDisposable
 
     public bool IsLocallyEnabled => Volatile.Read(ref _locallyEnabled) == 1;
     public bool IsControlPermissionAvailable => Volatile.Read(ref _permissionRevoked) == 0;
+    public bool IsUnicodeTextAvailable => _unicodeInputEnabled;
 
     public event EventHandler<string>? Warning;
     public event EventHandler<RemoteInputPermissionStatus>? ControlPermissionChanged;
@@ -238,6 +246,13 @@ public sealed class RemoteInputSession : IAsyncDisposable
             IsExtendedKey = isExtendedKey,
         }, cancellationToken);
 
+    public Task SendTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        if (!_unicodeInputEnabled)
+            throw new NotSupportedException("The remote peer does not support Unicode text input. Update both clients and the server.");
+        return SendInputAsync(new RemoteInputEvent { Kind = RemoteInputEventKind.Text, Text = text }, cancellationToken);
+    }
+
     /// <summary>Sharer-side, monotonic permission reduction for the current session.</summary>
     public async Task RevokeControlAsync(
         string reasonCode = "owner_revoked",
@@ -252,8 +267,7 @@ public sealed class RemoteInputSession : IAsyncDisposable
             ControlPermissionChanged?.Invoke(this, new RemoteInputPermissionStatus(false, reasonCode));
 
         Interlocked.Exchange(ref _activeRemoteFocusGeneration, 0);
-        _focusCoordinator?.Release(_sessionId);
-        _sink!.DisableAndReleaseAll();
+        ReleaseInputFocus();
         Interlocked.Exchange(ref _revocationPending, 1);
         if (_transport.IsReady)
         {
@@ -278,12 +292,11 @@ public sealed class RemoteInputSession : IAsyncDisposable
 
         Interlocked.Exchange(ref _locallyEnabled, 0);
         Interlocked.Exchange(ref _activeRemoteFocusGeneration, 0);
-        _focusCoordinator?.Release(_sessionId);
+        ReleaseInputFocus();
         Interlocked.Exchange(ref _protocolFailed, 0);
         lock (_pointerGate) _pendingPointer = null;
         ClearPendingMeasurements();
         CompletePendingFocus(accepted: false);
-        _sink?.DisableAndReleaseAll();
     }
 
     public void ConnectionResumed()
@@ -491,14 +504,15 @@ public sealed class RemoteInputSession : IAsyncDisposable
                     FailClosed("input_direction_rejected");
                     return;
                 }
+                if (IsStaleInputFocus(release.FocusGeneration)) return;
                 if (release.FocusGeneration != Volatile.Read(ref _activeRemoteFocusGeneration))
                 {
+                    if (IsStaleInputFocus(release.FocusGeneration)) return;
                     FailClosed("input_focus_generation_rejected");
                     return;
                 }
                 Interlocked.Exchange(ref _activeRemoteFocusGeneration, 0);
-                _focusCoordinator?.Release(_sessionId);
-                _sink.ReleaseAll();
+                ReleaseInputFocus(disable: false);
                 break;
 
             case RemoteInputCommand command:
@@ -509,14 +523,35 @@ public sealed class RemoteInputSession : IAsyncDisposable
                 }
                 if (Volatile.Read(ref _permissionRevoked) != 0
                     || Volatile.Read(ref _protocolFailed) != 0
-                    || (_focusCoordinator is not null && !_focusCoordinator.IsOwner(_sessionId))
+                    || !command.Input.IsValid()
+                    || (command.Input.Kind == RemoteInputEventKind.Text && !_unicodeInputEnabled))
+                {
+                    FailClosed("input_command_rejected");
+                    return;
+                }
+                if (IsStaleInputFocus(command.FocusGeneration)) return;
+                if ((_focusCoordinator is not null && !_focusCoordinator.IsOwner(_sessionId))
                     || command.FocusGeneration != Volatile.Read(ref _activeRemoteFocusGeneration))
                 {
+                    if (IsStaleInputFocus(command.FocusGeneration)) return;
                     FailClosed("input_focus_generation_rejected");
                     return;
                 }
-                if (!command.Input.IsValid() || !_sink.TryInject(command.Input))
+                var injected = false;
+                ExecuteWithInputFocus(() =>
                 {
+                    if (Volatile.Read(ref _permissionRevoked) == 0
+                        && Volatile.Read(ref _protocolFailed) == 0
+                        && Volatile.Read(ref _connectionInterrupted) == 0
+                        && command.FocusGeneration == Volatile.Read(ref _activeRemoteFocusGeneration)
+                        && RefreshCaptureTarget())
+                        injected = _sink.TryInject(command.Input);
+                });
+                if (!injected)
+                {
+                    // Ownership can change after the initial validation while this record is
+                    // waiting for the sink gate. That old, already-granted generation is harmless.
+                    if (IsStaleInputFocus(command.FocusGeneration)) return;
                     FailClosed("input_command_rejected");
                     return;
                 }
@@ -536,25 +571,38 @@ public sealed class RemoteInputSession : IAsyncDisposable
         if (!request.Enabled)
         {
             Interlocked.Exchange(ref _activeRemoteFocusGeneration, 0);
-            _focusCoordinator?.Release(_sessionId);
-            _sink!.ReleaseAll();
+            ReleaseInputFocus(disable: false);
             _ = SendFocusResultSafelyAsync(request.FocusGeneration, accepted: true, "released");
             return;
         }
 
         var accepted = Volatile.Read(ref _permissionRevoked) == 0
                        && Volatile.Read(ref _protocolFailed) == 0
+                       && Volatile.Read(ref _connectionInterrupted) == 0
                        && request.FocusGeneration > Volatile.Read(ref _lastRemoteFocusGeneration);
         if (accepted)
         {
-            _focusCoordinator?.Acquire(_sessionId, LoseRemoteFocus);
-            _sink!.RestoreApprovedScope(SessionPermission.ControlInput);
-            Volatile.Write(ref _lastRemoteFocusGeneration, request.FocusGeneration);
-            Volatile.Write(ref _activeRemoteFocusGeneration, request.FocusGeneration);
+            bool PrepareInput()
+            {
+                if (Volatile.Read(ref _permissionRevoked) != 0
+                    || Volatile.Read(ref _protocolFailed) != 0
+                    || Volatile.Read(ref _connectionInterrupted) != 0
+                    || Volatile.Read(ref _disposed) != 0
+                    || request.FocusGeneration <= Volatile.Read(ref _lastRemoteFocusGeneration))
+                    return false;
+                if (!RefreshCaptureTarget(force: true)) return false;
+                _sink!.RestoreApprovedScope(SessionPermission.ControlInput);
+                Volatile.Write(ref _lastRemoteFocusGeneration, request.FocusGeneration);
+                Volatile.Write(ref _activeRemoteFocusGeneration, request.FocusGeneration);
+                return true;
+            }
+            accepted = _focusCoordinator is null
+                ? PrepareInput()
+                : _focusCoordinator.Acquire(_sessionId, LoseRemoteFocus, PrepareInput);
         }
         else
         {
-            _sink!.DisableAndReleaseAll();
+            ReleaseInputFocus();
         }
 
         _ = SendFocusResultSafelyAsync(
@@ -597,7 +645,7 @@ public sealed class RemoteInputSession : IAsyncDisposable
     private void LoseRemoteFocus()
     {
         var focusGeneration = Interlocked.Exchange(ref _activeRemoteFocusGeneration, 0);
-        _sink?.ReleaseAll();
+        ExecuteWithInputFocus(() => _sink?.DisableAndReleaseAll());
         if (focusGeneration > 0 && _transport.IsReady)
             _ = SendFocusLostSafelyAsync(focusGeneration);
     }
@@ -778,7 +826,10 @@ public sealed class RemoteInputSession : IAsyncDisposable
                 rejection = "input_sequence_rejected";
                 return false;
             }
-            if (++_receivedInWindow > MaximumReceivedCommandsPerSecond)
+            var inputCost = message is RemoteInputCommand { Input.Kind: RemoteInputEventKind.Text } textCommand
+                ? Math.Clamp(textCommand.Input.Text?.Length ?? 0, 1, RemoteInputEvent.MaximumTextLength) * 2
+                : 1;
+            if ((_receivedInWindow += inputCost) > MaximumReceivedCommandsPerSecond)
             {
                 rejection = "input_rate_rejected";
                 return false;
@@ -848,12 +899,51 @@ public sealed class RemoteInputSession : IAsyncDisposable
 
         Interlocked.Exchange(ref _locallyEnabled, 0);
         Interlocked.Exchange(ref _activeRemoteFocusGeneration, 0);
-        _focusCoordinator?.Release(_sessionId);
+        ReleaseInputFocus();
         lock (_pointerGate) _pendingPointer = null;
         ClearPendingMeasurements();
         CompletePendingFocus(accepted: false);
-        _sink?.DisableAndReleaseAll();
         Warning?.Invoke(this, warningCode);
+    }
+
+    private void ExecuteWithInputFocus(Action action)
+    {
+        if (_focusCoordinator is null) action();
+        else _focusCoordinator.ExecuteIfOwner(_sessionId, action);
+    }
+
+    private bool IsStaleInputFocus(long generation) =>
+        generation > 0 && generation <= Volatile.Read(ref _lastRemoteFocusGeneration)
+        && (generation != Volatile.Read(ref _activeRemoteFocusGeneration)
+            || (_focusCoordinator is not null && !_focusCoordinator.IsOwner(_sessionId)));
+
+    private void ReleaseInputFocus(bool disable = true)
+    {
+        void ReleaseInput()
+        {
+            if (disable) _sink?.DisableAndReleaseAll();
+            else _sink?.ReleaseAll();
+        }
+        if (_focusCoordinator is null) ReleaseInput();
+        else _focusCoordinator.Release(_sessionId, ReleaseInput);
+    }
+
+    private bool RefreshCaptureTarget(bool force = false)
+    {
+        if (_captureTarget is null) return true;
+        var target = _captureTarget();
+        if (target is null)
+        {
+            _sink!.DisableAndReleaseAll();
+            return false;
+        }
+        if (force || target != _boundCaptureTarget)
+        {
+            _sink!.SetCaptureTarget(target);
+            _sink.RestoreApprovedScope(SessionPermission.ControlInput);
+            _boundCaptureTarget = target;
+        }
+        return true;
     }
 
     private void CompletePendingFocus(bool accepted)
@@ -891,8 +981,7 @@ public sealed class RemoteInputSession : IAsyncDisposable
         lock (_pointerGate) _pendingPointer = null;
         ClearPendingMeasurements();
         CompletePendingFocus(accepted: false);
-        _focusCoordinator?.Release(_sessionId);
-        _sink?.DisableAndReleaseAll();
+        ReleaseInputFocus();
         return ValueTask.CompletedTask;
     }
 }

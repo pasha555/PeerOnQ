@@ -16,11 +16,20 @@ jobs:
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           global-json-file: global.json
+      - name: Maintained dependency builder security self-tests
+        run: dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release -- --self-test
+      - name: Maintained dependency incremental copy/hash regression
+        shell: pwsh
+        run: ./scripts/windows/test-maintained-sipsorcery-copy.ps1
       - name: Restore
         shell: pwsh
         run: |
+          dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release -- --output eng/sipsorcery/packages
+          if ($LASTEXITCODE -ne 0) { throw 'Maintained dependency bootstrap failed.' }
           dotnet restore PeerOnQ.slnx
+          if ($LASTEXITCODE -ne 0) { throw 'Solution restore failed.' }
           dotnet restore installer/PeerOnQ.Installer.wixproj
+          if ($LASTEXITCODE -ne 0) { throw 'Installer restore failed.' }
       - name: Canonical Windows client version invariant
         shell: pwsh
         run: ./scripts/windows/test-peeronq-client-version-invariant.ps1
@@ -58,9 +67,42 @@ jobs:
             @($_.topLevelPackages) + @($_.transitivePackages)
           } | ForEach-Object { $_.vulnerabilities } | Where-Object { $_.severity -in 'High', 'Critical' })
           if ($blocked.Count -gt 0) { throw "High/critical .NET vulnerabilities found: $($blocked.Count)" }
+      - name: Maintained dependency upstream advisory scan
+        shell: pwsh
+        run: ./scripts/security/test-sipsorcery-upstream-advisories.ps1
       - name: Repository secret patterns
         shell: pwsh
         run: ./scripts/security/scan-repository-secrets.ps1
+
+  cloud-persistence:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_DB: peeronq_ci
+          POSTGRES_USER: peeronq_ci
+          # Ephemeral CI-only database; never reused by any deployment.
+          POSTGRES_PASSWORD: peeronq-ci-ephemeral
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U peeronq_ci -d peeronq_ci" --health-interval 5s --health-timeout 3s --health-retries 12
+      redis:
+        image: redis:8.4.4-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 12
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          global-json-file: global.json
+      - name: Execute required PostgreSQL and Redis security integration tests
+        env:
+          PEERONQ_REQUIRE_EXTERNAL_INTEGRATION: "true"
+          PEERONQ_TEST_POSTGRES: Host=localhost;Port=5432;Database=peeronq_ci;Username=peeronq_ci;Password=peeronq-ci-ephemeral
+          PEERONQ_TEST_REDIS: localhost:6379,abortConnect=false
+        run: >-
+          dotnet test tests/PeerOnQ.Cloud.Infrastructure.Tests/PeerOnQ.Cloud.Infrastructure.Tests.csproj
+          -c Release --nologo --filter Category=ExternalIntegration
 
   web-workspace:
     runs-on: ubuntu-latest

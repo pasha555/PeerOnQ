@@ -10,10 +10,13 @@
     <ProjectReference Include="..\PeerOnQ.Application\PeerOnQ.Application.csproj" />
     <ProjectReference Include="..\PeerOnQ.Media\PeerOnQ.Media.csproj" />
     <ProjectReference Include="..\PeerOnQ.Transport\PeerOnQ.Transport.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Shared.Contracts\PeerOnQ.Shared.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Vortice.Direct3D11" />
     <PackageReference Include="Vortice.DXGI" />
+    <PackageReference Include="NAudio.Wasapi" />
+    <PackageReference Include="Vortice.MediaFoundation" />
   </ItemGroup>
 </Project>

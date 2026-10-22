@@ -12,6 +12,8 @@ param(
 
     [string]$WindowsClientMsiPath,
 
+    [string]$WindowsClientArm64MsiPath,
+
     [version]$WindowsClientVersion,
 
     [switch]$IncludeUnsignedWindowsPilot
@@ -52,6 +54,7 @@ $dockerIgnorePath = Join-Path $repoRoot '.dockerignore'
 $dockerIgnoreRules = @(Get-Content -LiteralPath $dockerIgnorePath)
 $requiredEmbeddedDownloadRules = @(
     '!artifacts/peeronq/public/downloads/PeerOnQ-Windows-x64.msi',
+    '!artifacts/peeronq/public/downloads/PeerOnQ-Windows-arm64.msi',
     '!artifacts/peeronq/public/downloads/SHA256SUMS.txt',
     '!artifacts/peeronq/public/downloads/embedded-windows-version.txt',
     '!artifacts/peeronq/public/downloads/embedded-windows-release-type.txt',
@@ -65,6 +68,9 @@ foreach ($rule in $requiredEmbeddedDownloadRules) {
 
 if ([string]::IsNullOrWhiteSpace($WindowsClientMsiPath)) {
     throw '-WindowsClientMsiPath is required. Server bundles must explicitly embed a verified Windows x64 MSI.'
+}
+if ([string]::IsNullOrWhiteSpace($WindowsClientArm64MsiPath)) {
+    throw '-WindowsClientArm64MsiPath is required. New server bundles must embed the matching verified Windows x64/ARM64 pair.'
 }
 
 $payloadEntries = @(
@@ -90,7 +96,8 @@ $payloadEntries = @(
     'Directory.Build.targets',
     'Directory.Packages.props',
     'global.json',
-    'NuGet.config'
+    'NuGet.config',
+    'eng'
 )
 
 try {
@@ -132,6 +139,23 @@ try {
         & (Join-Path $PSScriptRoot 'test-phase5-installer.ps1') `
             -MsiPath $windowsMsi -Architecture x64 -ExpectedVersion ([version]$Version) -SkipAdministrativeExtraction
 
+        $windowsArm64Msi = (Resolve-Path -LiteralPath $WindowsClientArm64MsiPath).Path
+        if ([IO.Path]::GetExtension($windowsArm64Msi) -ne '.msi' -or (Get-Item -LiteralPath $windowsArm64Msi).Length -gt 96MB) {
+            throw 'WindowsClientArm64MsiPath must be an MSI package no larger than 96 MiB.'
+        }
+        $arm64Signature = Get-AuthenticodeSignature -LiteralPath $windowsArm64Msi
+        if ($isUnsignedWindowsPilot) {
+            if ($arm64Signature.Status -ne 'NotSigned') {
+                throw 'The Windows x64/ARM64 pair must have the same unsigned-pilot classification.'
+            }
+        }
+        elseif ($arm64Signature.Status -ne 'Valid' -or $null -eq $arm64Signature.SignerCertificate `
+            -or $arm64Signature.SignerCertificate.Thumbprint -ne $signature.SignerCertificate.Thumbprint) {
+            throw 'The Windows ARM64 MSI must have a valid signature from the same publisher certificate as x64.'
+        }
+        & (Join-Path $PSScriptRoot 'test-phase5-installer.ps1') `
+            -MsiPath $windowsArm64Msi -Architecture arm64 -ExpectedVersion ([version]$Version) -SkipAdministrativeExtraction
+
         if (-not $WindowsClientVersion) {
             $versionMatch = [regex]::Match([IO.Path]::GetFileName($windowsMsi), '(?<![0-9])(?<version>[0-9]+\.[0-9]+\.[0-9]+)(?![0-9])')
             if (-not $versionMatch.Success) {
@@ -148,10 +172,13 @@ try {
         New-Item -ItemType Directory -Path $downloadsDirectory -Force | Out-Null
         $canonicalMsi = Join-Path $downloadsDirectory 'PeerOnQ-Windows-x64.msi'
         Copy-Item -LiteralPath $windowsMsi -Destination $canonicalMsi -Force
+        $canonicalArm64Msi = Join-Path $downloadsDirectory 'PeerOnQ-Windows-arm64.msi'
+        Copy-Item -LiteralPath $windowsArm64Msi -Destination $canonicalArm64Msi -Force
         $msiSha256 = (Get-FileHash -LiteralPath $canonicalMsi -Algorithm SHA256).Hash.ToLowerInvariant()
+        $arm64MsiSha256 = (Get-FileHash -LiteralPath $canonicalArm64Msi -Algorithm SHA256).Hash.ToLowerInvariant()
         [IO.File]::WriteAllText(
             (Join-Path $downloadsDirectory 'SHA256SUMS.txt'),
-            "$msiSha256  PeerOnQ-Windows-x64.msi`n",
+            "$msiSha256  PeerOnQ-Windows-x64.msi`n$arm64MsiSha256  PeerOnQ-Windows-arm64.msi`n",
             [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText(
             (Join-Path $downloadsDirectory 'embedded-windows-version.txt'),
@@ -164,7 +191,7 @@ try {
         if ($isUnsignedWindowsPilot) {
             [IO.File]::WriteAllText(
                 (Join-Path $downloadsDirectory 'UNSIGNED-PILOT-NOTICE.txt'),
-                "This x64 MSI is unsigned and is authorized only for controlled PeerOnQ pilot testing.`nVerify SHA256SUMS.txt before installation.`n",
+                "This x64 MSI is unsigned and is authorized only for controlled PeerOnQ pilot testing.`nThe matching ARM64 MSI has the same unsigned-pilot classification.`nVerify SHA256SUMS.txt before installation.`n",
                 [Text.UTF8Encoding]::new($false))
         }
     }

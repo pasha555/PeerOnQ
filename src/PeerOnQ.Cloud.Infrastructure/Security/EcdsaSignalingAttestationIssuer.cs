@@ -42,7 +42,8 @@ public sealed class EcdsaSignalingAttestationIssuer : ISignalingAttestationIssue
             (policy.FileTransferAllowed ? SignalingOrganizationPolicyFlags.FileTransfer : 0) |
             (policy.UnattendedAccessAllowed ? SignalingOrganizationPolicyFlags.Unattended : 0) |
             (policy.ClipboardAllowed ? SignalingOrganizationPolicyFlags.Clipboard : 0) |
-            (policy.HybridSecurityRequired ? SignalingOrganizationPolicyFlags.HybridRequired : 0);
+            (policy.HybridSecurityRequired ? SignalingOrganizationPolicyFlags.HybridRequired : 0) |
+            (policy.SystemAudioAllowed ? SignalingOrganizationPolicyFlags.SystemAudio : 0);
         var claims = new SignalingAttestationClaimsV1(
             _options.Issuer,
             _options.Audience,

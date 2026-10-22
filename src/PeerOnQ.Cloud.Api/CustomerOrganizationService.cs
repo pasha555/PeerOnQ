@@ -86,6 +86,7 @@ public sealed class CustomerOrganizationService(
     {
         var organization = await RequireOrganizationAsync(organizationId, cancellationToken);
         if (organization.OwnerAccountId != actorId) throw new UnauthorizedAccessException();
+        _ = await RequireActiveAccountAsync(newOwnerAccountId, cancellationToken);
         var current = await RequireMembershipAsync(actorId, organizationId, cancellationToken);
         var next = await RequireMembershipAsync(newOwnerAccountId, organizationId, cancellationToken);
         organization.TransferOwnership(actorId, newOwnerAccountId);
@@ -136,10 +137,16 @@ public sealed class CustomerOrganizationService(
             ?? throw Problem(StatusCodes.Status400BadRequest, "invitation_invalid", "The invitation is invalid, expired, revoked, already used, or belongs to another account.");
         if (!invitation.CanAccept(account.Email, hash, DateTimeOffset.UtcNow))
             throw Problem(StatusCodes.Status400BadRequest, "invitation_invalid", "The invitation is invalid, expired, revoked, already used, or belongs to another account.");
-        if (await db.OrganizationMemberships.AnyAsync(value => value.OrganizationId == invitation.OrganizationId && value.AccountId == accountId && value.RevokedAtUtc == null, cancellationToken))
+        _ = await RequireOrganizationAsync(invitation.OrganizationId, cancellationToken);
+        var membership = await db.OrganizationMemberships.SingleOrDefaultAsync(value =>
+            value.OrganizationId == invitation.OrganizationId && value.AccountId == accountId, cancellationToken);
+        if (membership is { IsActive: true })
             throw Problem(StatusCodes.Status409Conflict, "member_exists", "The account is already an organization member.");
         invitation.Accept(account.Email, hash, DateTimeOffset.UtcNow);
-        db.OrganizationMemberships.Add(new OrganizationMembership(invitation.OrganizationId, accountId, invitation.Role, DateTimeOffset.UtcNow));
+        if (membership is null)
+            db.OrganizationMemberships.Add(new OrganizationMembership(invitation.OrganizationId, accountId, invitation.Role, DateTimeOffset.UtcNow));
+        else
+            membership.Reactivate(invitation.Role, DateTimeOffset.UtcNow);
         AddEvent(accountId, invitation.OrganizationId, "organization.invitation_accepted", AuditResult.Succeeded);
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -180,6 +187,20 @@ public sealed class CustomerOrganizationService(
         return new TeamResult(team.Id, team.Name, team.CreatedAtUtc);
     }
 
+    public async Task<IReadOnlyList<OrganizationMemberResult>> ListTeamMembersAsync(Guid accountId, Guid organizationId, Guid teamId, CancellationToken cancellationToken)
+    {
+        _ = await RequireMembershipAsync(accountId, organizationId, cancellationToken);
+        if (!await db.Teams.AnyAsync(value => value.Id == teamId && value.OrganizationId == organizationId, cancellationToken))
+            throw new KeyNotFoundException();
+        return await (from teamMember in db.TeamMemberships.AsNoTracking()
+                      join membership in db.OrganizationMemberships.AsNoTracking() on teamMember.AccountId equals membership.AccountId
+                      join account in db.CustomerAccounts.AsNoTracking() on membership.AccountId equals account.Id
+                      where teamMember.TeamId == teamId && membership.OrganizationId == organizationId && membership.RevokedAtUtc == null
+                      orderby account.DisplayName
+                      select new OrganizationMemberResult(account.Id, account.DisplayName, account.Email, membership.Role, membership.JoinedAtUtc))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task AddTeamMemberAsync(Guid actorId, Guid organizationId, Guid teamId, Guid memberAccountId, CancellationToken cancellationToken)
     {
         _ = await RequireMembershipAsync(actorId, organizationId, cancellationToken, Managers);
@@ -217,7 +238,7 @@ public sealed class CustomerOrganizationService(
             throw Problem(StatusCodes.Status400BadRequest, "customer_mfa_disabled", "Customer MFA is not available.");
         policy.Update(request.ViewOnlyAllowed, request.FullControlAllowed, request.FileTransferAllowed, request.ClipboardAllowed,
             request.UnattendedAccessAllowed, options.Value.EnableMfa ? request.MfaRequired : policy.MfaRequired, request.TrustedDeviceLifetimeDays, request.AuditRetentionDays,
-            request.ApprovedRelayRegionsCsv, request.MinimumClientVersion, request.HybridSecurityRequired);
+            request.ApprovedRelayRegionsCsv, request.MinimumClientVersion, request.HybridSecurityRequired, request.SystemAudioAllowed);
         AddEvent(actorId, organizationId, "organization.policy_updated", AuditResult.Succeeded);
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -257,9 +278,17 @@ public sealed class CustomerOrganizationService(
         if (principal is null || principal.DeviceId != deviceId)
             throw Problem(StatusCodes.Status401Unauthorized, "device_proof_required", "A current access token for this device is required.");
         var device = await db.Devices.SingleOrDefaultAsync(value => value.Id == deviceId, cancellationToken) ?? throw new KeyNotFoundException();
-        if (device.OwnerOrganizationId is not null && device.OwnerOrganizationId != organizationId)
+        var installation = await db.Installations.SingleOrDefaultAsync(value => value.Id == principal.InstallationId, cancellationToken);
+        if (device.IsRevoked || principal.IdentityVersion <= 0 || principal.IdentityVersion != device.IdentityVersion ||
+            principal.ProofBindingVersion <= 0 || installation is null || installation.DeviceId != deviceId ||
+            installation.ProofBindingVersion != principal.ProofBindingVersion || installation.IsBlocked || installation.UnregisteredAtUtc is not null)
+            throw Problem(StatusCodes.Status401Unauthorized, "device_proof_required", "Fresh device identity proof is required.");
+        if ((device.OwnerOrganizationId is not null && device.OwnerOrganizationId != organizationId) ||
+            (device.OwnerOrganizationId is null && device.OwnerUserId is not null))
             throw new UnauthorizedAccessException();
-        device.AssignOwner(actorId, organizationId, DateTimeOffset.UtcNow);
+        installation.ConfirmOwnershipLink();
+        if (device.OwnerOrganizationId is null)
+            device.AssignOwner(actorId, organizationId, DateTimeOffset.UtcNow);
         AddEvent(actorId, organizationId, "organization.device_claimed", AuditResult.Succeeded);
         await db.SaveChangesAsync(cancellationToken);
         await deviceAccessTokens.RevokeAsync(deviceAccessToken, cancellationToken);
@@ -309,7 +338,7 @@ public sealed class CustomerOrganizationService(
 
     private OrganizationPolicyResult ToResult(OrganizationPolicy value) => new(value.OrganizationId, value.ViewOnlyAllowed,
         value.FullControlAllowed, value.FileTransferAllowed, value.ClipboardAllowed, value.UnattendedAccessAllowed, options.Value.EnableMfa && value.MfaRequired,
-        value.TrustedDeviceLifetimeDays, value.AuditRetentionDays, value.ApprovedRelayRegionsCsv, value.MinimumClientVersion, value.HybridSecurityRequired);
+        value.TrustedDeviceLifetimeDays, value.AuditRetentionDays, value.ApprovedRelayRegionsCsv, value.MinimumClientVersion, value.HybridSecurityRequired, value.SystemAudioAllowed);
     private static ApiProblemException Problem(int status, string code, string title) => new(status, code, title);
 }
 
@@ -327,10 +356,10 @@ public sealed record CreateTeamRequest(string Name);
 public sealed record TeamMemberRequest(Guid AccountId);
 public sealed record OrganizationPolicyResult(Guid OrganizationId, bool ViewOnlyAllowed, bool FullControlAllowed, bool FileTransferAllowed,
     bool ClipboardAllowed, bool UnattendedAccessAllowed, bool MfaRequired, int TrustedDeviceLifetimeDays, int AuditRetentionDays,
-    string ApprovedRelayRegionsCsv, string MinimumClientVersion, bool HybridSecurityRequired);
+    string ApprovedRelayRegionsCsv, string MinimumClientVersion, bool HybridSecurityRequired, bool SystemAudioAllowed = false);
 public sealed record UpdateOrganizationPolicyRequest(bool ViewOnlyAllowed, bool FullControlAllowed, bool FileTransferAllowed,
     bool ClipboardAllowed, bool UnattendedAccessAllowed, bool MfaRequired, int TrustedDeviceLifetimeDays, int AuditRetentionDays,
-    string? ApprovedRelayRegionsCsv, string? MinimumClientVersion, bool HybridSecurityRequired);
+    string? ApprovedRelayRegionsCsv, string? MinimumClientVersion, bool HybridSecurityRequired, bool? SystemAudioAllowed = null);
 public sealed record EvaluateOrganizationPolicyRequest(PermissionMode Mode, bool Unattended, string? RelayRegion, string? ClientVersion, bool HybridSecurityActive);
 public sealed record PolicyEvaluationResult(bool Allowed, IReadOnlyList<string> Denials);
 public sealed record OrganizationDeviceResult(Guid Id, string MaskedPublicDeviceId, string DisplayName, DateTimeOffset LastSeenAtUtc, bool IsRevoked);

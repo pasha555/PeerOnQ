@@ -8,4 +8,4 @@ internal interface ISecretToolRunner
         CancellationToken cancellationToken);
 }
 
-internal sealed record SecretToolResult(int ExitCode, string StandardOutput);
+internal sealed record SecretToolResult(int ExitCode, string StandardOutput, bool HasErrorOutput = false);

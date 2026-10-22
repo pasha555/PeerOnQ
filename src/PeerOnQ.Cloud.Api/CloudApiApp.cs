@@ -23,6 +23,8 @@ public static class CloudApiApp
         builder.Services.AddPeerOnQCloudDependencyHealthChecks();
         builder.Services.AddPeerOnQDeviceAuthentication();
         builder.Services.AddCustomerPortalAuthentication(builder.Configuration, builder.Environment);
+        builder.Services.AddScoped<DeviceOwnershipLinkService>();
+        AddAuthenticationRouting(builder.Services);
         AddDiagnosticStorage(builder);
         builder.Services.AddSingleton<DiagnosticUploadGate>();
         AddRateLimiting(builder.Services);
@@ -73,6 +75,13 @@ public static class CloudApiApp
             services.GetRequiredService<IDiagnosticBlobStore>());
     }
 
+    private static void AddAuthenticationRouting(IServiceCollection services) =>
+        services.AddAuthentication(options => options.DefaultAuthenticateScheme = "PeerOnQCloud")
+            .AddPolicyScheme("PeerOnQCloud", null, options => options.ForwardDefaultSelector = context =>
+                context.Request.Path.StartsWithSegments("/portal/v1")
+                    ? CustomerPortalAuthentication.Scheme
+                    : DeviceAccessAuthentication.Scheme);
+
     private static void AddRateLimiting(IServiceCollection services)
     {
         services.AddRateLimiter(options =>
@@ -104,11 +113,7 @@ public static class CloudApiApp
 
     private static RateLimitPartition<string> Fixed(HttpContext context, int permitLimit, TimeSpan window) =>
         RateLimitPartition.GetFixedWindowLimiter(
-            context.User.Identity?.IsAuthenticated == true
-                ? context.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                    ?? context.User.FindFirst(DeviceAccessAuthentication.InstallationIdClaim)?.Value
-                    ?? "authenticated"
-                : context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            PartitionKey(context),
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = permitLimit,
@@ -116,6 +121,20 @@ public static class CloudApiApp
                 QueueLimit = 0,
                 AutoReplenishment = true,
             });
+
+    private static string PartitionKey(HttpContext context)
+    {
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            if (context.User.HasClaim(claim => claim.Type == CustomerPortalAuthentication.SessionIdClaim) &&
+                Guid.TryParse(context.User.FindFirstValue("sub"), out var accountId))
+                return $"customer:{accountId:N}";
+            if (Guid.TryParse(context.User.FindFirstValue(DeviceAccessAuthentication.InstallationIdClaim), out var installationId))
+                return $"installation:{installationId:N}";
+        }
+
+        return $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+    }
 }
 
 public sealed class DiagnosticUploadGate : IDisposable

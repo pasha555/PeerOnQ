@@ -168,6 +168,13 @@ public sealed class DomainSecurityTests
         Assert.False(policy.Allows(PermissionMode.FullControl));
         Assert.False(policy.Allows(PermissionMode.FileTransfer));
         Assert.True(policy.MfaRequired);
+        Assert.False(policy.SystemAudioAllowed);
+        policy.Update(true, true, false, false, false, false, 7, 30, "eu-west", "0.7.0", false, systemAudioAllowed: true);
+        Assert.True(policy.SystemAudioAllowed);
+        policy.Update(true, true, false, false, false, false, 7, 30, "eu-west", "0.7.0", false);
+        Assert.True(policy.SystemAudioAllowed); // Older policy callers omit the additive field.
+        policy.Update(true, true, false, false, false, false, 7, 30, "eu-west", "0.7.0", false, systemAudioAllowed: false);
+        Assert.False(policy.SystemAudioAllowed);
     }
 
     [Fact]
@@ -186,5 +193,18 @@ public sealed class DomainSecurityTests
         Assert.Throws<ArgumentException>(() => new AppRelease(Guid.NewGuid(), "1.0.0", InstallChannel.Stable,
             ArchitectureKind.X64, Now, "1.0.0", "1.0.0", 100, "unsigned",
             new Uri("https://download.peeronq.com/1.0.0/x64.msi"), 1024, new string('c', 64)));
+    }
+
+    [Fact]
+    public void RevokedMembershipReactivationUsesInvitationRoleAndCannotGrantOwnership()
+    {
+        var membership = new OrganizationMembership(Guid.NewGuid(), Guid.NewGuid(), CustomerRoleKind.Administrator, Now);
+        Assert.Throws<InvalidOperationException>(() => membership.Reactivate(CustomerRoleKind.Member, Now));
+        membership.Revoke(Now);
+        Assert.Throws<ArgumentException>(() => membership.Reactivate(CustomerRoleKind.Owner, Now));
+        membership.Reactivate(CustomerRoleKind.Member, Now.AddMinutes(1));
+        Assert.True(membership.IsActive);
+        Assert.Equal(CustomerRoleKind.Member, membership.Role);
+        Assert.Equal(Now.AddMinutes(1), membership.JoinedAtUtc);
     }
 }

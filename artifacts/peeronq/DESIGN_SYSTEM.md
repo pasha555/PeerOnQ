@@ -118,7 +118,11 @@ actions. The skip-link target is programmatically focusable; the viewport permit
 
 The hero contains the one device-selected package action alongside Open Portal. Header/mobile
 Download PeerOnQ links navigate to `#client-download`; `#download` explains platform status and links
-back to that selector. `DownloadsPage` displays detected device/architecture, only known release versions and
+back to that selector. `DownloadsPage` provides labeled native platform/architecture selectors,
+automatically recommends a package from browser hints and retains a manual override when late hints
+arrive. Legacy Windows/Linux 64-bit compatibility information can recommend x64, labeled as a recommendation
+rather than confirmed native CPU detection. Missing/failed hints preserve explicit ARM64 information;
+unknown unsupported architectures retain a visible recovery choice. It displays only known release versions and
 unsigned classifications in a collapsed native `Installer details` disclosure, or an honest unavailable
 state. The hero has no pilot warning banner. It never invents a signed badge
 or a current version for server-owned/tracked releases. Sign in and Portal links navigate to the
@@ -144,6 +148,12 @@ server values. Destructive actions use a native modal `ConfirmAction` dialog wit
 focus, pending/error feedback and focus restoration. The mobile navigation makes background controls
 inert, locks page scrolling, closes on Escape and restores focus after removing inert state.
 Reduced-motion, keyboard outlines, responsive tables and light/dark semantic statuses remain active.
+
+`organizationActions.tsx` reuses the portal fields, statuses and confirmation dialog for member
+roles/removal, team membership, owner transfer and organization deletion. `deviceOwnershipLink.tsx`
+shows a code-entry step followed by a device/organization preview and explicit confirmation;
+errors and tenant switches clear stale previews. Enabled MFA replacement asks for the password and
+current authenticator/recovery code using the existing password and feedback components.
 
 ---
 
@@ -363,7 +373,10 @@ theme toggle. Its three connection-mode cards are equal-width, icon-led, and sta
 supported desktop width. Primary actions and mode cards use a consistent 10 px Fluent corner radius,
 and every product page fills a centered 1240 px maximum content container without horizontal drift.
 Dashboard is the single connection surface: the device/status/performance
-stack balances the session form, and security cards span the full content width below it. Branded
+stack balances the session form, and security cards span the full content width below it. Display
+quality/resolution selectors are absent from this form: the native startup profile uses adaptive
+Automatic quality with an explicit 1080p target. Connection and separate sound-consent controls
+remain in the existing flow. Branded
 `ContentDialog` forms inherit the active theme, green focus treatment, validation, and safe default
 button hierarchy. Native controls remain WinUI controls; all seven `MainWindow.xaml` product pages
 bind actions, status, history, security, and diagnostics to the real local agent rather than prototype
@@ -374,6 +387,11 @@ concise permission rows, local request time, and timeout remain visible without 
 verbose protection card. Color never carries the decision alone: the native radio state, exact
 permission summary, and exact approval button label remain visible, and no attended access option is
 selected by default.
+System sound uses separate default-off native request and incoming-consent checkboxes, plus
+visible host start/stop and viewer mute controls with status text. They reuse existing Fluent
+controls, spacing, theme resources and automation labels. The Portal policy checkbox also defaults
+off and is disabled against an API that does not expose the signed audio-policy field. Neither
+surface offers microphone capture or implies logged-out/secure-desktop access.
 The native remote viewer groups display sizing under one labeled Fluent toolbar menu with four
 mutually exclusive choices: Fit to window, Fill window, Stretch to window, and Actual size. The
 active choice remains visible in the toolbar and exposes an updated automation name.

@@ -2,6 +2,11 @@
 
 Status date: 2026-08-24
 
+The baseline and measurements below retain that date. The 2026-10-18 unreleased source adds
+Windows MF hardware H.264 and separate consent-gated system audio; see
+[CURRENT_STATE](../CURRENT_STATE.md) and [PERFORMANCE_REPORT](../PERFORMANCE_REPORT.md) for their
+actual evidence and remaining physical gates. QUIC's LAN-only scope below is unchanged.
+
 Status: reliable QUIC is active for negotiated same-LAN file transfers; WebRTC uses separate media,
 input and compatibility-file peer connections.
 
@@ -100,8 +105,9 @@ decrypt content. No key or peer address is added to diagnostics.
 - QUIC DATAGRAM, STUN/hole punching for the QUIC socket, direct-Internet path racing/migration, and
   QUIC relay are not implemented.
 - WebRTC remains the active media, dedicated input and non-LAN collaboration transport.
-- Hardware encode/decode, GPU zero-copy, dirty regions, 90/120 FPS, audio, and GPU rendering are not
-  implemented.
+- At this migration's date hardware encode/decode and audio were absent; the later implementation
+  and measured limits are linked above. GPU zero-copy, dirty regions, 90/120 FPS and GPU rendering
+  remain unimplemented.
 - The 1 GiB localhost run proves QUIC/TLS/pacing behavior (40 seconds, 25.3 MiB/s, 0.4 ms mouse p95
   across 2,592 samples); it is not a physical LAN or Internet performance result.
 - Receiver-confirmed adaptive probing moved 128 MiB at 28.0 MiB/s from a production-like 5,144 Kbps

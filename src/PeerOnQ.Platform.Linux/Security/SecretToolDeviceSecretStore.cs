@@ -33,15 +33,19 @@ public sealed partial class SecretToolDeviceSecretStore : IDeviceSecretStore
             standardInput: null,
             cancellationToken).ConfigureAwait(false);
 
-        if (result.ExitCode == 1 || string.IsNullOrWhiteSpace(result.StandardOutput))
+        if (result.HasErrorOutput)
+            throw new InvalidOperationException("The Linux keyring could not read the requested PeerOnQ secret.");
+        if (result.ExitCode == 1 && string.IsNullOrWhiteSpace(result.StandardOutput))
             return null;
         if (result.ExitCode != 0)
             throw new InvalidOperationException("The Linux keyring could not read the requested PeerOnQ secret.");
+        if (string.IsNullOrWhiteSpace(result.StandardOutput))
+            throw new InvalidOperationException("The Linux keyring returned an invalid PeerOnQ secret.");
 
         try
         {
             var secret = Convert.FromBase64String(result.StandardOutput.Trim());
-            if (secret.Length > MaxSecretBytes)
+            if (secret.Length is 0 or > MaxSecretBytes)
             {
                 Array.Clear(secret);
                 throw new InvalidOperationException("The Linux keyring returned an invalid PeerOnQ secret.");
@@ -67,7 +71,7 @@ public sealed partial class SecretToolDeviceSecretStore : IDeviceSecretStore
             ["store", "--label=PeerOnQ device identity", "application", "peeronq", "profile", _profileId, "name", name],
             encoded,
             cancellationToken).ConfigureAwait(false);
-        if (result.ExitCode != 0)
+        if (result.ExitCode != 0 || result.HasErrorOutput)
             throw new InvalidOperationException("The Linux keyring could not protect the PeerOnQ secret.");
     }
 
@@ -78,7 +82,7 @@ public sealed partial class SecretToolDeviceSecretStore : IDeviceSecretStore
             ["clear", "application", "peeronq", "profile", _profileId, "name", name],
             standardInput: null,
             cancellationToken).ConfigureAwait(false);
-        if (result.ExitCode is not (0 or 1))
+        if (result.ExitCode is not (0 or 1) || result.HasErrorOutput)
             throw new InvalidOperationException("The Linux keyring could not remove the PeerOnQ secret.");
     }
 

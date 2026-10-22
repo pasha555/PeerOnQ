@@ -9,7 +9,7 @@ using Xunit;
 
 namespace PeerOnQ.Application.Tests;
 
-public sealed class Phase4CollaborationTests
+public sealed partial class Phase4CollaborationTests
 {
     private static readonly PeerOnQId Device = PeerOnQId.Parse("LNK-483-921-756-204");
 
@@ -1200,6 +1200,64 @@ public sealed class Phase4CollaborationTests
     }
 
     [Fact]
+    public async Task Unicode_text_uses_the_authorized_input_lane_without_keyboard_layout_substitution()
+    {
+        var id = SessionId.New();
+        var (viewerTransport, sharerTransport) = InMemoryTransport.CreatePair(SessionPermission.ControlInput);
+        var sink = new FakeRemoteInputSink();
+        await using var viewer = new RemoteInputSession(id, SessionRole.Viewer, viewerTransport, unicodeInputEnabled: true);
+        await using var sharer = new RemoteInputSession(id, SessionRole.Sharer, sharerTransport, sink, unicodeInputEnabled: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => viewer.SendTextAsync("Əə İı Şş"));
+        await viewer.SetLocalCaptureEnabledAsync(true);
+        const string text = "Əə İı Şş Ğğ Çç Öö Üü Привет 你好 😀";
+        await viewer.SendTextAsync(text);
+        var injected = Assert.Single(sink.Inputs);
+        Assert.Equal(RemoteInputEventKind.Text, injected.Kind);
+        Assert.Equal(text, injected.Text);
+        await sharer.RevokeControlAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => viewer.SendTextAsync(text));
+        Assert.Single(sink.Inputs);
+    }
+
+    [Fact]
+    public async Task Unicode_text_fails_closed_when_the_peer_did_not_negotiate_support()
+    {
+        var id = SessionId.New();
+        var (viewerTransport, sharerTransport) = InMemoryTransport.CreatePair(SessionPermission.ControlInput);
+        var sink = new FakeRemoteInputSink();
+        await using var viewer = new RemoteInputSession(id, SessionRole.Viewer, viewerTransport, unicodeInputEnabled: true);
+        await using var sharer = new RemoteInputSession(id, SessionRole.Sharer, sharerTransport, sink);
+        await viewer.SetLocalCaptureEnabledAsync(true);
+        await viewer.SendTextAsync("Əı");
+        Assert.Empty(sink.Inputs);
+        Assert.True(sink.DisableCalls > 0);
+        await using var legacyViewer = new RemoteInputSession(SessionId.New(), SessionRole.Viewer, viewerTransport);
+        await Assert.ThrowsAsync<NotSupportedException>(() => legacyViewer.SendTextAsync("Əı"));
+    }
+
+    [Fact]
+    public void Unicode_text_rejects_invalid_surrogates_controls_and_unbounded_payloads()
+    {
+        foreach (var text in new[] { "", "\uD800", "\uDC00", "\uD800x", "a\0b", new string('a', 257) })
+            Assert.False(new RemoteInputEvent { Kind = RemoteInputEventKind.Text, Text = text }.IsValid());
+        Assert.True(new RemoteInputEvent { Kind = RemoteInputEventKind.Text, Text = "Əı\t你好😀" }.IsValid());
+    }
+
+    [Fact]
+    public async Task Unicode_text_counts_native_key_pairs_against_the_existing_input_rate_limit()
+    {
+        var id = SessionId.New();
+        var (viewerTransport, sharerTransport) = InMemoryTransport.CreatePair(SessionPermission.ControlInput);
+        var sink = new FakeRemoteInputSink();
+        await using var viewer = new RemoteInputSession(id, SessionRole.Viewer, viewerTransport, unicodeInputEnabled: true);
+        await using var sharer = new RemoteInputSession(id, SessionRole.Sharer, sharerTransport, sink, unicodeInputEnabled: true);
+        await viewer.SetLocalCaptureEnabledAsync(true);
+        for (var i = 0; i < 4; i++) await viewer.SendTextAsync(new string('ə', RemoteInputEvent.MaximumTextLength));
+        Assert.Equal(3, sink.Inputs.Count);
+        Assert.True(sink.DisableCalls > 0);
+    }
+
+    [Fact]
     public async Task Concurrent_remote_input_enable_requests_share_one_focus_generation()
     {
         var sessionId = SessionId.New();
@@ -1264,6 +1322,46 @@ public sealed class Phase4CollaborationTests
         Assert.Equal(2, sink.Inputs.Count);
         Assert.Equal((ushort)0x41, sink.Inputs[0].VirtualKey);
         Assert.Equal((ushort)0x43, sink.Inputs[1].VirtualKey);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task In_flight_input_from_the_previous_owner_does_not_poison_its_next_focus_request(bool releaseAll)
+    {
+        var firstId = SessionId.New();
+        var secondId = SessionId.New();
+        var (firstViewerTransport, firstSharerTransport) = InMemoryTransport.CreatePair(SessionPermission.ControlInput);
+        var (secondViewerTransport, secondSharerTransport) = InMemoryTransport.CreatePair(SessionPermission.ControlInput);
+        var sink = new FakeRemoteInputSink();
+        var focus = new RemoteInputFocusCoordinator();
+        await using var firstViewer = new RemoteInputSession(firstId, SessionRole.Viewer, firstViewerTransport);
+        await using var firstSharer = new RemoteInputSession(firstId, SessionRole.Sharer, firstSharerTransport, sink, focus);
+        await using var secondViewer = new RemoteInputSession(secondId, SessionRole.Viewer, secondViewerTransport);
+        await using var secondSharer = new RemoteInputSession(secondId, SessionRole.Sharer, secondSharerTransport, sink, focus);
+        await firstViewer.SetLocalCaptureEnabledAsync(true);
+
+        var deliver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        firstViewerTransport.SendStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        firstViewerTransport.SendBlocker = deliver.Task;
+        var inFlight = releaseAll
+            ? firstViewer.SetLocalCaptureEnabledAsync(false)
+            : firstViewer.SendKeyAsync(0x41, isPressed: true, isExtendedKey: false);
+        await firstViewerTransport.SendStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await secondViewer.SetLocalCaptureEnabledAsync(true);
+        Assert.True(focus.IsOwner(secondId));
+        deliver.TrySetResult();
+        await inFlight;
+        firstViewerTransport.SendBlocker = null;
+        Assert.True(focus.IsOwner(secondId));
+        Assert.Empty(sink.Inputs);
+        await secondViewer.SendKeyAsync(0x42, isPressed: true, isExtendedKey: false);
+
+        await firstViewer.SetLocalCaptureEnabledAsync(true);
+        Assert.True(focus.IsOwner(firstId));
+        await firstViewer.SendKeyAsync(0x43, isPressed: true, isExtendedKey: false);
+        Assert.Equal(new ushort[] { 0x42, 0x43 }, sink.Inputs.Select(input => input.VirtualKey));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => secondViewer.SendKeyAsync(0x44, true, false));
     }
 
     [Fact]
@@ -1548,6 +1646,7 @@ public sealed class Phase4CollaborationTests
         private InMemoryTransport? _peer;
         public SessionPermission Permissions { get; } = permissions;
         public bool IsReady => true;
+        public int MaximumFileChunkBytes { get; set; } = CollaborationProtocolCodec.MaximumChunkBytes;
         public bool IsInputAcknowledgementNegotiated { get; set; }
         public PeerClockEstimate? PeerClockEstimate { get; set; }
         public TimeSpan SendDelay { get; set; }

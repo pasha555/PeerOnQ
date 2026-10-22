@@ -1,16 +1,32 @@
 # PeerOnQ cross-platform capability and evidence matrix
 
-Source/project/capability contracts reviewed on 2026-09-27. Build/test/package evidence retains
-its original Phase 8 or 2026-08-26 scope below; it was not rerun for this documentation review.
+Source/project/capability contracts reviewed on 2026-10-18. Historical build/test/package evidence
+retains its original scope below; the new source-only evidence is listed separately.
 This document is a truth ledger, not a roadmap-completion claim. A Linux server `.run` bundle is
 deployment infrastructure and is **not** a Linux desktop client.
 
 All four native app projects consume the canonical `Directory.Build.props` client version
-(`0.9.66`); Android and Apple also consume bundle code `9066`. A matching source version is not a
+(`0.9.76`); Android and Apple also consume bundle code `9076`. A matching source version is not a
 published package or passed platform gate. `PeerOnQ.slnx` excludes the Android and Apple app
 projects requiring their separate native workloads; shared platform tests do not compile those apps.
 
 ## Platform truth matrix
+
+2026-10-18 source evidence: Android Release C# compilation and APK packaging, including current
+project dependencies, passed with installed SDK 10.0.303 / Android workload 36.1.69 (zero warnings
+or errors). This does not satisfy the new SDK 10.0.402 workload gate, physical-device or production
+signing gates. Optional `input.unicode.v1` lets Android/Apple short-text actions send bounded Unicode
+to a negotiated Windows host over the existing encrypted input lane; old peers keep ASCII fallback
+and reject unsupported text explicitly. Apple app compilation still requires macOS/Xcode. Windows
+physical keyboard layouts/IME and Linux text-entry support were not completed by this change.
+
+The earlier .4 isolated Android rebuild includes the production wildcard-route correction: 116 source
+inputs matched after compilation, zero omitted/drifted sources, zero warnings/errors. Its private
+development-signed APK is 56,359,775 bytes, SHA256
+`fb9d24f1a0c52928d94c10cfaf2cce9ae3d070508d11035c0ffe0a450806de2e`.
+All six notice assets match the 10.0.17.4 nupkg, and both arm64-v8a/x86_64 packaging-input core DLLs
+match the historical .4 hash in DEPENDENCIES.md. Both ABI assembly stores are in the APK.
+This SDK303/workload build is unpublished and does not close the SDK402-workload/device/signing gates.
 
 | Capability | Windows | Linux desktop | macOS | Android | iOS/iPadOS |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -22,7 +38,8 @@ projects requiring their separate native workloads; shared platform tests do not
 | Text clipboard | `IMPLEMENTED_LOCAL_ONLY` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` |
 | Unattended access | `PARTIAL` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` |
 | Background operation | `PARTIAL` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` |
-| Hardware codec | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` | `PARTIAL` | `NOT_FOUND` |
+| Hardware codec | `IMPLEMENTED_LOCAL_ONLY` | `NOT_FOUND` | `NOT_FOUND` | `PARTIAL` | `NOT_FOUND` |
+| System audio | `IMPLEMENTED_LOCAL_ONLY` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` |
 | Installer / package | `IMPLEMENTED_LOCAL_ONLY` | `PARTIAL` | `NOT_FOUND` | `PARTIAL` | `NOT_FOUND` |
 | Update | `IMPLEMENTED_LOCAL_ONLY` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` |
 | Production code signing | `EXTERNALLY_BLOCKED` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` | `NOT_FOUND` |
@@ -74,11 +91,30 @@ Evidence:
   UIPI or Secure Desktop.
 - Package/update source: WiX MSI plus `UpdateService` signature/hash/publisher validation. Local
   unsigned development MSI evidence does not satisfy production Authenticode.
+- 2026-10-18 source adds optional hardware-device D3D11 H.264 output with bounded owned NV12
+  and CPU/keyframe fallback. Focused native/fault checks passed35/35 and actual coordinated UHD
+  observations2/2, with native dimensions preserved. GPU landscape decode mean improved27.02
+  to18.87ms; whole-session p95 remained122.26ms (portrait VP8 117.57ms), above100ms.
+  Final whole suite passed1,186/1,213 with zero failures/27 environment skips; EndToEnd119/119.
+  Encrypted1080p hardware continuity passed600.43s,17,994 frames/29.97FPS,537 GPU samples,
+  zero CPU samples and hardware true atstart/end. Final4K whole p95 remains116.82/130.00ms;
+  all100ms windows missed. Existing public Windows MSI files were not rebuilt or published.
 - Automated evidence: 84/84 signaling tests (plus one normal opt-in skip), 40/40 Windows end-to-end
   tests and the x64 WinUI Release build recorded in the Phase 8 report.
-- Limitation: no Phase 8 two-physical-device, clean-VM, production certificate, manual screen-reader
-  or hardware-codec evidence. Unattended operation stays inside the signed-in user process; there is
-  no Windows service or secure-desktop bypass.
+- New 2026-10-18 evidence: 19 codec unit checks and the four-test codec/hardware acceptance suite
+  pass, including two actual AMD hardware cases (the other two are conversion/disposal checks).
+  Encrypted synthetic 1080p, first-frame delivery, resize and recovery keyframes are verified. The
+  final .4 local soak passed 600.36 seconds at 28.21 fps; physical two-endpoint acceptance remains
+  open. This is separate from historical Phase 8 counts above.
+- An opt-in LocalService broker now tracks visible signed-in hosts with protected kernel-bound
+  local IPC and login startup; 12 tests and x64/ARM64 source-validation publishes passed. It does
+  not host media, store identity, launch a logged-out desktop, bypass UAC or Secure Desktop.
+- Windows system loopback audio is separately negotiated, encrypted and attended-consent gated;
+  microphone capture is absent. Managed sessions also require signed default-off policy approval
+  on both endpoints. Local WASAPI capture and encrypted loopback passed, while physical audible
+  two-endpoint, A/V synchronization and long-session acceptance remain open.
+- Limitation: two physical endpoints, clean-VM SCM/MSI lifecycle, production signing, manual
+  screen-reader acceptance and sustained cross-vendor/ARM64 hardware performance remain open.
 
 ## Linux desktop implementation and remaining gate
 
@@ -91,14 +127,46 @@ forwarding only after explicit local enablement and remote focus acknowledgment.
 - `PeerOnQ.Platform.Linux` declares the least-capability manifest and keeps capture fail-closed.
 - `SecretToolDeviceSecretStore` stores private identity/audit material in the desktop Secret Service
   keyring, separates data-directory profiles, passes secret values only over stdin, and fails closed
-  if the fixed-path `secret-tool` helper is unavailable.
+  if the fixed-path `secret-tool` helper is unavailable, locked or returns an error. No plaintext
+  fallback is used. Hybrid Ed25519/ML-DSA identity shares this existing OS-protected boundary.
+- `LinuxNativeLibraryBootstrap` selects distro `libvpx.so.9` from fixed system directories and
+  checks required exports; Windows `vpxmd.dll` is excluded from the portable payload. Automatic
+  resolution retains UHD in either orientation, without upscaling a smaller source.
+- The app reuses proof-bound Cloud enrollment, server-assigned identity and short-lived in-memory
+  signaling attestation. A complete compiled endpoint manifest wins; an unconfigured unsigned
+  preview accepts the documented complete TLS environment manifest. Cloud/signaling use canonical
+  numeric `0.9.76`; the package remains development-channel/unsigned-preview classified.
+- Received frames repaint the actual X11 viewport, report the displayed frame's original timing,
+  and clear on session end. Startup/window close cancellation awaits shared service disposal.
 - `scripts/linux/build-peeronq-linux-viewer.sh` produces self-contained `linux-x64` or `linux-arm64`
   portable archives plus SHA-256 sidecars. This is a portable package, not a distro-signed installer.
-- Repository evidence: 11 Linux app render/key-map tests, 8 Linux platform/capability/keyring tests,
-  a warning-free app build, and a successful `linux-x64` self-contained cross-publish.
+- Final .6 Ubuntu 24.04 SDK402 validation passed App 22/22, platform 14/14 and shared Cloud-client
+  12/12, zero skips, using a 192-input snapshot. Actual libvpx UHD
+  decode/encrypted WebRTC, Secret Service, hybrid identity persistence/signature rejection,
+  Cloud proof/attestation composition and X11 repaint/normal close ran. This does not establish
+  a full production enrollment or physical two-device hybrid handshake.
+- The retained private x64 archive is
+  `app-updates/linux/final-transport-10.0.17.6/peeronq-0.9.76-linux-x64-unsigned-preview.tar.gz`, 54,101,107 bytes, SHA256
+  `f1704c67e2b93967950491fdd12a8fa4c908cb2d226a8256dfbbe80ab968e27a`, with matching sidecar.
+  Its validator checked payload integrity, ELF x64, exact .6 core, all ten notices and absence
+  of Windows codec bytes. The actual self-contained payload launched/provisioned/closed as UID
+  10001 with shared .NET lookup disabled. A 30-second pending keyring helper was cancelled by
+  window close; app exit zero within ten seconds and helper termination passed without rebuilding
+  the archive. The initial irrelevant Windows-PDB copy failure was fixed by explicit linux-x64
+  and a container-local NuGet cache. An initial PATH-wrapper cancellation test did not exercise
+  the pinned helper; its failed result is retained, and the corrected isolated helper-path fixture
+  passed. Neither failure was silently treated as acceptance.
+  The final rebuild includes the default-false decoder acceleration contract and current received-codec
+  statistics; it passed all 48 checks again and rechecked all 192 inputs with zero drift. Actual
+  final-archive normal close and startup cancellation exited zero; no Linux containers remain.
+  The earlier .6 snapshot had exactly one changed input: the root legal notice was updated during the
+  run. Its payload copy/checksums/archive were refreshed; final-archive integrity, normal close
+  and startup cancellation then passed. All 191 other input hashes and every other payload hash
+  remained identical. Historical .5, pre-notice .6 and notice-refreshed .6 artifacts are retained separately.
 - Remaining release evidence: launch and keyring behavior on physical GNOME/KDE Linux, assistive
   technology/keyboard review, real Windows-host video and control, reconnect/denial, and a ten-minute
   physical session. The public Downloads entry remains planned until this gate passes.
+  This Linux client maps pointer/Windows virtual keys; Unicode TextInput/IME is not implemented.
 
 - Wayland host support must use the user-consented XDG RemoteDesktop/ScreenCast portal and PipeWire
   stream; available keyboard/pointer/touch devices and restore tokens are portal decisions. See the

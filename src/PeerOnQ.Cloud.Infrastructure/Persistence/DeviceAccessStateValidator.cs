@@ -15,10 +15,11 @@ public sealed class DeviceAccessStateValidator(CloudDbContext db) : IDeviceAcces
             .Where(installation =>
                 installation.Id == principal.InstallationId
                 && installation.DeviceId == principal.DeviceId
+                && (principal.ProofBindingVersion == 0 || installation.ProofBindingVersion == principal.ProofBindingVersion)
                 && !installation.IsBlocked
                 && installation.UnregisteredAtUtc == null)
             .Join(
-                db.Devices.AsNoTracking().Where(device => !device.IsRevoked),
+                db.Devices.AsNoTracking().Where(device => !device.IsRevoked && (principal.IdentityVersion == 0 || device.IdentityVersion == principal.IdentityVersion)),
                 installation => installation.DeviceId,
                 device => (Guid?)device.Id,
                 (_, _) => true)

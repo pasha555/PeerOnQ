@@ -23,6 +23,8 @@ public static class WindowsClientCapabilityProfile
             EndpointCapabilityNames.InputSend,
             EndpointCapabilityNames.ScreenCapture,
             EndpointCapabilityNames.ScreenRender,
+            EndpointCapabilityNames.SystemAudioCapture,
+            EndpointCapabilityNames.SystemAudioPlayback,
             EndpointCapabilityNames.SessionHost,
             EndpointCapabilityNames.SessionReconnect,
             EndpointCapabilityNames.SessionViewer,
@@ -41,6 +43,8 @@ public static class WindowsClientCapabilityProfile
             OptionalFeatures =
             [
                 OptionalProtocolFeatureNames.FileRelay,
+                OptionalProtocolFeatureNames.UnicodeInput,
+                OptionalProtocolFeatureNames.SystemAudio,
                 OptionalProtocolFeatureNames.SafeUnknownMessages,
                 OptionalProtocolFeatureNames.SessionCapabilityDetails,
             ],

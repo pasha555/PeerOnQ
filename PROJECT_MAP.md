@@ -4,7 +4,7 @@
 Read this instead of running a full repo scan. If something here is wrong, fix this file
 in the same change.
 
-**Last updated:** 2026-09-27
+**Last updated:** 2026-10-18
 
 ## Product Summary
 
@@ -52,6 +52,37 @@ delivery, consent-based diagnostics, an MFA/RBAC operator surface, governed rete
 deployable observability/backup stack without moving screen, input, clipboard, or file payloads
 through the cloud APIs.
 
+Unreleased source remediation (2026-10-18): server containers use ASP.NET 10.0.13/SDK 10.0.402;
+Transport uses the user-approved source-built `PeerOnQ.SIPSorcery` 10.0.17.6 derivative of
+SIPSorcery 10.0.17; Abstractions remains 10.0.17. The source includes TURN/TLS recovery and the
+reviewed DTLS receive wakeup, bounded SCTP acknowledgement, sender/receiver flow control and
+single-owner UDP receive admission and first-packet RTCP transit initialization. Bootstrap its verified local feed before native restore. Source version
+is selected in Directory.Build.props; existing published packages do not contain these edits. The archived
+`artifacts/mockup-sandbox` is excluded from pnpm workspace installation as well as product builds.
+Current execution evidence and remaining release gates belong in `docs/CURRENT_STATE.md`.
+
+Maintained dependency inputs: `eng/sipsorcery/upstream.json` pins upstream/patch identities and
+hashes; its seven reviewed inputs are `dtls-receive-wakeup.patch`, `sctp-sack-duplicate-reset.patch`,
+`sctp-gap-counter-bound.patch`, `sctp-sender-flow-control.patch`, `sctp-receiver-window-credit.patch`
+`udp-receive-admission.patch` and `rtcp-first-transit-initialization.patch`. Ordered per-file hash chains retain every patch and select only
+the five final changed source files for package/PDB embedding. The dependency-free
+`eng/PeerOnQ.DependencyBuilder/` verifies, extracts, patches, builds and validates the package with
+the canonical SDK. Run `dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release -- --output
+eng/sipsorcery/packages` before native restore. `NuGet.config` maps the exact derivative ID only to
+that local feed; generated packages stay ignored. `scripts/security/test-sipsorcery-upstream-advisories.ps1`
+separately audits the original upstream identity; renaming a package does not clear advisories.
+`eng/sipsorcery/PeerOnQ.SIPSorcery.targets` carries immutable license/provenance files into final
+application output and native platform assets. `scripts/windows/PeerOnQ.DependencyNotices.ps1`
+validates those files only for artifacts declaring the maintained dependency, preserving old
+installer validation. The Media project's cache/feed hash guard rejects stale same-version bytes;
+select a fresh `NUGET_PACKAGES` directory before restore if an earlier local candidate was cached.
+`Directory.Build.targets` repairs and hash-verifies maintained-core copies in build/publish output:
+fixed deterministic package timestamps and equal DLL sizes must not leave an older revision behind.
+`scripts/windows/test-maintained-sipsorcery-copy.ps1` exercises six equal-size/timestamp build,
+publish and unchanged-hash regressions against those actual targets; Quality CI runs it before restore.
+`global.json` searches the ignored repo-local `.dotnet/` SDK installation, then the normal host;
+SDK 10.0.402 remains mandatory. This supports CLI and IDE resolution without changing global SDKs.
+
 **Main users:**
 
 - End users connecting to their own machines remotely (dashboard, devices, sessions, file transfer).
@@ -78,13 +109,17 @@ through the cloud APIs.
   directly into `Downloads\\PeerOnQ`, while lesser scopes retain the explicit receive flow.
   The sharer arms the capture-to-input display mapping before its SDP offer can reach the viewer;
   input injection remains disabled until the authenticated viewer focus request is acknowledged.
-  The LAN development default High Quality profile requests up to 4K/UHD (never above the source display)
-  and preserves its requested resolution under adaptation, reducing frame rate before pixels.
+  Streaming is temporarily capped at a 1080-pixel short edge, without upscaling smaller sources.
+  The native dashboard has no quality/resolution selectors; all environments start adaptive
+  Automatic quality with an explicit P1080 target.
+  Shared CaptureResolutionPolicy normalizes Automatic/legacy Native/1440p/2160p to 1080p at
+  outgoing/incoming session setup; Windows FrameScaler independently enforces the same cap.
+  Aspect ratio and portrait orientation are preserved; ultrawide long edges can exceed 1920.
   Authorized file-transfer sessions start in File Transfer Priority. Live sessions reserve the
   adaptive video target plus authenticated mouse/keyboard/security capacity. Direct, relay, and
   negotiated native-QUIC chunks share the adaptive file pacer: a finite 150 Mbps File Transfer
   Priority ceiling replaces unlimited bursts until usable measurements exist, then file traffic
-  uses the measured remainder (within a defensive 1 Gbps bound) and is reduced first when loss,
+  uses measured capacity (bounded by Int32 kbps, without the former 1 Gbps product ceiling) and is reduced first when loss,
   RTT, jitter, or backpressure worsens. New peers on the selected direct-LAN path authenticate an
   ephemeral QUIC connection inside PNQE and pin each new transfer to that path. New Full Control
   peers keep screen RTP, input SCTP and file SCTP/QUIC on separate connections; old peers retain the
@@ -184,8 +219,9 @@ src/                  .NET 10 / C# remote-access product, native viewers and clo
   PeerOnQ.Application     Ports + SessionCoordinator (timeouts, lifecycle, cleanup)
   PeerOnQ.Infrastructure  Cross-platform SQLite/logging/audit plus Windows update verification
   PeerOnQ.Transport       Signaling v3/WebSocket client + active same-LAN reliable QUIC file data plane
-  PeerOnQ.Media           Bounded frame pipeline/statistics plus separate WebRTC VP8, input and compatibility bulk peers
-  PeerOnQ.Platform.Windows Windows.Graphics.Capture + D3D11 readback + scoped SendInput
+  PeerOnQ.Media           Bounded frame pipeline, negotiated encrypted VP8/H264 payloads and isolated input/bulk/system-audio peers
+  PeerOnQ.Platform.Windows Windows.Graphics.Capture, Media Foundation H264, WASAPI system sound, scoped SendInput and local broker client
+  PeerOnQ.Service.Windows Opt-in LocalService session broker; protected local registration only, remote engine remains in the interactive user session
   PeerOnQ.Platform.Linux   Viewer-only capability profile, libsecret keyring adapter, fail-closed capture boundary
   PeerOnQ.Platform.Android Viewer-only capability profile, VP8 header/key mapping and fail-closed capture boundary
   PeerOnQ.Platform.Apple   macOS/iOS/iPadOS viewer capability, input/viewport mapping and fail-closed capture boundary
@@ -227,14 +263,14 @@ scripts/              Workspace scripts (post-merge.sh, src/hello.ts)
   windows/PeerOnQ.LocalDockerNetwork.ps1  Shared fail-closed creator/validator for the internal local observability bridge
   windows/peeronq-phase6-dev.ps1 Real Phase 6 Compose/migration/TLS/Admin controller; creates stable ignored operations/attestation secrets, health-gates the canonical HTTPS Grafana endpoint, repairs moved-workspace secret mounts, stops project-labeled leftovers, and manages backup/restore credentials
   windows/peeronq-workspace-dev.ps1 Unified preview + Phase 6 orchestrator that starts Docker Desktop with bounded readiness, manages an already-configured Phase 3 LAN stack, and opens every development panel after health succeeds
-  windows/peeronq-phase3-local.ps1 Local TLS/signaling/coturn acceptance controller that rebuilds current signaling source before start, derives `*.sslip.io` LAN DNS names from its bound IPv4 address, validates development TLS with a scoped root, and refuses implicit certificate rotation
+  windows/peeronq-phase3-local.ps1 Local TLS/signaling/coturn acceptance controller that rebuilds current signaling source before start, derives `*.sslip.io` LAN DNS names from its bound IPv4 address, validates development TLS with a scoped root, refuses implicit certificate rotation and gives each file theory its own TURN quota subject
   windows/build-phase5-development.ps1 Fresh unsigned LAN or explicit public-pilot x64/ARM64 publish/MSI build with payload verification; website publication requires a compiled reachable WSS endpoint and matching scoped root
   windows/build-peeronq-public-pilot.ps1 Guarded public endpoint wrapper for the unsigned two-laptop Internet acceptance MSI
   windows/build-phase5-release.ps1 Protected signed release, update manifest, SBOM and checksums; official service inputs must pass the DNS-only production endpoint policy
   windows/assert-phase5-production-endpoints.ps1 Shared official-release HTTPS/WSS and public-style DNS endpoint gate
   windows/test-phase5-production-endpoints.ps1 Regression coverage for accepted production domains and rejected IP/development hosts
-  windows/build-peeronq-server-run.ps1 Self-extracting complete Linux server/Portal bundle requiring an explicit signed-by-default embedded x64 MSI, checksum and optional detached GPG signature
-  windows/test-peeronq-server-run-invariant.ps1 Regression check that a server bundle cannot be emitted without an explicit MSI
+  windows/build-peeronq-server-run.ps1 Self-extracting complete Linux server/Portal bundle requiring an explicit signed-by-default, version/classification-matched x64 and ARM64 MSI pair, checksums and optional detached GPG signature
+  windows/test-peeronq-server-run-invariant.ps1 Regression check that a new server bundle cannot be emitted without the matching MSI pair
   windows/build-peeronq-website-patch.ps1 Signed UI-only website release with verified Downloads-page compatibility entry and no client-binary authority
   windows/test-peeronq-website-patch-invariant.ps1 Regression check that website releases cannot select or embed a Windows client
   windows/test-phase5-installer.ps1 MSI scope/architecture/features/persistence/extraction and optional publish-manifest validation
@@ -322,6 +358,10 @@ beside Open Portal. Header/mobile Download PeerOnQ anchors return to that select
 explains platform/release status. Numbered access-mode rows and connection/recovery/diagnostics/update
 sections state implemented capabilities and validation limits. The desktop sidebar says Offline UI preview.
 Known unsigned development/pilot packages are labeled and unavailable platforms fail closed.
+The download selector uses local browser Client Hints for automatic platform/architecture selection;
+legacy Windows/Linux 64-bit compatibility information can recommend x64 with an explicit recommendation
+label, never a confirmed native-CPU claim. Explicit ARM64 data and manual overrides survive failed
+or late hints. Unknown unsupported devices remain unavailable; no detection network request is added.
 `/features`, `/security`, `/downloads`, `/about`, and `/help` retain their anchor redirects; `#strategy`
 is a compatibility anchor in Open source. Privacy and Terms remain dedicated legal documents.
 `.public-site` tokens scope the new Segoe/green/navy presentation away from the offline desktop preview
@@ -392,10 +432,63 @@ Never hand-edit files under `src/generated/`.
 - `src/PeerOnQ.Application/Collaboration/RemotePointerMapper.cs` - DPI/scroll-aware viewer-to-remote pointer geometry
 - `src/PeerOnQ.Platform.Windows/Capture/WindowsGraphicsCaptureSource.cs` - explicit-display WGC capture and pre-conversion frame pacing
 - `src/PeerOnQ.Application/Abstractions/ConnectionPolicy.cs` - deterministic connection health/adaptation and bounded transfer allocation
+  (Automatic frame-age adaptation uses actual encoded dimensions and the existing 75/100 ms targets)
 - `src/PeerOnQ.Application/Collaboration/PeerClockSync.cs` - bounded NTP-style clock codec and uncertainty estimator for optional frame-age telemetry
 - `src/PeerOnQ.Media/Pipeline/VideoFrameTelemetryCodec.cs` - negotiated authenticated capture timestamp/sequence envelope around encoded VP8
 - `src/PeerOnQ.Media/Pipeline/BulkDataFrameCodec.cs` - bounded ordered bulk fragmentation/reassembly before normal secure-record authentication
 - `src/PeerOnQ.Application/Collaboration/RemoteInputFocusCoordinator.cs` - exclusive process-local input ownership across concurrent sessions
+- Input sink changes/cleanup are scoped to the focus owner; capture-stop events fail the affected
+  runtime closed without disabling another session. Optional `input.unicode.v1` negotiates bounded
+  authenticated text on the existing input lane; Windows uses supported Unicode SendInput.
+- `src/PeerOnQ.Application/Abstractions/Ports.cs` - capture ports plus shared CaptureResolutionPolicy;
+  the temporary 1080 short-edge streaming limit normalizes legacy high-resolution preferences
+- `src/PeerOnQ.Platform.Windows/Capture/FrameScaler.cs` - enforces the 1080-pixel short-edge floor/cap
+  for all preferences and adaptive requests; smaller physical sources remain native without upscaling
+- `src/PeerOnQ.Platform.Windows/Capture/BgraI420Avx2Converter.cs` - guarded single-core native
+  BGRA-to-I420 conversion with exact integer 2x2 chroma averaging, packed/tail bounds and the
+  original FrameScaler scalar fallback on unsupported processors
+- `src/PeerOnQ.Media/Pipeline/VideoPayloadCodec.cs`, `HardwareVideoEncodingController.cs`,
+  `src/PeerOnQ.Media/Codecs/PlatformVideoCodec.cs` and `WebRtcMediaSession.VideoCodec.cs` - negotiated
+  bounded codec framing inside the existing encrypted carrier, actual encoder reporting, VP8 fallback
+  and optional independently owned NV12 decode before asynchronous color conversion
+- `src/PeerOnQ.Platform.Windows/Media/MediaFoundationH264Encoder.cs`, `MediaFoundationH264Decoder.cs`
+  and `MediaFoundationVideoUtilities.cs` - Windows MF transform lifecycle and native ownership
+- `src/PeerOnQ.Platform.Windows/Media/MediaFoundationEncoderEvents.cs` - one asynchronous encoder
+  event subscription, eight-event bound, monotonic deadlines and callback fencing before shutdown
+- `src/PeerOnQ.Platform.Windows/Media/MediaFoundationD3D11DecoderOutput.cs` - optional hardware-device
+  NV12 decoder surfaces copied to bounded owned planes; unsupported/device-failure CPU recovery
+  retains H.264 and uses existing authenticated keyframe requests. Decoder acceleration is reported
+  only after validated hardware-device output; older implementations default to false
+- `src/PeerOnQ.Application/Abstractions/ISystemAudio.cs`, `SystemAudioPlaybackBuffer.cs`,
+  `Collaboration/SystemAudioSession.cs`, `src/PeerOnQ.Media/WebRtcMediaSession.Audio.cs` and
+  `src/PeerOnQ.Platform.Windows/Media/WindowsSystemAudio.cs` - separately permissioned system-loopback
+  audio, encrypted records and bounded capture/transport/playback; microphone capture is not offered
+- `src/PeerOnQ.Media/Pipeline/SystemAudioSendWindow.cs` - bounded authenticated audio receipt window
+- `src/PeerOnQ.Media/Pipeline/VideoFrameQueue.cs` - bounded newest-frame queue and monotonic,
+  phase-preserving capture rate limiter; idle time cannot accumulate a catch-up burst
+- `src/PeerOnQ.Media/Codecs/I420BgrConverter.cs` and `Pipeline/LatestDecodedVideoWorker.cs` -
+  bounded parallel packed-BGR conversion with exact-arithmetic AVX2 and portable scalar fallback;
+  the Windows NV12 converter has the same guarded acceleration. One active plus one newest pending image;
+  independent I420/NV12 planes, ordered authentication/native reference decode and original timing
+- `src/PeerOnQ.Platform.Windows/Media/H264FillerDataFilter.cs` - conservative Annex B filler-only
+  removal before encryption; strict generic parser plus a trusted-MFT-only all-FF EOF-padding
+  compatibility path. Picture/reference/parameter bytes and uncertain inputs are preserved
+- `src/PeerOnQ.Application/Collaboration/MediaCollaborationTransport.cs` - authenticated clock
+  synchronization retries after one second while no usable estimate exists, then refreshes normally
+- `src/PeerOnQ.Media/Pipeline/SelectedIcePathResolver.cs` - nominated wildcard ICE binds use the
+  OS-selected route and matching active NIC before the existing LAN-only native QUIC gate opens;
+  one cached nomination expires after one second, and uncertainty fails closed
+- `src/PeerOnQ.Cloud.Infrastructure/Persistence/Migrations/20261018193000_AddOrganizationSystemAudioPolicy.cs`
+  - additive default-off managed audio policy; signed flag 64 requires a coordinated Cloud/Signaling upgrade
+- `src/PeerOnQ.Service.Windows/`, `src/PeerOnQ.Platform.Windows/WindowsSessionBrokerClient.cs` and
+  `src/PeerOnQ.Shared.Contracts/WindowsSessionBrokerProtocol.cs` - SCM broker and kernel-bound local
+  per-user host lease; optional MSI `SessionBrokerFeature`, protected Program Files broker payload
+  and visible per-user login startup. No pre-login, UAC or secure-desktop privilege is added.
+  The broker project excludes unused WinRT SDK references and trims only its private self-contained
+  publish (`PublishTrimmed=true`, compiler/linker warnings as errors); its Windows TFM, multifile
+  layout and separation from configurable interactive-app dependencies remain unchanged.
+- `tests/PeerOnQ.Service.Windows.Tests/` - local pipe, identity, ACL, bounded protocol and lease tests;
+  real SCM installation/reboot/upgrade remains a separate clean-VM acceptance gate
 - `src/PeerOnQ.Application/Collaboration/SupportInvitationService.cs` - expiring/revocable hash-only support invitation lifecycle
 
 - `src/PeerOnQ.Application/Abstractions/Connectivity.cs` — ICE, path, resume and input-safety contracts
@@ -418,6 +511,11 @@ Never hand-edit files under `src/generated/`.
 - `src/PeerOnQ.Platform.Linux/LinuxClientCapabilityProfile.cs` — viewer/render/input-send/reconnect abilities only; no host or unattended claim
 - `src/PeerOnQ.Platform.Linux/Security/SecretToolDeviceSecretStore.cs` — profile-bound Linux Secret Service adapter with stdin-only secret transfer
 - `src/PeerOnQ.App.Linux/MainWindow.axaml.cs` — attended viewer lifecycle, decoded-frame rendering and explicitly enabled remote input
+- `src/PeerOnQ.App.Linux/LinuxNativeLibraryBootstrap.cs` — fixed system libvpx.so.9 resolution on
+  supported Linux architectures; portable Linux payloads exclude the Windows VP8 DLL
+- `src/PeerOnQ.App.Linux/LinuxAppServices.cs` — OS-keyring identity, optional complete compiled or
+  preview-environment cloud endpoints, Linux-platform enrollment and memory-only signaling attestation;
+  canonical numeric Cloud version, unsigned Development install classification and cancellable lifecycle
 - `src/PeerOnQ.Platform.Android/AndroidClientCapabilityProfile.cs` — least-capability Android viewer/render/input-send/reconnect manifest
 - `src/PeerOnQ.App.Android/AndroidKeyStoreDeviceSecretStore.cs` — private-preference ciphertext protected by a non-exportable Android Keystore AES-GCM key
 - `src/PeerOnQ.App.Android/AndroidMediaCodecVideoSink.cs` — authenticated VP8 to Android MediaCodec/Surface path; desktop libvpx is not packaged
@@ -480,8 +578,11 @@ implements ML-KEM-768 and ML-DSA-65 on every supported Windows build, so capabil
 does not depend on optional Windows Insider CNG algorithms.
 The viewer's selected profile crosses session setup as `automatic`, `office`, `balanced`,
 `performance`, `quality`, or `low-bandwidth`; an omitted legacy field is Automatic. The optional
-resolution preference is strictly mapped as Automatic, 720p, 1080p, 1440p, 2160p or legacy Native,
-and the scaler never upscales beyond the source display. The sharer snapshots both validated values
+resolution wire preference still accepts Automatic, 720p, 1080p, 1440p, 2160p or legacy Native.
+CaptureResolutionPolicy normalizes Automatic/Native/1440p/2160p to 1080p before session signaling/capture;
+Automatic remains a quality mode but explicitly requests 1080p even from an older host;
+the scaler enforces the same maximum and existing 1080 short-edge floor without upscaling smaller
+sources. The native dashboard fixes Automatic quality/P1080 without selectors. The sharer snapshots both validated values
 for capture and encoding. Additive telemetry relays source/requested/encoded dimensions and actual
 encoder/hardware state without carrying candidate addresses.
 Saved Devices reuses the DPAPI-protected address book: Add Device applies the same twelve-digit
@@ -496,10 +597,12 @@ quality ladder, additive session telemetry, dynamic 64 KiB-2 MiB bulk windows, a
 bucket that reserves adaptive video plus input/security capacity on both direct and relay paths.
 With live media but no usable estimate, finite 50/100/150 Mbps mode ceilings prevent unlimited
 bursts; file-only sessions remain uncapped. A trustworthy measurement may allocate the larger
-post-media/input remainder up to 1 Gbps. File traffic slows before media; input, clipboard, and file
+post-media/input remainder without a fixed 1 Gbps ceiling. File traffic slows before media; input, clipboard, and file
 records use separate serialized send and receive lanes in every mode. Negotiated native LAN file
 traffic additionally learns from authenticated receiver-confirmed disk delivery, never from queued
-sender bytes: the probe grows by at most 25% per confirmed window, expires after one second without
+sender bytes: elapsed-time-weighted goodput and at least 100 ms between 25% growth steps prevent
+receipt bursts from creating runaway queues. Pacing credit stays inside the QoS byte window.
+The probe expires after one second without
 feedback, and cannot override input pressure or Fair/Poor/loss/RTT/jitter backoff.
 Whole-file integrity/malware completion work remains on the file lane and cannot hold input; video
 continues on its independent authenticated RTP path. Each decoded frame carries an exact local
@@ -541,12 +644,14 @@ The sharer creates and wires the media session before starting Windows capture, 
 latest-frame queue retains the initial captured frame until both WebRTC and the authenticated media
 protector are ready. This prevents a static desktop's one initial WGC frame from being lost during
 negotiation.
-The WinUI LAN-development client starts with High Quality and an explicit 4K/UHD target (30 fps,
-36 Mbps ceiling); production starts with Automatic. Capture never upscales the source display.
+The WinUI client starts Automatic quality with an explicit P1080 target in all environments;
+the dashboard exposes no quality/resolution dropdowns. The shared High Quality profile requests
+1080p/30 FPS with a 12 Mbps ceiling. Capture never upscales the source display.
 Every selected
 profile supplies a maximum to the measured latency-QoS ladder: it holds the selected target while
 healthy and drops frame rate before resolution when loss, jitter, RTT, or encoder queue pressure
-shows congestion. The 1080p/60 fps/12 Mbps Performance profile remains an explicit opt-in; native
+shows congestion. The shared 1080p/60 fps/12 Mbps Performance profile remains protocol-compatible;
+it is not offered by the native dashboard. Native
 and quality-oriented profiles retain box averaging, while native-size capture bypasses the generic
 floating-point scaler. Resolution changes have a ten-second dwell in addition to the existing
 four-healthy-window recovery rule. Full Control starts with a 256 KiB bounded file-transfer
@@ -565,10 +670,14 @@ Each sample expires independently: periodic feedback messages or sparse new fram
 an old render/frame-age/input spike alive and continuously reduce a quiet desktop's quality.
 Fresh congestion still degrades normally, and recovery still requires healthy network feedback.
 Desktop VP8 decoding retains ordered prediction state and identical BGR pixels, while full-screen
-color conversion uses a bounded half-CPU worker budget (maximum eight). Platform decoder sinks
+color conversion uses a bounded half-CPU worker budget (maximum four). Platform decoder sinks
 remain separate; local loopback timings do not establish physical-device or WAN latency.
-Desktop VP8 bitrate is configured after libvpx defaults are loaded. Adaptive bitrate/FPS or capture
-size changes recreate the encoder and begin with a key frame; encoded prediction frames are never
+Desktop VP8 bitrate is configured after libvpx defaults are loaded. Adaptive bitrate/FPS changes
+reconfigure the same native context using a fixed 90 kHz clock and begin with a key frame; unsupported
+or failed configuration falls back to recreation. Capture-size changes recreate the encoder.
+The encoder rejects unreviewed native versions before allocating/writing its fixed-layout
+configuration; the pinned Windows v1.9.0 layout is accepted. Linux remains decoder/viewer-only.
+Fractional frame durations retain nominal timing; encoded prediction frames are never
 discarded after encode. A connected viewer sends RTCP PLI at most every 500 ms after a decode
 failure; the sharer coalesces requests onto its encode loop and makes the next transport frame a key
 frame. A fresh media connection and ICE restart also force a recovery key frame.
@@ -622,7 +731,9 @@ remain adaptively paced; the selected relay uses its own TLS-socket backpressure
 the media token bucket. Video, handshake, clipboard and interactive control remain on their existing
 WebRTC paths. A non-negotiated peer retains the
 direct LAN/internet file-transfer fallback and fails closed on TURN/unknown paths. Defaults impose
-no byte quota: 256 KiB streaming chunks, persistent sequential destination streams, controlled
+no byte quota: outbound streaming chunks freeze at 240 KiB for the legacy primary channel or
+256 KiB when the bulk lane was negotiated, retaining framing/encryption headroom and resume stride.
+Persistent sequential destination streams, controlled
 parallel workers, and 10 Hz UI progress snapshots consume the dynamically measured network
 remainder without rendering every received chunk.
 Incoming files require a local offer decision,
@@ -891,11 +1002,13 @@ place the root-owned public keyring and host agent; later releases can be staged
 - `CustomerAccountService.cs` — capabilities, registration, verification/resend, password change/reset, optional MFA, rotating sessions, privacy requests
 - Production/staging Cloud API additionally joins `customer-mail-egress` for external SMTP. Only Cloud API joins this non-internal bridge; control/observability stay internal and no application port is published. This supplies outbound routing, not an SMTP destination/port firewall allowlist.
 - `CustomerOrganizationService.cs` — tenant-filtered membership, invitations, teams, RBAC, policy, device claim and audit
+- `DeviceOwnershipLinkService.cs` / `PeerOnQ.Shared.Contracts/V1/DeviceOwnershipContractsV1.cs` — short-lived native ownership code, session-bound portal preview and atomic claim; no raw device credential in the portal
 - `CustomerIdentityEntities.cs` — customer and organization invariants; no internal Admin role reuse
 - `20260817060948_AddCustomerIdentityOrganizationsAndPolicy.cs` — forward-only schema and append-only customer audit trigger
 - `artifacts/peeronq-portal/src/` — real same-origin API portal with explicit loading/error/empty states; stable `api.ts`, `shell.tsx`, and `components.tsx` facades re-export their focused implementations
 - `artifacts/peeronq-portal/src/App.tsx`, `pages.tsx` — reactive customer auth routes `/`, `/register`, `/forgot-password`, `/resend-verification`; links/history/direct navigation, capability gates, route-scoped form state and persistent generic success screens reuse the existing APIs. Token routes remain separate; authenticated auth-form visits return to Overview.
 - `artifacts/peeronq-portal/src/workspacePages.tsx` — authenticated overview, organization devices/remote-session history, downloads and support; resource responses are scoped to the current organization and aborted on scope changes
+- `artifacts/peeronq-portal/src/organizationActions.tsx` / `deviceOwnershipLink.tsx` — member/team/owner lifecycle confirmations and native-code device linking; forms reset on tenant switches
 - `artifacts/peeronq-portal/src/passwordFields.tsx` - accessible password visibility/confirmation and server-provided rules shared by registration, reset and Security
 - `artifacts/peeronq-portal/src/theme.tsx` — shared auth/customer theme, system preference fallback and guarded non-secret preference storage
 - `artifacts/peeronq-portal/src/portalShell.tsx` — grouped account/organization navigation, organization route gates and form remount boundaries; modal mobile navigation with deferred focus restoration
@@ -918,9 +1031,13 @@ identity verification/MFA and organization resources. Profile uses `/profile` wi
 as a compatibility alias. `/sessions` is labeled Sign-in sessions; `/trusted-devices` is Trusted
 sign-in devices; `/remote-sessions` shows up to 500 host-side remote-session records. Policy and
 organization forms retain server semantics and reset on tenant switches. A failed logout is shown
-explicitly and does not imply that the cookie session has ended. Device installation proof and customer sign-in are
-distinct identities linked through the existing organization device-claim API; the desktop client
-has no self-service account sign-in/device-linking UI. The portal states this limitation explicitly.
+explicitly and does not imply that the cookie session has ended. Device installation proof and customer
+sign-in remain distinct identities. The native Cloud panel creates a two-minute ownership code;
+the portal previews the device and target organization before consuming the code with explicit
+confirmation. The native Refresh action then refreshes policy attestation and signaling registration.
+Accountless LAN remains independent; the native app does not collect customer-account passwords.
+Replacing enabled customer MFA requires the account password plus the current factor or a recovery
+code; protected drafts bind account, session and account concurrency version and reject replay.
 
 Website patches may replace the public `/downloads` UI only when their Admin-verified compatibility
 entry exactly matches the signed `index.html`. Old overlays fall back to the base page. Exact MSI,
@@ -1046,15 +1163,17 @@ append-only audit triggers or legal-hold policy.
 | `VITE_PEERONQ_WINDOWS_DOWNLOAD_ARTIFACT_QUALIFIER` | Exact verified local package classification (`unsigned-development` or `unsigned-public-pilot`); required with local Windows downloads | empty | medium |
 | `PEERONQ_DOWNLOAD_TELEMETRY_BASE_URL` / `PEERONQ_DOWNLOAD_TELEMETRY_CA_FILE` | Server-only local-preview Downloads API origin and scoped trust chain used to record actual static MSI GET lifecycle | controller-provided / Phase 6 chain | high |
 | `VITE_PEERONQ_SERVER_WINDOWS_X64_AVAILABLE` | Website-patch-only neutral link to the canonical server-bundled x64 MSI; carries no version or signing claim | `false` | high |
+| `VITE_PEERONQ_SERVER_WINDOWS_ARM64_AVAILABLE` | Explicit website-patch-only availability of the canonical server-bundled ARM64 MSI; no inferred x64 fallback | `false` | high |
 | `VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL` | Public website tracked-download HTTPS origin; invalid/non-HTTPS values fail closed | empty | medium |
 | `VITE_PEERONQ_EMBEDDED_WINDOWS_X64_URL` / `VITE_PEERONQ_EMBEDDED_WINDOWS_VERSION` / `VITE_PEERONQ_EMBEDDED_WINDOWS_UNSIGNED_PILOT` | Explicit embedded x64 link/version and mandatory signed-vs-controlled-pilot classification; safe local MSI path and exact boolean only | empty | high |
+| `VITE_PEERONQ_EMBEDDED_WINDOWS_ARM64_URL` | Embedded ARM64 link; new bundles require a checksum-verified pair matching the canonical version and classification | empty | high |
 | `VITE_PEERONQ_MACOS_DOWNLOAD_URL` / `VITE_PEERONQ_LINUX_X64_DOWNLOAD_URL` / `VITE_PEERONQ_LINUX_ARM64_DOWNLOAD_URL` / `VITE_PEERONQ_ANDROID_DOWNLOAD_URL` / `VITE_PEERONQ_IOS_DOWNLOAD_URL` | HTTPS-only published install destinations selected for the detected non-Windows platform/architecture; each remains empty until that platform's signing, physical-device and publication gates pass | empty | high |
 | `VITE_PEERONQ_ADMIN_PANEL_URL` / `VITE_PEERONQ_CLOUD_HEALTH_URL` | Desktop-preview-only Phase 6 toolbar links to the Admin console and Cloud readiness | controller-provided | low |
 | `VITE_PEERONQ_GRAFANA_URL` / `VITE_PEERONQ_PROMETHEUS_URL` | Desktop-preview-only observability links; insecure URLs are accepted only on loopback | controller-provided | low |
 | `VITE_PEERONQ_ADMIN_API_BASE_URL` | Admin SPA API origin; production requires HTTPS and never stores tokens in localStorage | same origin | high |
 | `VITE_PEERONQ_ACCOUNT_PORTAL_URL` | Public/preview links to the separate customer portal; absolute HTTPS URL without embedded credentials | `https://portal.peeronq.com` | high |
 | `PEERONQ_HTTPS_BIND_ADDRESS` / `PEERONQ_HTTPS_PORT` | Host address and port published by the TLS proxy; development is loopback-only while production bootstrap binds canonical TCP 443 | `127.0.0.1` / `8443` | high |
-| `PEERONQ_API_BASE_URL` / `PEERONQ_PRESENCE_URL` / `PEERONQ_DOWNLOADS_BASE_URL` / `PEERONQ_DIAGNOSTICS_BASE_URL` / `PEERONQ_UPDATES_BASE_URL` | Development-only desktop cloud endpoint overrides; official Release uses compiled metadata | unset | high |
+| `PEERONQ_API_BASE_URL` / `PEERONQ_PRESENCE_URL` / `PEERONQ_DOWNLOADS_BASE_URL` / `PEERONQ_DIAGNOSTICS_BASE_URL` / `PEERONQ_UPDATES_BASE_URL` | Development/unsigned Windows or Linux preview cloud endpoint overrides; complete compiled metadata takes precedence, official Release uses compiled metadata | unset | high |
 | `PEERONQ_DEPLOYMENT_ENVIRONMENT` / `PEERONQ_REGION` | Desktop endpoint environment and deployment region | unset | high |
 | `PEERONQ_REGION` / `PEERONQ_WEB_HOST` / `PEERONQ_WEB_WWW_HOST` / `PEERONQ_API_HOST` / `PEERONQ_PORTAL_HOST` / `PEERONQ_ADMIN_HOST` / `PEERONQ_GRAFANA_HOST` / `PEERONQ_PROMETHEUS_HOST` / `PEERONQ_DOWNLOAD_HOST` / `PEERONQ_UPDATE_HOST` / `PEERONQ_PRESENCE_HOST` | Phase 6 deployment region and exact proxy host allowlists | development values only | high |
 | `PEERONQ_ADMIN_ALLOWED_CIDR` | Nginx direct-source allowlist for Admin, Grafana, and read-only Prometheus only; customer Portal is public. Production bootstrap derives the server LAN `/24` unless explicitly supplied | open in development / required outside development | critical |
@@ -1104,6 +1223,8 @@ append-only audit triggers or legal-hold policy.
 | `PEERONQ_LOCAL_CERT_DIR` | Ignored local development certificate directory | generated by controller | high |
 | `PEERONQ_LIVE_TURN_TEST` / `PEERONQ_LIVE_TURN_URL` / `PEERONQ_LIVE_TURN_USERNAME` / `PEERONQ_LIVE_TURN_CREDENTIAL` | Ephemeral opt-in settings injected by the local controller for the live relay-only media test | unset | high |
 | `PEERONQ_LIVE_TURN_INTERRUPT_TEST` / `PEERONQ_LIVE_FILE_TRANSFER_TEST` / `PEERONQ_LIVE_FILE_TRANSFER_BYTES` | Ephemeral local-acceptance controls for a relay outage and bounded large-file run | unset | medium |
+| `PEERONQ_LIVE_NATIVE_FILE_TRANSFER_TEST` | Real negotiated native QUIC through FileTransferService with disk length/SHA verification; requires supported QUIC and direct LAN, rejects relay-mode combination | unset; `1` enables | medium |
+| `PEERONQ_LIVE_FILE_TRANSFER_CHUNK_BYTES` | Test-only configured chunk size for real file-path comparisons; production transport bounds still apply | unset uses 256 KiB; otherwise decimal `1`–`262144` | medium |
 | `PEERONQ_LIVE_DOCKER_TEST` / `PEERONQ_LIVE_SIGNALING_URL` / `PEERONQ_LIVE_DOCKER_EXE` / `PEERONQ_LIVE_COMPOSE_ENV_FILE` / `PEERONQ_LIVE_COMPOSE_FILE` | Ephemeral controller settings for the opt-in signaling-container restart test | unset | medium |
 | `PEERONQ_DATA_DIR` | Desktop identity, database and log root override | local app data | high |
 | `PEERONQ_TURN_SHARED_SECRET` / `Signaling__Turn__SharedSecret` | coturn REST shared secret; server-side only, minimum 32 characters | none | critical |
@@ -1123,6 +1244,12 @@ append-only audit triggers or legal-hold policy.
 | `PEERONQ_TURN_REQUIRE_TLS` | Makes missing TURN TLS/DTLS certificate files fatal | `false`; production sets `true` | high |
 | `PEERONQ_TURN_ALLOW_PRIVATE_PEERS` | Development-only override for private relay peers | `false`; development Compose sets `true` | high |
 | `PEERONQ_TURN_RELAY_ONLY` | Forces relay policy for diagnostics/acceptance testing | `false` | medium |
+| `PEERONQ_HARDWARE_VIDEO_TEST` | Opt-in actual Windows MF encoder/decoder, encrypted 1080p/UHD and portrait UHD VP8 fallback acceptance | unset; `1` enables | medium |
+| `PEERONQ_HARDWARE_VIDEO_SOAK_SECONDS` | Extend that same local encrypted hardware session; sample progress/state/dimensions and process memory | unset/`0`; otherwise `30`–`1800` seconds; requires hardware test opt-in | medium |
+| `PEERONQ_SYSTEM_AUDIO_TEST` | Opt-in actual Windows default-render WASAPI lifecycle acceptance; silent test output | unset; `1` enables | medium |
+| `PEERONQ_LINUX_NATIVE_TEST` | Opt-in actual Linux distro VP8, encrypted WebRTC and unlocked Secret Service tests; requires the native Linux prerequisites | unset; `1` enables only on Linux | medium |
+| `PEERONQ_TEST_POSTGRES` / `PEERONQ_TEST_REDIS` | Isolated integration endpoints; never point test fixtures at production data | unset | critical |
+| `PEERONQ_REQUIRE_EXTERNAL_INTEGRATION` | CI gate that fails absent integration configuration instead of skipping it | unset; `true` enables | high |
 
 The exhaustive secret-free Phase 6 deployment contract is
 `src/PeerOnQ.Infrastructure.Deployment/.env.example`; staging and production values must come from

@@ -1,0 +1,10 @@
+--- a/src/SIPSorcery/net/RTCP/ReceptionReport.cs
++++ b/src/SIPSorcery/net/RTCP/ReceptionReport.cs
+@@ -266,6 +266,7 @@
+             if (m_received == 0)
+             {
+                 m_base_seq = seq;
++                m_transit = unchecked(arrivalTimestamp - rtpTimestamp);
+             }
+ 
+             m_received++;

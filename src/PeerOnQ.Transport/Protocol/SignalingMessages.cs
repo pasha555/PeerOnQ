@@ -139,6 +139,9 @@ public sealed record SessionRequestMessage : SignalingMessage
 
 public sealed record SessionIncomingMessage : SignalingMessage
 {
+    [JsonPropertyName("unicodeInput")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool UnicodeInput { get; init; }
     [JsonPropertyName("sessionId")] public required string SessionId { get; init; }
     [JsonPropertyName("fromId")] public required string FromDeviceId { get; init; }
     [JsonPropertyName("fromName")] public required string FromDisplayName { get; init; }
@@ -177,6 +180,9 @@ public sealed record PermissionDecisionMessage : SignalingMessage
 
 public sealed record PermissionResultMessage : SignalingMessage
 {
+    [JsonPropertyName("unicodeInput")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool UnicodeInput { get; init; }
     [JsonPropertyName("sessionId")] public required string SessionId { get; init; }
     [JsonPropertyName("decision")] public required string Decision { get; init; }
     [JsonPropertyName("peerName")] public string? PeerDisplayName { get; init; }

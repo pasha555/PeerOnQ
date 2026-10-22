@@ -108,6 +108,27 @@ describe('customer portal product UX', () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
   });
 
+  it('keeps managed system sound off until an explicit supported policy opt-in', async () => {
+    const fetchMock = mockApi((path, init) => path.endsWith('/policy') ? init?.method === 'PUT'
+      ? new Response(null, { status: 204 }) : Response.json({ ...policy, systemAudioAllowed: false }) : undefined);
+    const user = userEvent.setup(); open('/policy');
+    const sound = await screen.findByRole('checkbox', { name: 'System sound allowed' });
+    expect(sound).toBeEnabled(); expect(sound).not.toBeChecked();
+    await user.click(sound); await user.click(screen.getByRole('button', { name: 'Save policy' }));
+    expect(await screen.findByText('Policy saved.')).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith('/portal/v1/organizations/org-a/policy', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ ...policy, systemAudioAllowed: true }) }));
+  });
+
+  it('disables system sound on an older API without pretending the policy can enable it', async () => {
+    const fetchMock = mockApi(); const user = userEvent.setup(); open('/policy');
+    expect(await screen.findByRole('checkbox', { name: 'System sound allowed' })).toBeDisabled();
+    expect(screen.getByText(/Unavailable on this server version/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Save policy' }));
+    await screen.findByText('Policy saved.');
+    const saved = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')?.[1];
+    expect(JSON.parse(String(saved?.body))).not.toHaveProperty('systemAudioAllowed');
+  });
+
   it('surfaces server policy rejection and retains the edits for review', async () => {
     mockApi((path, init) => path.endsWith('/policy') && init?.method === 'PUT' ? failure('Policy change denied.', 403) : undefined);
     const user = userEvent.setup(); open('/policy');
@@ -164,6 +185,21 @@ describe('customer portal product UX', () => {
     expect(fetchMock).toHaveBeenCalledWith('/portal/v1/account/mfa/confirm', expect.objectContaining({ method: 'POST', body: JSON.stringify({ setupToken: 'example-setup-token', code: '123456' }) }));
     expect(storage.mock.calls.every(([key]) => ['peeronq_portal_theme', 'peeronq_portal_organization'].includes(key))).toBe(true);
     expect(JSON.stringify(window.localStorage) + JSON.stringify(window.sessionStorage)).not.toMatch(/example-setup-token|ExampleMfaSetupKey|example-recovery-code/);
+  });
+
+  it('requires current password and MFA proof before replacing an existing authenticator', async () => {
+    const fetchMock = mockApi((path) => {
+      if (path === '/portal/v1/account/profile') return Response.json({ ...profile, mfaEnabled: true });
+      if (path.endsWith('/mfa/setup')) return Response.json({ secret: 'replacement-example-key', setupToken: 'replacement-example-token', otpAuthUri: 'otpauth://totp/example' });
+    });
+    const user = userEvent.setup(); open('/security');
+    await user.type(await screen.findByLabelText('Current password for MFA replacement'), 'example-current-password');
+    await user.type(screen.getByLabelText('Current MFA or recovery code'), '123456');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/mfa/setup'))).toBe(false);
+    await user.click(screen.getByRole('button', { name: 'Replace authenticator' }));
+    expect(await screen.findByText('replacement-example-key')).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith('/portal/v1/account/mfa/setup', expect.objectContaining({ method: 'POST', body: JSON.stringify({ currentPassword: 'example-current-password', currentMfaCode: '123456' }) }));
+    expect(JSON.stringify(localStorage) + JSON.stringify(sessionStorage)).not.toMatch(/replacement-example|example-current-password/);
   });
 
   it('requires confirmation before submitting an account deletion request', async () => {

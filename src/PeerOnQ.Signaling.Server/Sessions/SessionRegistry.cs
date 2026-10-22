@@ -23,6 +23,7 @@ public sealed class ServerSession
     public required int Permissions { get; set; }
     public required string AccessKind { get; init; }
     public bool FileRelayEnabled { get; init; }
+    public bool UnicodeInputEnabled { get; init; }
     public bool RemoteScopeSelectionRequired { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset PermissionDeadline { get; set; }
@@ -71,7 +72,8 @@ public interface ISessionStore
         string accessKind = "attended",
         bool fileRelayEnabled = false,
         CancellationToken cancellationToken = default,
-        bool remoteScopeSelectionRequired = false);
+        bool remoteScopeSelectionRequired = false,
+        bool unicodeInputEnabled = false);
     ValueTask<ServerSession?> GetAsync(string sessionId, CancellationToken cancellationToken = default);
     ValueTask<bool> RemoveAsync(string sessionId, CancellationToken cancellationToken = default);
     ValueTask BindOwnerAsync(
@@ -141,7 +143,8 @@ public sealed class SessionRegistry(
         string accessKind = "attended",
         bool fileRelayEnabled = false,
         CancellationToken cancellationToken = default,
-        bool remoteScopeSelectionRequired = false)
+        bool remoteScopeSelectionRequired = false,
+        bool unicodeInputEnabled = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var created = TryCreate(
@@ -153,7 +156,8 @@ public sealed class SessionRegistry(
             permissions,
             accessKind,
             fileRelayEnabled,
-            remoteScopeSelectionRequired);
+            remoteScopeSelectionRequired,
+            unicodeInputEnabled);
         return ValueTask.FromResult(new SessionCreateResult(created, session));
     }
 
@@ -295,7 +299,8 @@ public sealed class SessionRegistry(
         int permissions = 1,
         string accessKind = "attended",
         bool fileRelayEnabled = false,
-        bool remoteScopeSelectionRequired = false)
+        bool remoteScopeSelectionRequired = false,
+        bool unicodeInputEnabled = false)
     {
         var now = _time.GetUtcNow();
         session = new ServerSession
@@ -307,6 +312,7 @@ public sealed class SessionRegistry(
             Permissions = permissions,
             AccessKind = accessKind,
             FileRelayEnabled = fileRelayEnabled,
+            UnicodeInputEnabled = unicodeInputEnabled,
             RemoteScopeSelectionRequired = remoteScopeSelectionRequired,
             CreatedAt = now,
             PermissionDeadline = now + options.Value.PermissionTimeout,

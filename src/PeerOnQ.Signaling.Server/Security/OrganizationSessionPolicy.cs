@@ -27,6 +27,10 @@ public static class OrganizationSessionPolicy
         if ((flags & SignalingOrganizationPolicyFlags.HybridRequired) != 0) return false;
         if (accessKind == "unattended" && (flags & SignalingOrganizationPolicyFlags.Unattended) == 0) return false;
         var permissions = (SessionPermission)raw;
+        // Audio is a separate signed organizational opt-in, never implied by Full Control.
+        if ((permissions & SessionPermission.SystemAudio) != 0 &&
+            (accessKind != "attended" || (permissions & SessionPermission.ViewScreen) == 0 ||
+             (flags & SignalingOrganizationPolicyFlags.SystemAudio) == 0)) return false;
         if (mode == "view-only" && (flags & SignalingOrganizationPolicyFlags.ViewOnly) == 0) return false;
         if (mode == "full-control" && (flags & SignalingOrganizationPolicyFlags.FullControl) == 0) return false;
         if (mode == "file-transfer-only" && (flags & SignalingOrganizationPolicyFlags.FileTransfer) == 0) return false;

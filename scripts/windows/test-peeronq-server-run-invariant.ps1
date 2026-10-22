@@ -63,6 +63,11 @@ try {
         throw 'A failed version or mandatory-MSI invariant check must not leave a server bundle artifact.'
     }
 
+    $result = Invoke-BuilderProbe $canonicalVersion.ToString(3) $temporary '-WindowsClientMsiPath missing-x64.msi'
+    if ($result.ExitCode -eq 0 -or $result.Output -notmatch [regex]::Escape('-WindowsClientArm64MsiPath is required.')) {
+        throw "A new server bundle did not require its matching ARM64 package before MSI access: $($result.Output)"
+    }
+
     $result = Invoke-BuilderProbe $canonicalVersion.ToString(3) $temporary '-RequireSignature'
     if ($result.ExitCode -eq 0 -or $result.Output -notmatch 'GPG key ID is required') {
         throw "-RequireSignature did not fail closed before publication: $($result.Output)"
@@ -74,6 +79,11 @@ try {
     $builderText = [IO.File]::ReadAllText($builder)
     if ($builderText.IndexOf('-ExpectedVersion ([version]$Version)', [StringComparison]::Ordinal) -lt 0) {
         throw 'The embedded MSI ProductVersion must be validated against the server release version.'
+    }
+    foreach ($pairContract in @('-Architecture arm64 -ExpectedVersion ([version]$Version)', 'PeerOnQ-Windows-arm64.msi', '$arm64Signature.SignerCertificate.Thumbprint', '$arm64MsiSha256')) {
+        if ($builderText.IndexOf($pairContract, [StringComparison]::Ordinal) -lt 0) {
+            throw "The paired Windows publication contract is missing: $pairContract"
+        }
     }
     foreach ($payloadEntry in @(
         'artifacts/peeronq-portal',

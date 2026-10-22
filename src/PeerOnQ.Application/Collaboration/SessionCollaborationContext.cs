@@ -15,7 +15,8 @@ public sealed class SessionCollaborationContext : IAsyncDisposable
         ICollaborationTransport transport,
         FileTransferService? fileTransfers,
         ClipboardSyncService? clipboard,
-        RemoteInputSession? remoteInput)
+        RemoteInputSession? remoteInput,
+        SystemAudioSession? systemAudio = null)
     {
         SessionId = sessionId;
         Permissions = permissions;
@@ -23,6 +24,7 @@ public sealed class SessionCollaborationContext : IAsyncDisposable
         FileTransfers = fileTransfers;
         Clipboard = clipboard;
         RemoteInput = remoteInput;
+        SystemAudio = systemAudio;
         _transport.ProtocolError += OnProtocolError;
     }
 
@@ -33,6 +35,7 @@ public sealed class SessionCollaborationContext : IAsyncDisposable
     public FileTransferService? FileTransfers { get; }
     public ClipboardSyncService? Clipboard { get; }
     public RemoteInputSession? RemoteInput { get; }
+    public SystemAudioSession? SystemAudio { get; }
     public TransferPriorityMode TransferPriorityMode => _transport.TransferPriorityMode;
     public bool IsNativeBulkTransportReady => _transport.IsNativeBulkTransportReady;
     public int NativeBulkBudgetKbps => _transport.NativeBulkBudgetKbps;
@@ -55,6 +58,7 @@ public sealed class SessionCollaborationContext : IAsyncDisposable
         FileTransfers?.ConnectionInterrupted();
         Clipboard?.Pause();
         RemoteInput?.ConnectionInterrupted();
+        SystemAudio?.ConnectionInterrupted();
         ProtocolError?.Invoke(this, reason);
     }
 
@@ -63,6 +67,7 @@ public sealed class SessionCollaborationContext : IAsyncDisposable
         FileTransfers?.ConnectionInterrupted();
         Clipboard?.Pause();
         RemoteInput?.ConnectionInterrupted();
+        SystemAudio?.ConnectionInterrupted();
     }
 
     public void ConnectionResumed()
@@ -71,6 +76,7 @@ public sealed class SessionCollaborationContext : IAsyncDisposable
         FileTransfers?.ConnectionResumed();
         Clipboard?.Resume();
         RemoteInput?.ConnectionResumed();
+        SystemAudio?.ConnectionResumed();
     }
 
     public async ValueTask DisposeAsync()
@@ -88,6 +94,7 @@ public sealed class SessionCollaborationContext : IAsyncDisposable
         if (Clipboard is not null) await DisposePartAsync(Clipboard.DisposeAsync);
         if (FileTransfers is not null) await DisposePartAsync(FileTransfers.DisposeAsync);
         if (RemoteInput is not null) await DisposePartAsync(RemoteInput.DisposeAsync);
+        if (SystemAudio is not null) await DisposePartAsync(SystemAudio.DisposeAsync);
         await DisposePartAsync(_transport.DisposeAsync);
 
         if (failures is not null) throw new AggregateException(failures);

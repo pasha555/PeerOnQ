@@ -91,8 +91,11 @@ public sealed class FrameRateLimiter(int targetFps, TimeProvider? timeProvider =
 {
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
     private readonly Lock _gate = new();
-    private TimeSpan _minimumInterval = TimeSpan.FromSeconds(1.0 / Math.Clamp(targetFps, 1, 120));
-    private DateTimeOffset _lastAccepted = DateTimeOffset.MinValue;
+    private double _minimumIntervalSeconds = 1.0 / Math.Clamp(targetFps, 1, 120);
+    private long _deadlineOriginTimestamp;
+    private long _lastAcceptedTimestamp;
+    private double _nextDeadlineSeconds;
+    private bool _initialized;
     private int _targetFps = Math.Clamp(targetFps, 1, 120);
 
     public int TargetFps
@@ -119,7 +122,12 @@ public sealed class FrameRateLimiter(int targetFps, TimeProvider? timeProvider =
             if (_targetFps == clamped) return;
 
             _targetFps = clamped;
-            _minimumInterval = TimeSpan.FromSeconds(1.0 / clamped);
+            _minimumIntervalSeconds = 1.0 / clamped;
+            if (_initialized)
+            {
+                _deadlineOriginTimestamp = _lastAcceptedTimestamp;
+                _nextDeadlineSeconds = _minimumIntervalSeconds;
+            }
         }
     }
 
@@ -127,14 +135,39 @@ public sealed class FrameRateLimiter(int targetFps, TimeProvider? timeProvider =
     {
         lock (_gate)
         {
-            var now = _time.GetUtcNow();
-            if (now - _lastAccepted < _minimumInterval)
+            var now = _time.GetTimestamp();
+            if (_initialized && now == _lastAcceptedTimestamp)
             {
                 Skipped++;
                 return false;
             }
+            if (!_initialized)
+            {
+                _initialized = true;
+                _deadlineOriginTimestamp = now;
+                _nextDeadlineSeconds = _minimumIntervalSeconds;
+            }
+            else
+            {
+                var elapsed = _time.GetElapsedTime(_deadlineOriginTimestamp, now).TotalSeconds;
+                if (elapsed < _nextDeadlineSeconds)
+                {
+                    Skipped++;
+                    return false;
+                }
 
-            _lastAccepted = now;
+                // Preserve the phase across ordinary capture jitter. Restarting the interval
+                // at every arrival halves a 30 fps target when frames arrive every 33 ms.
+                if (elapsed - _nextDeadlineSeconds >= 2 * _minimumIntervalSeconds)
+                {
+                    // Idle time must not accumulate frames that can burst through afterward.
+                    _deadlineOriginTimestamp = now;
+                    _nextDeadlineSeconds = _minimumIntervalSeconds;
+                }
+                else _nextDeadlineSeconds += _minimumIntervalSeconds;
+            }
+
+            _lastAcceptedTimestamp = now;
             Accepted++;
             return true;
         }

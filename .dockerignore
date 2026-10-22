@@ -1,5 +1,8 @@
 .git
+.dotnet
 .local
+eng/sipsorcery/packages/*
+!eng/sipsorcery/packages/.gitkeep
 .peeronq-run
 .peeronq-phase3
 .tmp-reflect
@@ -12,6 +15,7 @@
 artifacts/mockup-sandbox
 artifacts/peeronq/public/downloads/*
 !artifacts/peeronq/public/downloads/PeerOnQ-Windows-x64.msi
+!artifacts/peeronq/public/downloads/PeerOnQ-Windows-arm64.msi
 !artifacts/peeronq/public/downloads/SHA256SUMS.txt
 !artifacts/peeronq/public/downloads/embedded-windows-version.txt
 !artifacts/peeronq/public/downloads/embedded-windows-release-type.txt

@@ -9,22 +9,26 @@ namespace PeerOnQ.Media.Codecs;
 /// </summary>
 internal sealed class Vp8ScreenDecoder : IDisposable
 {
-    private static readonly int ConversionParallelism = Math.Clamp(Environment.ProcessorCount / 2, 1, 8);
     private readonly Lock _gate = new();
     private Vp8Codec? _decoder;
     private bool _disposed;
 
-    static Vp8ScreenDecoder()
+    public VideoSample[] Decode(byte[] frame)
     {
-        // The pinned PixelConverter caches ParallelOptions in an ordinary Dictionary. Populate
-        // both keys before any session can enter this decoder, so concurrent sessions only read
-        // that cache. The conversion itself must not take a process-wide lock.
-        byte[] pixel = [16, 16, 16, 16, 128, 128];
-        _ = PixelConverter.I420toBGR(pixel, 2, 2, out _, dop: 1);
-        _ = PixelConverter.I420toBGR(pixel, 2, 2, out _, dop: ConversionParallelism);
+        lock (_gate)
+            return DecodeI420(frame).Select(image => new VideoSample
+            {
+                Width = image.Width,
+                Height = image.Height,
+                Sample = I420BgrConverter.Convert(image.Sample, checked((int)image.Width), checked((int)image.Height)),
+            }).ToArray();
     }
 
-    public VideoSample[] Decode(byte[] frame)
+    /// <summary>
+    /// Native reference decoding remains ordered. The pinned codec returns independent managed
+    /// I420 planes; a viewer may replace an obsolete decoded image before color conversion.
+    /// </summary>
+    public VideoSample[] DecodeI420(byte[] frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         lock (_gate)
@@ -48,19 +52,16 @@ internal sealed class Vp8ScreenDecoder : IDisposable
             var decoded = _decoder.Decode(frame, frame.Length, out var width, out var height);
             if (decoded is null) return [];
 
+            if (!VideoCodecLimits.ValidDimensions(checked((int)width), checked((int)height)))
+                throw new InvalidOperationException("The VP8 decoder returned unbounded image dimensions.");
             var samples = new VideoSample[decoded.Count];
-            // Small frames are cheaper than scheduling worker tasks. Reserve parallel conversion
-            // for full-HD and larger frames so thumbnail/low-bandwidth sessions do not contend
-            // with the interactive input lane for thread-pool workers.
-            var parallelism = (long)width * height >= 1920 * 1080 ? ConversionParallelism : 1;
             for (var index = 0; index < decoded.Count; index++)
             {
                 samples[index] = new VideoSample
                 {
                     Width = width,
                     Height = height,
-                    Sample = PixelConverter.I420toBGR(
-                        decoded[index], checked((int)width), checked((int)height), out _, parallelism),
+                    Sample = decoded[index],
                 };
             }
             return samples;

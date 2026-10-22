@@ -36,6 +36,8 @@ public static class EndpointCapabilityNames
     public const string SessionHost = "session.host";
     public const string ScreenRender = "screen.render";
     public const string ScreenCapture = "screen.capture";
+    public const string SystemAudioCapture = "audio.system.capture";
+    public const string SystemAudioPlayback = "audio.system.playback";
     public const string InputSend = "input.send";
     public const string InputInject = "input.inject";
     public const string FileSend = "file.send";
@@ -67,6 +69,8 @@ public static class OptionalProtocolFeatureNames
     public const string SafeUnknownMessages = "signaling.safe-unknown-message.v1";
     public const string SessionCapabilityDetails = "signaling.session-capability-details.v1";
     public const string FileRelay = "file.relay.v1";
+    public const string UnicodeInput = "input.unicode.v1";
+    public const string SystemAudio = "audio.pcm16.v1";
 }
 
 /// <summary>Bounded capability declaration sent during the authenticated signaling handshake.</summary>
@@ -115,6 +119,8 @@ public static class CapabilityNegotiator
     public static IReadOnlyList<string> ServerOptionalFeatures { get; } =
     [
         OptionalProtocolFeatureNames.FileRelay,
+        OptionalProtocolFeatureNames.UnicodeInput,
+        OptionalProtocolFeatureNames.SystemAudio,
         OptionalProtocolFeatureNames.SafeUnknownMessages,
         OptionalProtocolFeatureNames.SessionCapabilityDetails,
     ];
@@ -165,7 +171,9 @@ public static class CapabilityNegotiator
         }
 
         var set = capabilities.ToHashSet(StringComparer.Ordinal);
-        if (!ValidateDependency(set, EndpointCapabilityNames.ScreenCapture, EndpointCapabilityNames.SessionHost, out error)
+        if (!ValidateDependency(set, EndpointCapabilityNames.SystemAudioCapture, EndpointCapabilityNames.ScreenCapture, out error)
+            || !ValidateDependency(set, EndpointCapabilityNames.SystemAudioPlayback, EndpointCapabilityNames.ScreenRender, out error)
+            || !ValidateDependency(set, EndpointCapabilityNames.ScreenCapture, EndpointCapabilityNames.SessionHost, out error)
             || !ValidateDependency(set, EndpointCapabilityNames.ScreenRender, EndpointCapabilityNames.SessionViewer, out error)
             || !ValidateDependencies(
                 set,
@@ -246,6 +254,12 @@ public static class CapabilityNegotiator
             targetRequired.Add(EndpointCapabilityNames.InputInject);
         }
 
+        if (permissions.HasFlag(SessionPermission.SystemAudio))
+        {
+            requesterRequired.Add(EndpointCapabilityNames.SystemAudioPlayback);
+            targetRequired.Add(EndpointCapabilityNames.SystemAudioCapture);
+        }
+
         if (permissions.HasFlag(SessionPermission.FileTransfer))
         {
             requesterRequired.Add(EndpointCapabilityNames.FileSend);
@@ -275,6 +289,17 @@ public static class CapabilityNegotiator
 
         var requesterCapabilities = requester.Capabilities.ToHashSet(StringComparer.Ordinal);
         var targetCapabilities = target.Capabilities.ToHashSet(StringComparer.Ordinal);
+        // The new permission must never travel to a peer that only understands an older
+        // scope mask. Both explicit ability and the exact optional wire format are required.
+        if (permissions.HasFlag(SessionPermission.SystemAudio))
+        {
+            if (requester.OptionalFeatures.Contains(OptionalProtocolFeatureNames.SystemAudio, StringComparer.Ordinal))
+                requesterCapabilities.Add(OptionalProtocolFeatureNames.SystemAudio);
+            if (target.OptionalFeatures.Contains(OptionalProtocolFeatureNames.SystemAudio, StringComparer.Ordinal))
+                targetCapabilities.Add(OptionalProtocolFeatureNames.SystemAudio);
+            requesterRequired.Add(OptionalProtocolFeatureNames.SystemAudio);
+            targetRequired.Add(OptionalProtocolFeatureNames.SystemAudio);
+        }
         return new SessionCapabilityNegotiationResult(
             requesterRequired.Except(requesterCapabilities).Order(StringComparer.Ordinal).ToArray(),
             targetRequired.Except(targetCapabilities).Order(StringComparer.Ordinal).ToArray(),

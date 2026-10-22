@@ -1289,6 +1289,11 @@ namespace PeerOnQ.Cloud.Infrastructure.Persistence.Migrations
                     b.Property<int>("TrustedDeviceLifetimeDays")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("SystemAudioAllowed")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("UnattendedAccessAllowed")
                         .HasColumnType("boolean");
 

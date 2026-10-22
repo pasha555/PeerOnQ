@@ -68,6 +68,9 @@ $privateKey = (Resolve-Path -LiteralPath $UpdatePrivateKeyPemPath).Path
 $certificate = (Resolve-Path -LiteralPath $SigningCertificatePath).Path
 [IO.Directory]::CreateDirectory($releaseRoot) | Out-Null
 
+Invoke-Native dotnet @('run', '--project', (Join-Path $repoRoot 'eng/PeerOnQ.DependencyBuilder'), '-c', 'Release', '--',
+    '--output', (Join-Path $repoRoot 'eng/sipsorcery/packages'))
+& (Join-Path $repoRoot 'scripts/security/test-sipsorcery-upstream-advisories.ps1')
 Invoke-Native dotnet @('tool', 'restore')
 Invoke-Native dotnet @('test', 'PeerOnQ.slnx', '-c', 'Release', '--nologo')
 
@@ -94,6 +97,11 @@ foreach ($architecture in @('x64', 'arm64')) {
         "-p:PeerOnQUpdateManifestUrl=$manifestUrl",
         "-p:PeerOnQUpdatePublicKeySpki=$UpdatePublicKeySpkiBase64", "-p:PeerOnQUpdateKeyId=$UpdateKeyId",
         "-p:PeerOnQPublisherCertificateSha256=$PublisherCertificateSha256")
+
+    Invoke-Native dotnet @(
+        'publish', 'src\PeerOnQ.Service.Windows\PeerOnQ.Service.Windows.csproj', '-c', 'Release', '-r', $runtime,
+        '--self-contained', 'true', '-o', (Join-Path $publishRoot 'SessionBroker'),
+        "-p:Version=$Version", "-p:FileVersion=$Version", "-p:AssemblyVersion=$Version")
 
     & (Join-Path $PSScriptRoot 'sign-phase5-artifacts.ps1') `
         -ArtifactPath $publishRoot -CertificatePath $certificate -TimestampUrl $TimestampUrl.AbsoluteUri

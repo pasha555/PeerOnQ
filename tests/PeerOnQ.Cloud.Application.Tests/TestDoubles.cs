@@ -28,7 +28,7 @@ internal sealed class MemoryChallengeStore : IDeviceChallengeStore
 internal sealed class MemoryTokenIssuer(ManualTimeProvider time) : IDeviceAccessTokenIssuer
 {
     private readonly Dictionary<string, DeviceAccessPrincipal> _tokens = new(StringComparer.Ordinal);
-    public Task<DeviceAccessToken> IssueAsync(Guid deviceId, Guid installationId, TimeSpan lifetime, CancellationToken cancellationToken)
+    public Task<DeviceAccessToken> IssueAsync(Guid deviceId, Guid installationId, TimeSpan lifetime, CancellationToken cancellationToken, string? identityFingerprint = null)
     {
         var token = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
         var principal = new DeviceAccessPrincipal(deviceId, installationId, time.GetUtcNow() + lifetime);

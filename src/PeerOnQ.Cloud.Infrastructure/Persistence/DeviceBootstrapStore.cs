@@ -159,7 +159,8 @@ public sealed class DeviceBootstrapStore(
                             policy.ClipboardAllowed,
                             policy.HybridSecurityRequired,
                             policy.MinimumClientVersion,
-                            policy.ApprovedRelayRegionsCsv);
+                            policy.ApprovedRelayRegionsCsv,
+                            policy.SystemAudioAllowed);
                     }
                     await transaction.CommitAsync(cancellationToken);
                     return new DeviceBootstrapResult(

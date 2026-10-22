@@ -2,3 +2,11 @@
 Dockerfile text eol=lf
 *.yml text eol=lf
 /test-vectors/signaling-v3/*.json text eol=lf
+/eng/sipsorcery/upstream.json text eol=lf
+/eng/sipsorcery/dtls-receive-wakeup.patch text eol=lf
+/eng/sipsorcery/sctp-sack-duplicate-reset.patch text eol=lf
+/eng/sipsorcery/sctp-gap-counter-bound.patch text eol=lf
+/eng/sipsorcery/sctp-sender-flow-control.patch text eol=lf
+/eng/sipsorcery/PeerOnQ.SIPSorcery.targets text eol=lf
+/eng/sipsorcery/sctp-receiver-window-credit.patch text eol=lf
+/eng/sipsorcery/udp-receive-admission.patch text eol=lf

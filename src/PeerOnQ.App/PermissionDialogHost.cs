@@ -138,6 +138,18 @@ public sealed class PermissionDialogHost(DispatcherQueue dispatcher, Func<XamlRo
             body.Children.Add(CreateFixedScopeCard(request));
         }
 
+        CheckBox? soundConsent = null;
+        if (request.RequestedPermissions.HasFlag(SessionPermission.SystemAudio))
+        {
+            soundConsent = new CheckBox
+            {
+                Content = "Share this computer's system sound (not microphone)",
+                IsChecked = false,
+            };
+            AutomationProperties.SetName(soundConsent, "Allow system sound for this session");
+            body.Children.Add(soundConsent);
+        }
+
         body.Children.Add(CreateFooter(request.RequestedAt, countdown));
 
         var dialog = new ContentDialog
@@ -154,12 +166,17 @@ public sealed class PermissionDialogHost(DispatcherQueue dispatcher, Func<XamlRo
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             },
             PrimaryButtonText = accessChoices is null ? "Accept" : "Select access",
-            IsPrimaryButtonEnabled = accessChoices is null,
+            IsPrimaryButtonEnabled = accessChoices is null && soundConsent is null,
             SecondaryButtonText = "Decline",
             CloseButtonText = "Block",
             DefaultButton = ContentDialogButton.Secondary,
             PrimaryButtonStyle = Resource<Style>("PeerOnQDialogPrimaryButtonStyle"),
         };
+        if (soundConsent is not null && accessChoices is null)
+        {
+            soundConsent.Checked += (_, _) => dialog.IsPrimaryButtonEnabled = true;
+            soundConsent.Unchecked += (_, _) => dialog.IsPrimaryButtonEnabled = false;
+        }
         if (accessChoices is not null)
         {
             accessChoices.SelectionChanged += (_, _) =>
@@ -221,19 +238,20 @@ public sealed class PermissionDialogHost(DispatcherQueue dispatcher, Func<XamlRo
             return new PermissionPromptResult(PermissionDecision.Timeout);
         }
 
+        var approvedAudio = soundConsent?.IsChecked == true ? SessionPermission.SystemAudio : SessionPermission.None;
         return result switch
         {
             ContentDialogResult.Primary when accessChoices is not null && accessChoices.SelectedIndex == 1 =>
                 new PermissionPromptResult(
                     PermissionDecision.Accept,
                     SessionMode.FullControl,
-                    Phase1SessionScope.FullControlPermissions),
+                    Phase1SessionScope.FullControlPermissions | approvedAudio),
             ContentDialogResult.Primary when accessChoices is null =>
                 PermissionPromptResult.ForRequestedScope(PermissionDecision.Accept, request),
             ContentDialogResult.Primary when accessChoices.SelectedIndex == 0 => new PermissionPromptResult(
                 PermissionDecision.Accept,
                 SessionMode.ViewOnly,
-                SessionPermission.ViewScreen),
+                SessionPermission.ViewScreen | approvedAudio),
             ContentDialogResult.Primary => new PermissionPromptResult(PermissionDecision.Decline),
             ContentDialogResult.Secondary => new PermissionPromptResult(PermissionDecision.Decline),
             _ => new PermissionPromptResult(PermissionDecision.Block),
@@ -244,7 +262,7 @@ public sealed class PermissionDialogHost(DispatcherQueue dispatcher, Func<XamlRo
         request.RemoteScopeSelectionRequired
         && request.AccessKind == SessionAccessKind.Attended
         && request.RequestedMode == SessionMode.FullControl
-        && request.RequestedPermissions == Phase1SessionScope.FullControlPermissions;
+        && Phase1SessionScope.IsRemoteScopeSelectionEnvelope(request.RequestedPermissions);
 
     private Border CreateRequesterCard(PermissionRequest request)
     {

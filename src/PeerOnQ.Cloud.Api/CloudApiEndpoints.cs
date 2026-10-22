@@ -27,6 +27,18 @@ public static class CloudApiEndpoints
             .RequireRateLimiting("device");
 
         var devices = version.MapGroup("/devices");
+        devices.MapPost("/ownership-links", async (HttpContext context, DeviceOwnershipLinkService service, CancellationToken cancellationToken) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(await service.CreateAsync(context.User.RequireDeviceAccessPrincipal(), cancellationToken));
+        })
+            .RequireAuthorization(DeviceAccessAuthentication.Policy)
+            .RequireRateLimiting("device");
+        devices.MapGet("/ownership-links/status", async (HttpContext context, DeviceOwnershipLinkService service, CancellationToken cancellationToken) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(await service.StatusAsync(context.User.RequireDeviceAccessPrincipal(), cancellationToken));
+        }).RequireAuthorization(DeviceAccessAuthentication.Policy).RequireRateLimiting("device");
         devices.MapPost("/register", IssueDeviceChallengeAsync)
             .AllowAnonymous()
             .WithMetadata(new RequestSizeLimitAttribute(16 * 1024))

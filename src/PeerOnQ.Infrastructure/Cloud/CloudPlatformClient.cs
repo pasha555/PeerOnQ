@@ -38,6 +38,7 @@ public sealed record CloudPlatformClientOptions
     public required string OsVersion { get; init; }
     public required ArchitectureKindV1 Architecture { get; init; }
     public required InstallChannelV1 InstallChannel { get; init; }
+    public PlatformKindV1 Platform { get; init; } = PlatformKindV1.Windows;
     public string ProtocolVersion { get; init; } = "1";
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(15);
     public TimeSpan MaximumReconnectWindow { get; init; } = TimeSpan.FromMinutes(2);
@@ -135,6 +136,34 @@ public sealed class CloudPlatformClient : IAsyncDisposable, ISignalingAttestatio
     /// </summary>
     public Task RegisterInstallationAsync(CancellationToken cancellationToken = default) =>
         EnsureAuthenticatedAsync(cancellationToken);
+
+    public async Task<CreateDeviceOwnershipLinkResponse> CreateDeviceOwnershipLinkAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        using var request = CreateRequest(HttpMethod.Post, "v1/devices/ownership-links", authenticated: true);
+        var link = await SendAsync<CreateDeviceOwnershipLinkResponse>(request, cancellationToken);
+        if (link.Code is not { Length: 43 }
+            || link.Code.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_'))
+            || link.ExpiresAtUtc == default)
+            throw new CloudPlatformException("invalid_ownership_link", "The server returned an invalid device linking code.", permanent: false);
+        return link;
+    }
+
+    public async Task<DeviceOwnershipLinkStatusResponse> GetDeviceOwnershipLinkStatusAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        using var request = CreateRequest(HttpMethod.Get, "v1/devices/ownership-links/status", authenticated: true);
+        return await SendAsync<DeviceOwnershipLinkStatusResponse>(request, cancellationToken);
+    }
+
+    public async Task RefreshOwnershipPolicyAsync(CancellationToken cancellationToken = default)
+    {
+        await _authenticationGate.WaitAsync(cancellationToken);
+        try { await AuthenticateAndRegisterAsync(cancellationToken); }
+        finally { _authenticationGate.Release(); }
+    }
 
     public async Task<string?> GetSignalingAttestationAsync(CancellationToken cancellationToken = default)
     {
@@ -329,7 +358,7 @@ public sealed class CloudPlatformClient : IAsyncDisposable, ISignalingAttestatio
                 _options.InstallationId,
                 _identity.DisplayName,
                 publicKey,
-                PlatformKindV1.Windows,
+                _options.Platform,
                 _options.Architecture,
                 _options.AppVersion,
                 _options.OsVersion,
@@ -387,7 +416,7 @@ public sealed class CloudPlatformClient : IAsyncDisposable, ISignalingAttestatio
                 "v1/installations/register",
                 new InstallationRegistrationRequestV1(
                     _options.InstallationId,
-                    PlatformKindV1.Windows,
+                    _options.Platform,
                     _options.Architecture,
                     _options.AppVersion,
                     _options.OsVersion,

@@ -113,16 +113,16 @@ public static class CustomerPortalEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> BeginMfaSetupAsync(HttpContext context, CustomerAccountService service, CancellationToken cancellationToken)
+    private static async Task<IResult> BeginMfaSetupAsync([FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] MfaSetupRequest? request, HttpContext context, CustomerAccountService service, CancellationToken cancellationToken)
     {
         CustomerPortalAuthentication.ValidateCsrf(context);
-        return Results.Ok(await service.BeginMfaSetupAsync(context.User.RequireCustomerAccountId(), cancellationToken));
+        return Results.Ok(await service.BeginMfaSetupAsync(context.User.RequireCustomerAccountId(), context.User.RequireCustomerSessionId(), request, cancellationToken));
     }
 
     private static async Task<IResult> ConfirmMfaAsync(MfaConfirmRequest request, HttpContext context, CustomerAccountService service, CancellationToken cancellationToken)
     {
         CustomerPortalAuthentication.ValidateCsrf(context);
-        var codes = await service.ConfirmMfaAsync(context.User.RequireCustomerAccountId(), request.SetupToken, request.Code, cancellationToken);
+        var codes = await service.ConfirmMfaAsync(context.User.RequireCustomerAccountId(), context.User.RequireCustomerSessionId(), request.SetupToken, request.Code, cancellationToken);
         return Results.Ok(new MfaConfirmResult(codes));
     }
 

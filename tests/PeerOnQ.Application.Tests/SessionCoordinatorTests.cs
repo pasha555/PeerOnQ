@@ -343,6 +343,7 @@ public class SessionCoordinatorTests
         Assert.Equal(Peer, request.Target);
         Assert.Equal(SessionMode.ViewOnly, request.Mode);
         Assert.Equal(QualityProfile.Automatic, request.Quality);
+        Assert.Equal(CaptureResolution.P1080, request.Resolution);
     }
 
     [Fact]
@@ -355,7 +356,43 @@ public class SessionCoordinatorTests
         await h.Coordinator.RequestViewOnlySessionAsync(Peer);
 
         Assert.Equal(QualityProfile.Quality, Assert.Single(h.Signaling.Requests).Quality);
-        Assert.Equal(CaptureResolution.P2160, Assert.Single(h.Signaling.Requests).Resolution);
+        Assert.Equal(CaptureResolution.P1080, Assert.Single(h.Signaling.Requests).Resolution);
+    }
+
+    [Theory]
+    [InlineData(CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.Native)]
+    [InlineData(CaptureResolution.P1440)]
+    [InlineData(CaptureResolution.P2160)]
+    public async Task Viewer_normalizes_resolution_before_sending_the_session_request(
+        CaptureResolution requestedResolution)
+    {
+        var h = Build();
+        await using var _ = h.Coordinator;
+        h.Coordinator.Profile = MediaProfile.For(QualityProfile.Quality) with { Resolution = requestedResolution };
+
+        await h.Coordinator.RequestViewOnlySessionAsync(Peer);
+
+        var request = Assert.Single(h.Signaling.Requests);
+        Assert.Equal(QualityProfile.Quality, request.Quality);
+        Assert.Equal(CaptureResolution.P1080, request.Resolution);
+        Assert.Equal(requestedResolution, h.Coordinator.Profile.Resolution);
+    }
+
+    [Fact]
+    public async Task Support_request_keeps_automatic_quality_but_sends_explicit_1080p_resolution()
+    {
+        var h = Build();
+        await using var _ = h.Coordinator;
+
+        var sessionId = await h.Coordinator.RequestSupportSessionAsync(
+            Peer, SessionMode.ViewOnly, SessionPermission.ViewScreen, "test-invitation-token");
+
+        var request = Assert.Single(h.Signaling.Requests);
+        Assert.Equal(sessionId, request.Id);
+        Assert.Equal(SessionAccessKind.SupportInvitation, request.AccessKind);
+        Assert.Equal(QualityProfile.Automatic, request.Quality);
+        Assert.Equal(CaptureResolution.P1080, request.Resolution);
     }
 
     [Fact]
@@ -417,6 +454,7 @@ public class SessionCoordinatorTests
         Assert.True(await UntilAsync(() => h.Signaling.Sdps.Any(s => s.Type == "offer")));
         Assert.Equal(h.Capture.Target, h.RemoteInputSink.CaptureTarget);
         Assert.NotNull(h.RemoteInputSink.CaptureTarget);
+        Assert.False(h.RemoteInputSink.IsEnabled);
     }
 
     [Fact]
@@ -1031,6 +1069,207 @@ public class SessionCoordinatorTests
         Assert.Empty(h.Coordinator.ActiveSessions);
     }
 
+    [Theory]
+    [InlineData(SessionMode.ViewOnly)]
+    [InlineData(SessionMode.FullControl)]
+    public async Task Unfocused_session_lifecycle_cannot_disable_the_active_input_owner(SessionMode otherMode)
+    {
+        var signaling = new FakeSignalingClient();
+        var media = new FakeMediaEngine();
+        var sink = new FakeRemoteInputSink();
+        var captures = new List<FakeCaptureSource>();
+        await using var coordinator = BuildInputCoordinator(signaling, media, sink, captures);
+        var (firstId, firstMedia) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.FullControl);
+        Assert.False(sink.IsEnabled);
+        SendFocus(firstMedia, firstId, sequence: 1);
+        Assert.True(sink.IsEnabled);
+        var firstTarget = sink.CaptureTarget;
+
+        coordinator.PreferredCaptureTarget = captures[0].AvailableTargets[1];
+        var (secondId, secondMedia) = await ConnectHostedSessionAsync(coordinator, signaling, media, otherMode);
+        Assert.True(sink.IsEnabled);
+        Assert.Equal(firstTarget, sink.CaptureTarget);
+        signaling.RaiseDisplaySelection(secondId, captures[1].AvailableTargets[0].Id);
+        Assert.True(await UntilAsync(() => captures[1].SwitchedTargets.Count == 1));
+        Assert.True(sink.IsEnabled);
+        Assert.Equal(firstTarget, sink.CaptureTarget);
+
+        secondMedia.SetState(MediaConnectionState.Disconnected);
+        Assert.True(await UntilAsync(() => coordinator.StateOf(secondId) == SessionState.Reconnecting));
+        Assert.True(sink.IsEnabled);
+        await coordinator.EndSessionAsync(secondId, SessionEndReason.EndedByViewer);
+        Assert.True(sink.IsEnabled);
+        SendKey(firstMedia, firstId, sequence: 2);
+        Assert.Single(sink.Inputs);
+    }
+
+    [Fact]
+    public async Task Focus_switch_maps_the_new_session_and_stale_or_ended_session_cannot_stop_it()
+    {
+        var signaling = new FakeSignalingClient();
+        var media = new FakeMediaEngine();
+        var sink = new FakeRemoteInputSink();
+        var captures = new List<FakeCaptureSource>();
+        await using var coordinator = BuildInputCoordinator(signaling, media, sink, captures);
+        var (firstId, firstMedia) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.FullControl);
+        SendFocus(firstMedia, firstId, sequence: 1);
+        coordinator.PreferredCaptureTarget = captures[0].AvailableTargets[1];
+        var (secondId, secondMedia) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.FullControl);
+        SendFocus(secondMedia, secondId, sequence: 1);
+        Assert.True(sink.IsEnabled);
+        Assert.Equal(captures[1].Target, sink.CaptureTarget);
+
+        SendKey(firstMedia, firstId, sequence: 2);
+        Assert.Empty(sink.Inputs);
+        Assert.True(sink.IsEnabled);
+        await coordinator.EndSessionAsync(firstId, SessionEndReason.EndedByViewer);
+        Assert.True(sink.IsEnabled);
+        SendKey(secondMedia, secondId, sequence: 2);
+        Assert.Single(sink.Inputs);
+    }
+
+    [Fact]
+    public async Task Active_input_refreshes_the_authorized_capture_target_after_monitor_or_resolution_changes()
+    {
+        var signaling = new FakeSignalingClient();
+        var media = new FakeMediaEngine();
+        var sink = new FakeRemoteInputSink();
+        var captures = new List<FakeCaptureSource>();
+        await using var coordinator = BuildInputCoordinator(signaling, media, sink, captures);
+        var (id, session) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.FullControl);
+        SendFocus(session, id, sequence: 1);
+        var otherDisplay = captures[0].AvailableTargets[1];
+        signaling.RaiseDisplaySelection(id, otherDisplay.Id);
+        Assert.True(await UntilAsync(() => captures[0].SwitchedTargets.Count == 1));
+        SendKey(session, id, sequence: 2);
+        Assert.True(sink.IsEnabled);
+        Assert.Equal(otherDisplay, sink.CaptureTarget);
+
+        var resized = otherDisplay with { Width = 3840, Height = 2160 };
+        await captures[0].SwitchTargetAsync(resized);
+        SendKey(session, id, sequence: 3);
+        Assert.True(sink.IsEnabled);
+        Assert.Equal(resized, sink.CaptureTarget);
+        Assert.Equal(2, sink.Inputs.Count);
+    }
+
+    [Fact]
+    public async Task Unfocused_capture_failure_leaves_the_other_sessions_control_active()
+    {
+        var signaling = new FakeSignalingClient();
+        var media = new FakeMediaEngine();
+        var sink = new FakeRemoteInputSink();
+        var captures = new List<FakeCaptureSource>();
+        await using var coordinator = BuildInputCoordinator(signaling, media, sink, captures);
+        var (firstId, firstMedia) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.FullControl);
+        SendFocus(firstMedia, firstId, sequence: 1);
+        var (otherId, _) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.ViewOnly);
+        captures[1].EmitStopped(CaptureStoppedReason.DeviceLost);
+        Assert.True(sink.IsEnabled);
+        Assert.True(await UntilAsync(() => coordinator.ActiveSessions.All(s => s.SessionId != otherId)));
+        SendKey(firstMedia, firstId, sequence: 2);
+        Assert.Single(sink.Inputs);
+        Assert.Equal(SessionState.ConnectedViewOnly, coordinator.StateOf(firstId));
+    }
+
+    [Fact]
+    public async Task Failed_monitor_switch_cannot_leave_input_active_against_a_stopped_capture()
+    {
+        var signaling = new FakeSignalingClient();
+        var media = new FakeMediaEngine();
+        var sink = new FakeRemoteInputSink();
+        var captures = new List<FakeCaptureSource>();
+        await using var coordinator = BuildInputCoordinator(signaling, media, sink, captures);
+        var (id, session) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.FullControl);
+        SendFocus(session, id, sequence: 1);
+        captures[0].SwitchException = new InvalidOperationException("Display disappeared during switching");
+        signaling.RaiseDisplaySelection(id, captures[0].AvailableTargets[1].Id);
+        Assert.False(sink.IsEnabled);
+        Assert.True(await UntilAsync(() => coordinator.ActiveSessions.Count == 0));
+        Assert.Contains(signaling.Ends, end => end.Id == id && end.Reason == SessionEndReason.MediaLost);
+    }
+
+    [Theory]
+    [InlineData(CaptureStoppedReason.TargetClosed)]
+    [InlineData(CaptureStoppedReason.DeviceLost)]
+    [InlineData(CaptureStoppedReason.Error)]
+    public async Task Capture_failure_immediately_disables_input_and_ends_only_the_failed_session(CaptureStoppedReason reason)
+    {
+        var signaling = new FakeSignalingClient();
+        var media = new FakeMediaEngine();
+        var sink = new FakeRemoteInputSink();
+        var captures = new List<FakeCaptureSource>();
+        await using var coordinator = BuildInputCoordinator(signaling, media, sink, captures);
+        var (firstId, firstMedia) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.FullControl);
+        var (otherId, _) = await ConnectHostedSessionAsync(coordinator, signaling, media, SessionMode.ViewOnly);
+        SendFocus(firstMedia, firstId, sequence: 1);
+        Assert.True(sink.IsEnabled);
+
+        captures[0].EmitStopped(reason);
+        Assert.False(sink.IsEnabled);
+        SendKey(firstMedia, firstId, sequence: 2);
+        Assert.Empty(sink.Inputs);
+        Assert.True(await UntilAsync(() => coordinator.ActiveSessions.All(s => s.SessionId != firstId)));
+        Assert.Equal(SessionState.ConnectedViewOnly, coordinator.StateOf(otherId));
+        Assert.Contains(signaling.Ends, end => end.Id == firstId && end.Reason == SessionEndReason.MediaLost);
+        Assert.True(captures[0].Disposed);
+        var endedCount = signaling.Ends.Count;
+        captures[0].EmitStopped(reason);
+        Assert.Equal(endedCount, signaling.Ends.Count);
+    }
+
+    [Fact]
+    public async Task Capture_failure_during_start_notifies_peer_and_releases_capture()
+    {
+        var h = Build(enableRemoteInput: true);
+        await using var _ = h.Coordinator;
+        h.Capture.StopOnStart = CaptureStoppedReason.DeviceLost;
+        var sessionId = SessionId.New();
+        h.Signaling.RaiseIncoming(sessionId, Peer, "Viewer", TimeSpan.FromSeconds(30));
+        Assert.True(await UntilAsync(() => h.Coordinator.ActiveSessions.Count == 0));
+        Assert.Contains(h.Signaling.Ends, end => end.Id == sessionId && end.Reason == SessionEndReason.MediaLost);
+        Assert.True(h.Capture.Disposed);
+    }
+
+    private static SessionCoordinator BuildInputCoordinator(
+        FakeSignalingClient signaling, FakeMediaEngine media, FakeRemoteInputSink sink, List<FakeCaptureSource> captures) =>
+        new(signaling, media, new ScriptedPermissionPrompt(PermissionDecision.Accept),
+            new InMemoryBlockedDeviceStore(), new InMemoryAuditLog(),
+            () => { var capture = new FakeCaptureSource(); captures.Add(capture); return capture; },
+            remoteInputSink: sink,
+            collaborationTransportFactory: (session, permissions, _) => new FakeSecureCollaborationTransport(session, permissions))
+        { PreferredCaptureTarget = new FakeCaptureSource().AvailableTargets[0] };
+
+    private static async Task<(SessionId Id, FakeMediaSession Media)> ConnectHostedSessionAsync(
+        SessionCoordinator coordinator, FakeSignalingClient signaling, FakeMediaEngine media, SessionMode mode)
+    {
+        var id = SessionId.New();
+        signaling.RaiseIncoming(id, Peer, "Viewer", TimeSpan.FromSeconds(30), mode: mode,
+            permissions: SessionPermission.ViewScreen | (mode == SessionMode.FullControl ? SessionPermission.ControlInput : 0));
+        Assert.True(await UntilAsync(() => media.Sharer?.SessionId == id && signaling.Sdps.Any(s => s.Id == id)));
+        var session = media.Sharer!;
+        signaling.RaiseSdp(id, "answer", "v=0");
+        session.SetDataChannelReady();
+        session.SetState(MediaConnectionState.Connected);
+        Assert.True(await UntilAsync(() => coordinator.StateOf(id) == SessionState.ConnectedViewOnly));
+        return (id, session);
+    }
+
+    private static void SendFocus(FakeMediaSession media, SessionId id, long sequence) =>
+        media.EmitData(CollaborationProtocolCodec.Encode(new RemoteInputFocusRequest
+        {
+            InputVersion = RemoteInputSession.CurrentInputProtocolVersion, SessionId = id.Value,
+            PermissionGeneration = 1, SessionGeneration = 1, FocusGeneration = 1, Sequence = sequence, Enabled = true,
+        }));
+
+    private static void SendKey(FakeMediaSession media, SessionId id, long sequence) =>
+        media.EmitData(CollaborationProtocolCodec.Encode(new RemoteInputCommand
+        {
+            InputVersion = RemoteInputSession.CurrentInputProtocolVersion, SessionId = id.Value,
+            PermissionGeneration = 1, SessionGeneration = 1, FocusGeneration = 1, Sequence = sequence,
+            Input = new RemoteInputEvent { Kind = RemoteInputEventKind.Key, VirtualKey = 0x41, IsPressed = true },
+        }));
+
     [Fact]
     public async Task Incoming_request_shows_the_prompt_with_a_masked_id()
     {
@@ -1082,8 +1321,13 @@ public class SessionCoordinatorTests
         Assert.Equal(1, h.Media.SharerFramesObserved);
     }
 
-    [Fact]
-    public async Task Sharer_snapshots_the_requested_built_in_profile()
+    [Theory]
+    [InlineData(CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.Native)]
+    [InlineData(CaptureResolution.P1440)]
+    [InlineData(CaptureResolution.P2160)]
+    public async Task Sharer_snapshots_the_requested_built_in_profile_with_the_runtime_resolution_cap(
+        CaptureResolution legacyResolution)
     {
         var h = Build(promptDelay: TimeSpan.FromMilliseconds(100));
         await using var _ = h.Coordinator;
@@ -1096,14 +1340,15 @@ public class SessionCoordinatorTests
             "Viewer PC",
             TimeSpan.FromSeconds(30),
             QualityProfile.Quality,
-            resolution: CaptureResolution.P1440);
+            resolution: legacyResolution);
         h.Coordinator.Profile = MediaProfile.For(QualityProfile.Balanced);
 
         Assert.True(await UntilAsync(() => h.Signaling.Sdps.Any(s => s.Type == "offer")));
         Assert.Equal(QualityProfile.Quality, h.Media.SharerProfile!.Quality);
-        Assert.Equal(CaptureResolution.P1440, h.Capture.LastRequest!.Resolution);
+        Assert.Equal(CaptureResolution.P1080, h.Capture.LastRequest!.Resolution);
+        Assert.Equal(CaptureResolution.P1080, h.Media.SharerProfile.Resolution);
         Assert.Equal(30, h.Capture.LastRequest.MaxFramesPerSecond);
-        Assert.Equal(36_000, h.Media.SharerProfile.MaxBitrateKbps);
+        Assert.Equal(12_000, h.Media.SharerProfile.MaxBitrateKbps);
     }
 
     [Fact]

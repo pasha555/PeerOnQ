@@ -12,7 +12,7 @@
   <string name="input_control">Send touch and keyboard input</string>
   <string name="input_safety_hint">Control turns off when the app loses focus. Hardware keyboard: Ctrl+Alt+Shift+Esc.</string>
   <string name="text_input_label">Send short text</string>
-  <string name="text_input_hint">ASCII text, maximum 256 characters</string>
+  <string name="text_input_hint">Text, maximum 256 characters</string>
   <string name="send_text">Send text</string>
   <string name="remote_screen">Remote screen</string>
   <string name="waiting_for_screen">Remote screen appears after the owner approves.</string>

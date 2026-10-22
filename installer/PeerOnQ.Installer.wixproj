@@ -21,6 +21,8 @@
   <Target Name="ValidateCanonicalClientVersion" BeforeTargets="PrepareForBuild">
     <Error Condition="'$(PeerOnQWindowsClientVersion)' == '' or '$(ProductVersion)' != '$(PeerOnQWindowsClientVersion)'"
            Text="Installer ProductVersion must match the canonical PeerOnQWindowsClientVersion." />
+    <Error Condition="!Exists('$(PublishDir)\SessionBroker\PeerOnQ.SessionBroker.exe')"
+           Text="Publish the matching self-contained session broker payload before building the installer." />
   </Target>
 
   <Target Name="NormalizeWindowsAppSdkMsiLanguageMetadata" AfterTargets="Build">

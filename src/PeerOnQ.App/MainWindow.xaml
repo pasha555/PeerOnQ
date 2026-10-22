@@ -128,6 +128,9 @@
                                         <TextBlock x:Name="DeviceNameText" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
                                         <TextBlock Text="Share this ID with the person who needs to connect to this device."
                                                    TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                        <Button x:Name="LinkOrganizationButton" Content="Link to organization"
+                                                HorizontalAlignment="Left" IsEnabled="False" Click="OnLinkOrganization"
+                                                AutomationProperties.Name="Create a one-time code to link this device to your organization" />
                                     </StackPanel>
                                 </Border>
                                 <Border Style="{StaticResource PeerOnQCardStyle}">
@@ -211,26 +214,9 @@
                                                        TextWrapping="Wrap" Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
                                         </StackPanel>
 
-                                        <ComboBox x:Name="QualityPicker" Header="Display quality" SelectedIndex="0"
-                                                  HorizontalAlignment="Stretch" SelectionChanged="OnQualitySelected"
-                                                  AutomationProperties.Name="Display quality profile">
-                                            <ComboBoxItem Content="Automatic" Tag="Automatic" />
-                                            <ComboBoxItem Content="Office (responsive, clear text)" Tag="Office" />
-                                            <ComboBoxItem Content="Balanced" Tag="Balanced" />
-                                            <ComboBoxItem Content="Performance (up to 60 fps)" Tag="Performance" />
-                                            <ComboBoxItem Content="High quality" Tag="Quality" />
-                                            <ComboBoxItem Content="Low bandwidth" Tag="LowBandwidth" />
-                                        </ComboBox>
-                                        <ComboBox x:Name="ResolutionPicker" Header="Target resolution" SelectedIndex="0"
-                                                  HorizontalAlignment="Stretch" SelectionChanged="OnQualitySelected"
-                                                  AutomationProperties.Name="Target display resolution"
-                                                  AutomationProperties.HelpText="PeerOnQ never upscales above the source display resolution.">
-                                            <ComboBoxItem Content="Automatic" Tag="Automatic" />
-                                            <ComboBoxItem Content="720p" Tag="P720" />
-                                            <ComboBoxItem Content="1080p" Tag="P1080" />
-                                            <ComboBoxItem Content="1440p" Tag="P1440" />
-                                            <ComboBoxItem Content="4K / UHD" Tag="P2160" />
-                                        </ComboBox>
+                                        <CheckBox x:Name="RequestSystemSoundCheckBox" IsChecked="False"
+                                                  Content="Request system sound"
+                                                  AutomationProperties.HelpText="Attended connections only. The host must separately allow system sound. Microphone audio is never requested." />
                                         <Button x:Name="ConnectButton" Content="Start Session" Style="{StaticResource PeerOnQPrimaryButtonStyle}"
                                                 HorizontalAlignment="Stretch" Click="OnRequestSession" />
                                         <TextBlock x:Name="ConnectionConsentText"
@@ -288,6 +274,8 @@
                                             <TextBlock Text="Current session" FontWeight="SemiBold" />
                                             <TextBlock x:Name="SessionText" Text="No active session." TextWrapping="Wrap"
                                                        Foreground="{ThemeResource PeerOnQMutedTextBrush}" />
+                                            <Button x:Name="SystemSoundHostButton" Content="System sound off" Visibility="Collapsed"
+                                                    Click="OnSystemSoundHost" AutomationProperties.Name="System sound sharing for the current session" />
                                         </StackPanel>
                                         <Button x:Name="RevokeControlButton" Grid.Column="1" Content="Revoke control" IsEnabled="False"
                                                 VerticalAlignment="Center" Click="OnRevokeControl" />

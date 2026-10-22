@@ -126,6 +126,8 @@ done
 
 repository_root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 project="$repository_root/src/PeerOnQ.App.Apple/PeerOnQ.App.Apple.csproj"
+dotnet run --project "$repository_root/eng/PeerOnQ.DependencyBuilder" -c Release -- \
+  --output "$repository_root/eng/sipsorcery/packages"
 mkdir -p "$output_directory"
 output_directory="$(cd "$output_directory" && pwd -P)"
 

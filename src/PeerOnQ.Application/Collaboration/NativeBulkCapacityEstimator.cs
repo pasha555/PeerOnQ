@@ -14,11 +14,12 @@ internal readonly record struct NativeBulkCapacitySnapshot(
 /// </summary>
 internal sealed class NativeBulkCapacityEstimator(TimeProvider? timeProvider = null)
 {
-    private const int MaximumManagedBulkKbps = 1_000_000;
+    private const int MaximumManagedBulkKbps = int.MaxValue;
     private const int MaximumUnverifiedHealthBulkKbps = 150_000;
     private const int MinimumSampleBytes = 256 * 1024;
     private const double GrowthFactor = 1.25;
     private static readonly TimeSpan MinimumSampleInterval = TimeSpan.FromMilliseconds(5);
+    private static readonly TimeSpan MinimumGrowthInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan MinimumBackoffInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan MaximumFeedbackAge = TimeSpan.FromSeconds(1);
 
@@ -30,6 +31,8 @@ internal sealed class NativeBulkCapacityEstimator(TimeProvider? timeProvider = n
     private long _feedbackSamples;
     private long _lastFeedbackTimestamp;
     private long _lastBackoffTimestamp;
+    private long _lastGrowthTimestamp;
+    private int _probeSystemAudioReservationKbps;
 
     public NativeBulkCapacitySnapshot Snapshot
     {
@@ -99,14 +102,19 @@ internal sealed class NativeBulkCapacityEstimator(TimeProvider? timeProvider = n
             var sampleKbps = delta * 8d / elapsed.TotalSeconds / 1000d;
             if (!double.IsFinite(sampleKbps) || sampleKbps <= 0) return false;
 
+            // Weight by elapsed time, not callback count: a batch of rapidly delivered
+            // buffered receipts must not look like a sustained increase in link capacity.
+            var weight = 1 - Math.Exp(-elapsed.TotalSeconds / MinimumGrowthInterval.TotalSeconds);
             _goodputKbps = _feedbackSamples == 0
                 ? sampleKbps
-                : (_goodputKbps * 0.75) + (sampleKbps * 0.25);
+                : (_goodputKbps * (1 - weight)) + (sampleKbps * weight);
             _feedbackSamples++;
             _lastFeedbackTimestamp = now;
+            var degraded = IsDegraded(statistics);
+            if (!degraded) ReserveSystemAudio(statistics.SystemAudioReservationKbps);
             _probeKbps = Math.Max(_probeKbps, baselineKbps);
 
-            if (IsDegraded(statistics))
+            if (degraded)
             {
                 BackOff(baselineKbps, now);
                 return true;
@@ -114,15 +122,18 @@ internal sealed class NativeBulkCapacityEstimator(TimeProvider? timeProvider = n
 
             var cap = CapacityCap(statistics);
             var current = Math.Clamp(_probeKbps, baselineKbps, cap);
-            if (sampleKbps >= current * 0.90 || _goodputKbps >= current * 0.90)
+            if (_goodputKbps >= current * 0.90
+                && (_lastGrowthTimestamp == 0
+                    || _time.GetElapsedTime(_lastGrowthTimestamp, now) >= MinimumGrowthInterval))
             {
-                var grown = Math.Max(current + 256, (int)Math.Ceiling(current * GrowthFactor));
-                _probeKbps = Math.Min(cap, grown);
+                var grown = Math.Max((long)current + 256, (long)Math.Ceiling(current * GrowthFactor));
+                _probeKbps = (int)Math.Min(cap, grown);
+                _lastGrowthTimestamp = now;
             }
             else if (_goodputKbps < current * 0.75)
             {
-                _probeKbps = Math.Clamp(
-                    (int)Math.Ceiling(_goodputKbps * 1.05),
+                _probeKbps = (int)Math.Clamp(
+                    Math.Ceiling(_goodputKbps * 1.05),
                     baselineKbps,
                     cap);
             }
@@ -146,6 +157,7 @@ internal sealed class NativeBulkCapacityEstimator(TimeProvider? timeProvider = n
                 return baseline;
             }
 
+            ReserveSystemAudio(statistics.SystemAudioReservationKbps);
             if (_feedbackSamples == 0) return baseline;
             var now = _time.GetTimestamp();
             if (_time.GetElapsedTime(_lastFeedbackTimestamp, now) > MaximumFeedbackAge)
@@ -164,6 +176,16 @@ internal sealed class NativeBulkCapacityEstimator(TimeProvider? timeProvider = n
     public void CompleteTransfer(Guid transferId)
     {
         lock (_gate) _outbound.Remove(transferId);
+    }
+
+    private void ReserveSystemAudio(int reservationKbps)
+    {
+        // The provider already reserves audio in its baseline. A previously learned bulk
+        // probe can exceed that baseline, so debit a newly active audio reservation once.
+        // Stopping capture does not prove more spare capacity; only fresh receipts can grow it.
+        var additional = Math.Max(0, reservationKbps - _probeSystemAudioReservationKbps);
+        _probeKbps = Math.Max(0, _probeKbps - additional);
+        _probeSystemAudioReservationKbps = reservationKbps;
     }
 
     private void BackOff(int baselineKbps, long now)
@@ -192,6 +214,7 @@ internal sealed class NativeBulkCapacityEstimator(TimeProvider? timeProvider = n
             || !double.IsFinite(statistics.AvailableOutgoingBitrateKbps)
             || statistics.AvailableOutgoingBitrateKbps < 0
             || statistics.TargetBitrateKbps < 0
+            || statistics.SystemAudioReservationKbps < 0
             || !double.IsFinite(statistics.PacketLossPercent)
             || statistics.PacketLossPercent < 0
             || !double.IsFinite(statistics.RttMs)

@@ -7,6 +7,7 @@ import { publicWebsite, sourceRepository } from './brand';
 import { EmptyState, ErrorState, LoadingState, Page } from './components';
 import { useOrganization } from './shell';
 import type { Device, RemoteSession, Session, TrustedDevice } from './types';
+import { DeviceOwnershipLink } from './deviceOwnershipLink';
 
 function date(value: string | null) {
   if (!value) return 'Not recorded';
@@ -106,7 +107,8 @@ export function OverviewPage() {
 export function DevicesPage() {
   const state = useOrganizationResource<Device>('devices');
   return <Page title="Managed devices" description="Devices assigned to your selected organization. Personal LAN connections remain in the desktop app." actions={<Link href="/downloads" className="button secondary"><Download size={17} aria-hidden="true" />Get the app</Link>}>
-    {state.organizationError ? <p>Restore your organization list to view its devices.</p> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : state.loading ? <LoadingState label="Loading organization devices…" /> : !state.selected ? <NoOrganization /> : !state.data?.length ? <div className="panel"><EmptyState title="No assigned devices">This organization has no assigned devices. Desktop devices do not appear automatically when you sign in to this portal.</EmptyState><p className="empty-guidance">Device assignment requires verified ownership. There is currently no self-service desktop sign-in or device-linking flow. Contact your organization administrator for an existing managed setup.</p></div> : <div className="cards">{state.data.map((item) => <article className="card device-card" key={item.id}><div className="card-heading"><span className="section-icon"><Laptop aria-hidden="true" /></span><span className={item.isRevoked ? 'badge muted' : 'badge success'}>{item.isRevoked ? 'Revoked' : 'Assigned'}</span></div><h2>{item.displayName}</h2><code className="device-id">{item.maskedPublicDeviceId}</code><dl className="detail-list"><div><dt>Last seen</dt><dd>{date(item.lastSeenAtUtc)}</dd></div></dl></article>)}</div>}
+    {state.selected ? <DeviceOwnershipLink key={state.selected.id} organization={state.selected} onLinked={state.reload} /> : null}
+    {state.organizationError ? <p>Restore your organization list to view its devices.</p> : state.error ? <ErrorState message={state.error} retry={state.reload} /> : state.loading ? <LoadingState label="Loading organization devices…" /> : !state.selected ? <NoOrganization /> : !state.data?.length ? <div className="panel"><EmptyState title="No assigned devices">This organization has no assigned devices. Desktop devices do not appear automatically when you sign in to this portal.</EmptyState><p className="empty-guidance">An organization Owner or Administrator can link a device using a short-lived ownership code generated explicitly in the installed app. Local LAN connections remain accountless.</p></div> : <div className="cards">{state.data.map((item) => <article className="card device-card" key={item.id}><div className="card-heading"><span className="section-icon"><Laptop aria-hidden="true" /></span><span className={item.isRevoked ? 'badge muted' : 'badge success'}>{item.isRevoked ? 'Revoked' : 'Assigned'}</span></div><h2>{item.displayName}</h2><code className="device-id">{item.maskedPublicDeviceId}</code><dl className="detail-list"><div><dt>Last seen</dt><dd>{date(item.lastSeenAtUtc)}</dd></div></dl></article>)}</div>}
   </Page>;
 }
 

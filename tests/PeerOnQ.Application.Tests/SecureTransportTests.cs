@@ -112,8 +112,8 @@ public sealed class SecureTransportTests
         {
             var allocation = estimator.Apply(baseline, healthy);
             estimator.RecordChunkScheduled(transferId, deliveredPerSample, allocation.MaximumBulkKbps);
-            time.Advance(TimeSpan.FromSeconds(
-                deliveredPerSample * 8d / (allocation.MaximumBulkKbps * 1000d)));
+            time.Advance(TimeSpan.FromSeconds(Math.Max(0.005,
+                deliveredPerSample * 8d / (allocation.MaximumBulkKbps * 1000d))));
             delivered += deliveredPerSample;
             Assert.True(estimator.ObserveReceipt(
                 transferId,
@@ -153,6 +153,171 @@ public sealed class SecureTransportTests
         Assert.False(estimator.ObserveReceipt(transferId, 512 * 1024, 50_000, statistics));
         Assert.False(estimator.ObserveReceipt(transferId, -1, 50_000, statistics));
         Assert.Equal(0, estimator.Snapshot.FeedbackSamples);
+    }
+
+    [Fact]
+    public void Fast_receipt_callbacks_do_not_multiply_the_probe_within_one_observation_window()
+    {
+        var time = new ManualTimestampTimeProvider();
+        var estimator = new NativeBulkCapacityEstimator(time);
+        var transferId = Guid.NewGuid();
+        var baseline = new TransferAllocationPolicy(2UL * 1024 * 1024, 5_000);
+        var healthy = new MediaStatistics { ConnectionHealth = ConnectionHealth.Excellent };
+        long delivered = 0;
+        for (var sample = 0; sample < 20; sample++)
+        {
+            estimator.RecordChunkScheduled(transferId, 256 * 1024, baseline.MaximumBulkKbps);
+            time.Advance(TimeSpan.FromMilliseconds(5));
+            delivered += 256 * 1024;
+            Assert.True(estimator.ObserveReceipt(transferId, delivered, baseline.MaximumBulkKbps, healthy));
+        }
+
+        Assert.InRange(estimator.Apply(baseline, healthy).MaximumBulkKbps, 5_000, 6_250);
+        Assert.Equal(20, estimator.Snapshot.FeedbackSamples);
+    }
+
+    [Fact]
+    public void Confirmed_fast_links_are_not_capped_at_one_gigabit_and_growth_saturates_safely()
+    {
+        var time = new ManualTimestampTimeProvider();
+        var estimator = new NativeBulkCapacityEstimator(time);
+        var transferId = Guid.NewGuid();
+        var healthy = new MediaStatistics { ConnectionHealth = ConnectionHealth.Excellent };
+        var baseline = new TransferAllocationPolicy(2UL * 1024 * 1024, 900_000);
+        long delivered = 0;
+
+        // Sustain delivery across probe windows; a short callback burst is not capacity proof.
+        for (var sample = 0; sample < 2400; sample++)
+        {
+            var allocation = estimator.Apply(baseline, healthy);
+            var bytes = (int)Math.Ceiling(allocation.MaximumBulkKbps * 1000d / 8d / 200);
+            estimator.RecordChunkScheduled(transferId, bytes, allocation.MaximumBulkKbps);
+            time.Advance(TimeSpan.FromMilliseconds(5));
+            delivered += bytes;
+            Assert.True(estimator.ObserveReceipt(transferId, delivered, baseline.MaximumBulkKbps, healthy));
+        }
+
+        Assert.Equal(int.MaxValue, estimator.Apply(baseline, healthy).MaximumBulkKbps);
+        Assert.True(estimator.Snapshot.GoodputKbps > 1_000_000);
+        Assert.Equal(2400, estimator.Snapshot.FeedbackSamples);
+
+        var congested = healthy with { PacketLossPercent = 10 };
+        Assert.Equal(baseline.MaximumBulkKbps, estimator.Apply(baseline, congested).MaximumBulkKbps);
+        Assert.True(estimator.Apply(baseline, healthy).MaximumBulkKbps < int.MaxValue);
+    }
+
+    [Fact]
+    public void Transfer_policy_uses_fast_measured_capacity_without_overflowing_media_reservations()
+    {
+        var fast = new MediaStatistics
+        {
+            ConnectionHealth = ConnectionHealth.Excellent,
+            AvailableOutgoingBitrateKbps = 10_000_000,
+            CurrentBitrateKbps = 34_000,
+            TargetBitrateKbps = 36_000,
+        };
+        var allocation = ConnectionPolicyProvider.GetTransferAllocation(TransferPriorityMode.FileTransferPriority, fast);
+        Assert.InRange(allocation.MaximumBulkKbps, 1_000_001, 9_999_999);
+
+        var exhausted = ConnectionPolicyProvider.GetTransferAllocation(TransferPriorityMode.FileTransferPriority, fast with
+        {
+            AvailableOutgoingBitrateKbps = 1,
+            CurrentBitrateKbps = int.MaxValue,
+            TargetBitrateKbps = int.MaxValue,
+        });
+        Assert.Equal(1_024, exhausted.MaximumBulkKbps);
+    }
+
+    [Fact]
+    public void Active_system_audio_reserves_capacity_before_bulk_including_before_the_first_video_frame()
+    {
+        var statistics = new MediaStatistics
+        {
+            ConnectionHealth = ConnectionHealth.Excellent,
+            AvailableOutgoingBitrateKbps = 20_000,
+            CurrentBitrateKbps = 5_000,
+            TargetBitrateKbps = 5_000,
+        };
+        var video = ConnectionPolicyProvider.GetTransferAllocation(TransferPriorityMode.FileTransferPriority, statistics);
+        var withAudio = ConnectionPolicyProvider.GetTransferAllocation(TransferPriorityMode.FileTransferPriority,
+            statistics with { SystemAudioReservationKbps = 1_800 });
+        Assert.True(withAudio.MediaReserveKbps >= video.MediaReserveKbps + 1_800);
+        Assert.True(withAudio.MaximumBulkKbps <= video.MaximumBulkKbps - 1_800);
+
+        var audioBeforeVideo = ConnectionPolicyProvider.GetTransferAllocation(TransferPriorityMode.FileTransferPriority,
+            statistics with { CurrentBitrateKbps = 0, TargetBitrateKbps = 0, SystemAudioReservationKbps = 1_800 });
+        Assert.True(audioBeforeVideo.MediaReserveKbps >= 1_800);
+        Assert.InRange(audioBeforeVideo.MaximumBulkKbps, 1, 19_999);
+        var inactive = ConnectionPolicyProvider.GetTransferAllocation(TransferPriorityMode.FileTransferPriority,
+            statistics with { CurrentBitrateKbps = 0, TargetBitrateKbps = 0 });
+        Assert.Equal(0, inactive.MaximumBulkKbps);
+    }
+
+    [Fact]
+    public void Invalid_system_audio_measurement_cannot_reenable_a_fast_native_probe()
+    {
+        var time = new ManualTimestampTimeProvider();
+        var estimator = new NativeBulkCapacityEstimator(time);
+        var transferId = Guid.NewGuid();
+        var baseline = new TransferAllocationPolicy(2UL * 1024 * 1024, 900_000);
+        var healthy = new MediaStatistics { ConnectionHealth = ConnectionHealth.Excellent };
+        estimator.RecordChunkScheduled(transferId, 1_000_000, baseline.MaximumBulkKbps);
+        time.Advance(TimeSpan.FromMilliseconds(5));
+        Assert.True(estimator.ObserveReceipt(transferId, 1_000_000, baseline.MaximumBulkKbps, healthy));
+        Assert.True(estimator.Apply(baseline, healthy).MaximumBulkKbps > baseline.MaximumBulkKbps);
+        var invalid = healthy with { SystemAudioReservationKbps = -1 };
+        Assert.Equal(baseline, estimator.Apply(baseline, invalid));
+        Assert.Equal(256, ConnectionPolicyProvider.GetTransferAllocation(
+            TransferPriorityMode.FileTransferPriority, invalid).MaximumBulkKbps);
+    }
+
+    [Fact]
+    public void Active_audio_debits_a_learned_native_probe_once_and_stopping_does_not_restore_unproved_capacity()
+    {
+        var time = new ManualTimestampTimeProvider();
+        var estimator = new NativeBulkCapacityEstimator(time);
+        var transferId = Guid.NewGuid();
+        var baseline = new TransferAllocationPolicy(2UL * 1024 * 1024, 100_000);
+        var healthy = new MediaStatistics { ConnectionHealth = ConnectionHealth.Excellent };
+        estimator.RecordChunkScheduled(transferId, 1_000_000, baseline.MaximumBulkKbps);
+        time.Advance(TimeSpan.FromMilliseconds(5));
+        Assert.True(estimator.ObserveReceipt(transferId, 1_000_000, baseline.MaximumBulkKbps, healthy));
+        var learned = estimator.Apply(baseline, healthy).MaximumBulkKbps;
+        Assert.True(learned > baseline.MaximumBulkKbps + 3_600);
+
+        var audio = healthy with { SystemAudioReservationKbps = 1_800 };
+        var reserved = estimator.Apply(baseline, audio).MaximumBulkKbps;
+        Assert.Equal(learned - 1_800, reserved);
+        Assert.Equal(reserved, estimator.Apply(baseline, audio).MaximumBulkKbps);
+        Assert.Equal(reserved, estimator.Apply(baseline, healthy).MaximumBulkKbps);
+        var restarted = estimator.Apply(baseline, audio).MaximumBulkKbps;
+        Assert.Equal(reserved - 1_800, restarted);
+
+        var delivered = (int)Math.Ceiling(restarted * 1000d / 8d * 0.2);
+        estimator.RecordChunkScheduled(transferId, delivered, baseline.MaximumBulkKbps);
+        time.Advance(TimeSpan.FromMilliseconds(200));
+        Assert.True(estimator.ObserveReceipt(transferId, 1_000_000L + delivered, baseline.MaximumBulkKbps, audio));
+        Assert.True(estimator.Apply(baseline, audio).MaximumBulkKbps > restarted);
+    }
+
+    [Fact]
+    public void Receipt_before_policy_refresh_also_debits_new_audio_without_double_reserving_on_apply()
+    {
+        var time = new ManualTimestampTimeProvider();
+        var estimator = new NativeBulkCapacityEstimator(time);
+        var transferId = Guid.NewGuid();
+        var baseline = new TransferAllocationPolicy(2UL * 1024 * 1024, 100_000);
+        var healthy = new MediaStatistics { ConnectionHealth = ConnectionHealth.Excellent };
+        estimator.RecordChunkScheduled(transferId, 1_000_000, baseline.MaximumBulkKbps);
+        time.Advance(TimeSpan.FromMilliseconds(5));
+        Assert.True(estimator.ObserveReceipt(transferId, 1_000_000, baseline.MaximumBulkKbps, healthy));
+        var learned = estimator.Apply(baseline, healthy).MaximumBulkKbps;
+        estimator.RecordChunkScheduled(transferId, 300_000, baseline.MaximumBulkKbps);
+        time.Advance(TimeSpan.FromMilliseconds(5));
+        var audio = healthy with { SystemAudioReservationKbps = 1_800 };
+        Assert.True(estimator.ObserveReceipt(transferId, 1_300_000, baseline.MaximumBulkKbps, audio));
+        Assert.Equal(learned - 1_800, estimator.Apply(baseline, audio).MaximumBulkKbps);
+        Assert.Equal(learned - 1_800, estimator.Apply(baseline, audio).MaximumBulkKbps);
     }
 
     [Fact]

@@ -25,24 +25,32 @@ public class FrameScalerTests
         Assert.Equal(30, office.TargetFps);
 
         var lowBandwidth = MediaProfile.For(QualityProfile.LowBandwidth);
-        Assert.Equal(CaptureResolution.P720, lowBandwidth.Resolution);
+        Assert.Equal(CaptureResolution.P1080, lowBandwidth.Resolution);
         Assert.Equal(15, lowBandwidth.TargetFps);
         Assert.True(lowBandwidth.MaxBitrateKbps < office.MaxBitrateKbps);
     }
 
     [Theory]
     [InlineData(1920, 1080, CaptureResolution.Native, 1920, 1080)]
-    [InlineData(3840, 2160, CaptureResolution.Native, 3840, 2160)]
+    [InlineData(3840, 2160, CaptureResolution.Native, 1920, 1080)]
     [InlineData(1920, 1080, CaptureResolution.Automatic, 1920, 1080)]
     [InlineData(3840, 2160, CaptureResolution.Automatic, 1920, 1080)]
-    [InlineData(1920, 1080, CaptureResolution.P720, 1280, 720)]
-    [InlineData(3840, 2160, CaptureResolution.P720, 1280, 720)]
+    [InlineData(2160, 3840, CaptureResolution.Automatic, 1080, 1920)]
+    [InlineData(2160, 3840, CaptureResolution.P2160, 1080, 1920)]
+    [InlineData(5120, 2160, CaptureResolution.Automatic, 2560, 1080)]
+    [InlineData(7680, 1080, CaptureResolution.Automatic, 7680, 1080)]
+    [InlineData(4320, 7680, CaptureResolution.P2160, 1080, 1920)]
+    [InlineData(1920, 1080, CaptureResolution.P720, 1920, 1080)]
+    [InlineData(3840, 2160, CaptureResolution.P720, 1920, 1080)]
     [InlineData(3840, 2160, CaptureResolution.P1080, 1920, 1080)]
-    [InlineData(3840, 2160, CaptureResolution.P1440, 2560, 1440)]
-    [InlineData(7680, 4320, CaptureResolution.P2160, 3840, 2160)]
+    [InlineData(3840, 2160, CaptureResolution.P1440, 1920, 1080)]
+    [InlineData(7680, 4320, CaptureResolution.P2160, 1920, 1080)]
     [InlineData(1920, 1080, CaptureResolution.P2160, 1920, 1080)]
-    [InlineData(2560, 1600, CaptureResolution.P720, 1152, 720)]
-    public void Output_size_follows_the_requested_resolution(
+    [InlineData(2560, 1600, CaptureResolution.P720, 1728, 1080)]
+    [InlineData(3440, 1440, CaptureResolution.Native, 2580, 1080)]
+    [InlineData(1440, 3440, CaptureResolution.P1440, 1080, 2580)]
+    [InlineData(2160, 5120, CaptureResolution.P2160, 1080, 2560)]
+    public void Output_size_caps_legacy_resolution_requests_at_the_1080p_short_edge(
         int sourceWidth, int sourceHeight, CaptureResolution resolution, int expectedWidth, int expectedHeight)
     {
         var (width, height) = FrameScaler.ResolveOutputSize(sourceWidth, sourceHeight, resolution);
@@ -55,12 +63,62 @@ public class FrameScalerTests
     [InlineData(1280, 720, CaptureResolution.P1080)]
     [InlineData(1024, 768, CaptureResolution.P1080)]
     [InlineData(800, 600, CaptureResolution.P720)]
+    [InlineData(1280, 720, CaptureResolution.P2160)]
+    [InlineData(720, 1280, CaptureResolution.Native)]
+    [InlineData(1024, 768, CaptureResolution.Automatic)]
     public void A_small_display_is_never_upscaled(int width, int height, CaptureResolution resolution)
     {
         var (outputWidth, outputHeight) = FrameScaler.ResolveOutputSize(width, height, resolution);
 
         Assert.True(outputWidth <= width);
         Assert.True(outputHeight <= height);
+    }
+
+    [Theory]
+    [InlineData(3840, 2160)]
+    [InlineData(2160, 3840)]
+    [InlineData(5120, 2160)]
+    [InlineData(1440, 3440)]
+    [InlineData(7680, 1080)]
+    [InlineData(1280, 720)]
+    [InlineData(1919, 1079)]
+    public void Every_resolution_choice_preserves_aspect_and_never_exceeds_the_1080p_cap_or_source(
+        int sourceWidth, int sourceHeight)
+    {
+        foreach (var resolution in Enum.GetValues<CaptureResolution>())
+            foreach (var factor in new[] { 1, 2, 4 })
+            {
+                var (width, height) = FrameScaler.ResolveOutputSize(sourceWidth, sourceHeight, resolution, factor);
+
+                Assert.InRange(width, 2, sourceWidth);
+                Assert.InRange(height, 2, sourceHeight);
+                Assert.InRange(Math.Min(width, height), 2, 1080);
+                Assert.Equal(0, width % 2);
+                Assert.Equal(0, height % 2);
+                // Rounding to an even I420 dimension may lose at most two source pixels
+                // of cross-product precision; it must not crop or stretch the display.
+                var aspectError = Math.Abs((long)width * sourceHeight - (long)height * sourceWidth);
+                Assert.InRange(aspectError, 0L, 2L * Math.Max(sourceWidth, sourceHeight));
+            }
+    }
+
+    [Theory]
+    [InlineData(1920, 1080, CaptureResolution.Automatic, 4, 1920, 1080)]
+    [InlineData(3840, 2160, CaptureResolution.Automatic, 4, 1920, 1080)]
+    [InlineData(2160, 3840, CaptureResolution.Automatic, 4, 1080, 1920)]
+    [InlineData(3840, 2160, CaptureResolution.Native, 4, 1920, 1080)]
+    [InlineData(2160, 3840, CaptureResolution.Native, 4, 1080, 1920)]
+    [InlineData(3840, 2160, CaptureResolution.P2160, 2, 1920, 1080)]
+    [InlineData(2160, 3840, CaptureResolution.P2160, 4, 1080, 1920)]
+    [InlineData(2560, 1440, CaptureResolution.P1440, 2, 1920, 1080)]
+    [InlineData(1080, 1920, CaptureResolution.Automatic, 4, 1080, 1920)]
+    [InlineData(1280, 720, CaptureResolution.Automatic, 4, 1280, 720)]
+    public void Congestion_preserves_the_capture_floor_without_upscaling(
+        int sourceWidth, int sourceHeight, CaptureResolution resolution, int factor,
+        int expectedWidth, int expectedHeight)
+    {
+        Assert.Equal((expectedWidth, expectedHeight),
+            FrameScaler.ResolveOutputSize(sourceWidth, sourceHeight, resolution, factor));
     }
 
     [Fact]
@@ -215,13 +273,62 @@ public class FrameScalerTests
             }
         }
     }
+
+    [Theory]
+    [InlineData(2, 2, 0)]
+    [InlineData(6, 4, 4)]
+    [InlineData(10, 6, 32)]
+    [InlineData(1920, 1080, 0)]
+    [InlineData(3840, 2160, 64)]
+    [InlineData(2160, 3840, 64)]
+    public unsafe void Native_conversion_preserves_exact_scalar_planes_and_padded_input(int width, int height, int padding)
+    {
+        var stride = width * 4 + padding;
+        var source = Enumerable.Range(0, stride * height).Select(index => (byte)(index * 37 + 17)).ToArray();
+        var original = source.ToArray();
+        var expected = ReferenceNativeConversion(source, stride, width, height);
+        byte[] actual;
+        fixed (byte* pointer = source)
+            actual = FrameScaler.BgraToI420((nint)pointer, stride, width, height, width, height);
+        Assert.Equal(width * height * 3 / 2, actual.Length);
+        Assert.NotSame(source, actual);
+        Assert.True(expected.AsSpan().SequenceEqual(actual), $"Native planes differ at {width}x{height}, stride {stride}.");
+        Assert.Equal(original, source);
+    }
+
+    private static byte[] ReferenceNativeConversion(byte[] source, int stride, int width, int height)
+    {
+        var ySize = width * height;
+        var output = new byte[ySize * 3 / 2];
+        for (var row = 0; row < height; row++)
+            for (var column = 0; column < width; column++)
+            {
+                var pixel = row * stride + column * 4;
+                var b = source[pixel]; var g = source[pixel + 1]; var r = source[pixel + 2];
+                output[row * width + column] = (byte)Math.Clamp(((66 * r + 129 * g + 25 * b + 128) >> 8) + 16, 0, 255);
+            }
+        for (var row = 0; row < height; row += 2)
+            for (var column = 0; column < width; column += 2)
+            {
+                var top = row * stride + column * 4;
+                var bottom = top + stride;
+                var b = (source[top] + source[top + 4] + source[bottom] + source[bottom + 4]) >> 2;
+                var g = (source[top + 1] + source[top + 5] + source[bottom + 1] + source[bottom + 5]) >> 2;
+                var r = (source[top + 2] + source[top + 6] + source[bottom + 2] + source[bottom + 6]) >> 2;
+                var chroma = row / 2 * (width / 2) + column / 2;
+                output[ySize + chroma] = (byte)Math.Clamp(((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128, 0, 255);
+                output[ySize + ySize / 4 + chroma] = (byte)Math.Clamp(((112 * r - 94 * g - 18 * b + 128) >> 8) + 128, 0, 255);
+            }
+        return output;
+    }
+
 }
 
 [Collection(WindowsGraphicsCaptureCollection.Name)]
 public class CaptureResolutionTests(ITestOutputHelper output)
 {
     [Fact]
-    public async Task Capturing_at_720p_really_delivers_720p_frames()
+    public async Task Legacy_720p_capture_requests_preserve_the_1080p_floor()
     {
         Assert.True(WindowsGraphicsCaptureSource.IsSupported);
 
@@ -256,11 +363,14 @@ public class CaptureResolutionTests(ITestOutputHelper output)
 
         Assert.Equal(expectedHeight, sample.Height);
         Assert.Equal(expectedWidth, sample.Width);
+        Assert.True(Math.Min(sample.Width, sample.Height) >= Math.Min(1080,
+            Math.Min(target.Width & ~1, target.Height & ~1)));
+        Assert.True(Math.Min(sample.Width, sample.Height) <= 1080);
         Assert.Equal(sample.Width * sample.Height * 3 / 2, sample.I420.Length);
     }
 
     [Fact]
-    public async Task The_downscale_factor_shrinks_frames_without_restarting_capture()
+    public async Task Adaptive_downscaling_preserves_the_1080p_floor_without_restarting_capture()
     {
         Assert.True(WindowsGraphicsCaptureSource.IsSupported);
 
@@ -279,9 +389,10 @@ public class CaptureResolutionTests(ITestOutputHelper output)
                 return;
             }
 
-            // A frame already in flight when the factor changed still carries the old size,
-            // so wait for the first frame that was actually converted at the new scale.
-            if (beforeSample is not null && frame.Width < beforeSample.Width)
+            // Capture is already bounded at the 1080p floor/cap. An adaptive request
+            // must keep producing fresh frames without restarting or shrinking below it.
+            if (beforeSample is not null &&
+                frame.SequenceNumber > beforeSample.SequenceNumber + 1)
             {
                 afterSample ??= frame;
             }
@@ -290,7 +401,7 @@ public class CaptureResolutionTests(ITestOutputHelper output)
         await capture.StartAsync(new CaptureRequest
         {
             Target = target,
-            Resolution = CaptureResolution.P720,
+            Resolution = CaptureResolution.Native,
             MaxFramesPerSecond = 30,
         });
 
@@ -322,8 +433,12 @@ public class CaptureResolutionTests(ITestOutputHelper output)
         output.WriteLine($"before={beforeSample!.Width}x{beforeSample.Height} " +
                          $"after={afterSample!.Width}x{afterSample.Height}");
 
-        Assert.True(afterSample.Width < beforeSample.Width);
-        Assert.True(afterSample.Height < beforeSample.Height);
+        var sourceShortEdge = Math.Min(beforeSample.Width, beforeSample.Height);
+        Assert.True(sourceShortEdge <= 1080);
+        Assert.InRange(Math.Min(afterSample.Width, afterSample.Height), Math.Min(1080, sourceShortEdge), sourceShortEdge);
+        Assert.Equal(beforeSample.Width, afterSample.Width);
+        Assert.Equal(beforeSample.Height, afterSample.Height);
+        Assert.True(afterSample.SequenceNumber > beforeSample.SequenceNumber);
         Assert.Equal(afterSample.Width * afterSample.Height * 3 / 2, afterSample.I420.Length);
     }
 

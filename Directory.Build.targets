@@ -1,0 +1,58 @@
+<Project>
+  <!-- Deterministic NuGet entries share timestamps. Different maintained revisions
+       can also have equal DLL lengths, so MSBuild's time/length copy check is insufficient. -->
+  <Target Name="CopyVerifiedMaintainedSipsorcery" AfterTargets="_CopyFilesMarkedCopyLocal">
+    <ItemGroup>
+      <_PeerOnQMaintainedCore Include="@(ReferenceCopyLocalPaths)"
+          Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'PeerOnQ.SIPSorcery' and '%(ReferenceCopyLocalPaths.Filename)%(ReferenceCopyLocalPaths.Extension)' == 'SIPSorcery.dll'" />
+    </ItemGroup>
+    <GetFileHash Files="@(_PeerOnQMaintainedCore)" Condition="'@(_PeerOnQMaintainedCore)' != ''">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQMaintainedCoreSourceHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_PeerOnQMaintainedCoreDestination>@(_PeerOnQMaintainedCore->'$(OutDir)%(DestinationSubDirectory)%(Filename)%(Extension)')</_PeerOnQMaintainedCoreDestination>
+      <_PeerOnQMaintainedCoreOutputHash />
+    </PropertyGroup>
+    <GetFileHash Files="$(_PeerOnQMaintainedCoreDestination)"
+                 Condition="'@(_PeerOnQMaintainedCore)' != '' and Exists('$(_PeerOnQMaintainedCoreDestination)')">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQMaintainedCoreOutputHash" />
+    </GetFileHash>
+    <Copy SourceFiles="@(_PeerOnQMaintainedCore)"
+          DestinationFiles="$(_PeerOnQMaintainedCoreDestination)" SkipUnchangedFiles="false"
+          Condition="'@(_PeerOnQMaintainedCore)' != '' and '$(_PeerOnQMaintainedCoreSourceHash)' != '$(_PeerOnQMaintainedCoreOutputHash)'">
+      <Output TaskParameter="CopiedFiles" ItemName="_PeerOnQRepairedCore" />
+    </Copy>
+    <Touch Files="@(_PeerOnQRepairedCore)" Condition="'@(_PeerOnQRepairedCore)' != ''" />
+    <GetFileHash Files="@(_PeerOnQMaintainedCore->'$(OutDir)%(DestinationSubDirectory)%(Filename)%(Extension)')"
+                 Condition="'@(_PeerOnQMaintainedCore)' != ''">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQMaintainedCoreOutputHash" />
+    </GetFileHash>
+    <Error Condition="'@(_PeerOnQMaintainedCore)' != '' and '$(_PeerOnQMaintainedCoreSourceHash)' != '$(_PeerOnQMaintainedCoreOutputHash)'"
+           Text="The output SIPSorcery DLL differs from the resolved maintained dependency." />
+  </Target>
+  <Target Name="PublishVerifiedMaintainedSipsorcery" AfterTargets="CopyFilesToPublishDirectory">
+    <ItemGroup>
+      <_PeerOnQPublishedCore Include="@(ResolvedFileToPublish)"
+          Condition="'%(ResolvedFileToPublish.NuGetPackageId)' == 'PeerOnQ.SIPSorcery' and '%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'SIPSorcery.dll'" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_PeerOnQPublishedCoreDestination>@(_PeerOnQPublishedCore->'$(PublishDir)%(RelativePath)')</_PeerOnQPublishedCoreDestination>
+      <_PeerOnQPublishedCoreOutputHash />
+    </PropertyGroup>
+    <GetFileHash Files="@(_PeerOnQPublishedCore)" Condition="'@(_PeerOnQPublishedCore)' != ''">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQPublishedCoreSourceHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(_PeerOnQPublishedCoreDestination)"
+                 Condition="'@(_PeerOnQPublishedCore)' != '' and Exists('$(_PeerOnQPublishedCoreDestination)')">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQPublishedCoreOutputHash" />
+    </GetFileHash>
+    <Copy SourceFiles="@(_PeerOnQPublishedCore)" DestinationFiles="$(_PeerOnQPublishedCoreDestination)"
+          SkipUnchangedFiles="false"
+          Condition="'@(_PeerOnQPublishedCore)' != '' and '$(_PeerOnQPublishedCoreSourceHash)' != '$(_PeerOnQPublishedCoreOutputHash)'" />
+    <GetFileHash Files="$(_PeerOnQPublishedCoreDestination)" Condition="'@(_PeerOnQPublishedCore)' != ''">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQPublishedCoreOutputHash" />
+    </GetFileHash>
+    <Error Condition="'@(_PeerOnQPublishedCore)' != '' and '$(_PeerOnQPublishedCoreSourceHash)' != '$(_PeerOnQPublishedCoreOutputHash)'"
+           Text="The published SIPSorcery DLL differs from the resolved maintained dependency." />
+  </Target>
+</Project>

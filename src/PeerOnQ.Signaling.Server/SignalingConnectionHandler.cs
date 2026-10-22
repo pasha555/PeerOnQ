@@ -562,7 +562,9 @@ public sealed class SignalingConnectionHandler(
             request.AccessKind,
             useFileRelay,
             ct,
-            request.RemoteScopeSelectionRequired);
+            request.RemoteScopeSelectionRequired,
+            unicodeInputEnabled: sessionCapabilities.NegotiatedOptionalFeatures.Contains(
+                OptionalProtocolFeatureNames.UnicodeInput, StringComparer.Ordinal));
         if (!createResult.Created)
         {
             await SendErrorAsync(connection, SignalingErrorCodes.MalformedMessage,
@@ -587,6 +589,7 @@ public sealed class SignalingConnectionHandler(
             AccessKind = session.AccessKind,
             RemoteScopeSelectionRequired = session.RemoteScopeSelectionRequired,
             FileRelay = useFileRelay,
+            UnicodeInput = session.UnicodeInputEnabled,
             Quality = QualityProfileWire.Format(requestedQuality),
             Resolution = requestedResolution is { } resolution
                 ? CaptureResolutionWire.Format(resolution)
@@ -642,7 +645,7 @@ public sealed class SignalingConnectionHandler(
     private static bool IsRemoteScopeSelectionEnvelope(string mode, int permissions, string accessKind) =>
         accessKind == "attended"
         && mode == "full-control"
-        && permissions == (int)Phase1SessionScope.FullControlPermissions;
+        && Phase1SessionScope.IsRemoteScopeSelectionEnvelope((SessionPermission)permissions);
 
     private static string ComputePublicKeyFingerprint(string publicKey)
     {
@@ -719,6 +722,7 @@ public sealed class SignalingConnectionHandler(
             PeerDisplayName = connection.DisplayName,
             PeerKeyFingerprint = connection.PublicKeyFingerprint,
             FileRelay = session.FileRelayEnabled,
+            UnicodeInput = session.UnicodeInputEnabled,
             GrantedMode = accepted && session.RemoteScopeSelectionRequired ? grantedMode : null,
             GrantedPermissions = accepted && session.RemoteScopeSelectionRequired ? grantedPermissions : null,
         }, ct);
@@ -769,9 +773,7 @@ public sealed class SignalingConnectionHandler(
             _ => SessionMode.Custom,
         };
         var parsedPermissions = (SessionPermission)decision.GrantedPermissions.Value;
-        if (parsedMode is not (SessionMode.ViewOnly or SessionMode.FullControl)
-            || parsedPermissions != SessionPermissionPolicy.ForMode(parsedMode)
-            || (parsedPermissions & ~(SessionPermission)session.Permissions) != 0)
+        if (!Phase1SessionScope.IsRemoteScopeSelectionGrant(parsedMode, parsedPermissions, (SessionPermission)session.Permissions))
         {
             return false;
         }
@@ -1138,10 +1140,10 @@ public sealed class SignalingConnectionHandler(
         value is null or "Automatic" or "Performance" or "Balanced" or "Quality" or "Office" or "LowBandwidth";
 
     private static bool IsSupportedQualityReason(string? value) =>
-        value is null or "awaiting_measurements" or "invalid_telemetry" or "packet_loss"
+        value is null or "awaiting_measurements" or "awaiting_network_feedback" or "invalid_telemetry" or "packet_loss"
             or "encoder_backpressure" or "high_rtt" or "high_jitter"
             or "insufficient_bandwidth" or "viewer_input_latency" or "viewer_frame_age" or "viewer_render_latency"
-            or "viewer_render_backpressure" or "marginal_conditions" or "stable_headroom" or "stable";
+            or "viewer_render_backpressure" or "viewer_video_stall" or "marginal_conditions" or "stable_headroom" or "stable";
 
     private async Task HandleResumeAsync(
         DeviceConnection connection,

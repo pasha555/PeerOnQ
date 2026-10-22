@@ -23,9 +23,12 @@ function Assert-NotContains([string]$Text, [string]$Unexpected, [string]$Failure
     if ($Text.IndexOf($Unexpected, [StringComparison]::Ordinal) -ge 0) { throw $Failure }
 }
 
-function Assert-EventHandlers([string]$XamlPath, [string]$CodePath) {
+function Assert-EventHandlers([string]$XamlPath, [string]$CodePath, [string[]]$PartialCodePaths = @()) {
     $xaml = Read-RepositoryFile $XamlPath
     $code = Read-RepositoryFile $CodePath
+    foreach ($partialCodePath in $PartialCodePaths) {
+        $code += "`n" + (Read-RepositoryFile $partialCodePath)
+    }
     $handlers = [regex]::Matches(
         $xaml,
         '(?:Click|Toggled|SelectionChanged|TextChanged|QuerySubmitted|KeyDown|KeyUp|PointerEntered|PointerExited|PointerPressed|PointerReleased|PointerCaptureLost|PointerMoved|PointerWheelChanged|Loaded|Unloaded)="([A-Za-z0-9_]+)"') |
@@ -64,13 +67,9 @@ Assert-NotContains $mainXaml 'x:Name="SignalingServerBox"' 'Settings must not ex
 Assert-NotContains $mainXaml 'Text="Connection" Style="{StaticResource PeerOnQSectionTitleStyle}"' 'Settings still exposes the Connection card.'
 Assert-Contains $mainXaml 'x:Name="CheckUpdateButton" Content="Check for updates" AccessKey="U"' 'Settings has no verified server update check action.'
 Assert-Contains $mainXaml 'IsEnabled="False" Click="OnCheckForUpdates"' 'Update check must remain disabled until trusted configuration initializes.'
-Assert-Contains $mainXaml 'Performance (up to 60 fps)' 'The explicit performance quality profile is missing.'
-Assert-Contains $mainXaml 'Office (responsive, clear text)' 'The Office quality profile is missing.'
-Assert-Contains $mainXaml 'Low bandwidth' 'The Low Bandwidth quality profile is missing.'
-Assert-Contains $mainXaml 'x:Name="QualityPicker" Header="Display quality" SelectedIndex="0"' 'Production must default to the adaptive Automatic quality profile.'
-Assert-Contains $mainXaml 'x:Name="ResolutionPicker" Header="Target resolution" SelectedIndex="0"' 'Production must default to automatic resolution selection.'
-Assert-Contains $mainXaml 'Content="1440p" Tag="P1440"' 'The explicit 1440p target is missing.'
-Assert-Contains $mainXaml 'Content="4K / UHD" Tag="P2160"' 'The explicit non-upscaling 4K target is missing.'
+foreach ($removedPicker in @('x:Name="QualityPicker"', 'Header="Display quality"', 'x:Name="ResolutionPicker"', 'Header="Target resolution"')) {
+    Assert-NotContains $mainXaml $removedPicker "The simplified connection card still exposes a removed display selector: $removedPicker"
+}
 Assert-Contains $mainXaml 'Content="Run Network Doctor"' 'The deterministic Network Doctor action is missing.'
 foreach ($removedOption in @('Add file transfer', 'Allow text clipboard', 'Use configured unattended access')) {
     Assert-NotContains $mainXaml $removedOption "The simplified connection card still exposes removed option: $removedOption"
@@ -143,6 +142,7 @@ Assert-NotContains $permissionHost 'accessChoices.Items.Add(new RadioButton' 'Ac
 Assert-Contains $permissionHost 'dispatcher.CreateTimer()' 'Permission countdown must stay on the UI dispatcher.'
 Assert-NotContains $permissionHost 'Task.Run(' 'Permission countdown must not marshal WinUI objects from a background task.'
 $mainCode = Read-RepositoryFile 'src\PeerOnQ.App\MainWindow.xaml.cs'
+Assert-NotContains $mainCode 'nameof(CaptureResolution.P2160)' 'Native startup still overrides Automatic with the retired 4K target.'
 $appProject = Read-RepositoryFile 'src\PeerOnQ.App\PeerOnQ.App.csproj'
 $appServices = Read-RepositoryFile 'src\PeerOnQ.App\AppServices.cs'
 $endpointConfiguration = Read-RepositoryFile 'src\PeerOnQ.Infrastructure\Configuration\CloudEndpointConfiguration.cs'
@@ -180,10 +180,12 @@ foreach ($label in @('View Only', 'Full Control', 'File Transfer', 'Unattended A
 Assert-NotContains $mainCode 'OnClipboardToggled' 'The removed clipboard UI handler is still present.'
 Assert-NotContains $mainCode 'OnSaveSignalingServer' 'The removed Connection card still has a mutable endpoint handler.'
 Assert-Contains $mainCode 'CheckUpdateButton.IsEnabled = _services.Updates is not null;' 'Trusted client update configuration does not enable the Settings action.'
-Assert-Contains $mainCode 'if (services.IsLanDevelopmentClient)' 'The 4K startup override must be limited to LAN development clients.'
-Assert-Contains $mainCode 'nameof(QualityProfile.Quality)' 'LAN development must select the adaptive high-quality profile.'
-Assert-Contains $mainCode 'nameof(CaptureResolution.P2160)' 'LAN development must explicitly request 4K without upscaling the source.'
-Assert-Contains $mainCode 'ResolutionPicker.SelectedItem is not ComboBoxItem' 'The resolution selector is not applied to session setup.'
+$initializationCode = [regex]::Match($mainCode, '(?s)private async Task InitializeAsync\(.*?(?=\r?\n    private )').Value
+Assert-Contains $initializationCode '_services.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic) with' 'Native startup must apply the adaptive Automatic profile without a picker.'
+Assert-Contains $initializationCode 'Resolution = CaptureResolution.P1080,' 'Native startup must explicitly request the fixed 1080p streaming target.'
+foreach ($removedPickerCode in @('QualityPicker', 'ResolutionPicker', 'OnQualitySelected', 'ApplySelectedQualityProfile')) {
+    Assert-NotContains $mainCode $removedPickerCode "Removed display selection code remains in native startup: $removedPickerCode"
+}
 Assert-Contains $mainCode 'HeaderConnectionText.Text = isConnected ? "Connected" : "Disconnected";' 'Header signaling status is not limited to Connected or Disconnected.'
 Assert-Contains $mainCode "Windows build does not provide the ML-KEM/ML-DSA security required by PeerOnQ." 'Post-quantum capability mismatch has no actionable user-facing recovery message.'
 Assert-Contains $mainCode 'PeerOnQ will not downgrade session encryption.' 'Capability recovery guidance weakens the mandatory encryption gate.'
@@ -202,8 +204,8 @@ Assert-Contains $mainCode 'GetStatusAsync()' 'Security does not refresh the auth
 Assert-Contains $mainCode 'ConfirmUnattendedModeChangeAsync' 'Password access does not offer a safe recovery when the remote mode is narrower.'
 Assert-Contains $mainCode 'Password access was declined. Check the password' 'Password rejection has no actionable recovery message.'
 
-Assert-EventHandlers 'src\PeerOnQ.App\MainWindow.xaml' 'src\PeerOnQ.App\MainWindow.xaml.cs'
-Assert-EventHandlers 'src\PeerOnQ.App\ViewerWindow.xaml' 'src\PeerOnQ.App\ViewerWindow.xaml.cs'
+Assert-EventHandlers 'src\PeerOnQ.App\MainWindow.xaml' 'src\PeerOnQ.App\MainWindow.xaml.cs' @('src\PeerOnQ.App\MainWindow.Audio.cs')
+Assert-EventHandlers 'src\PeerOnQ.App\ViewerWindow.xaml' 'src\PeerOnQ.App\ViewerWindow.xaml.cs' @('src\PeerOnQ.App\ViewerWindow.Audio.cs')
 Assert-EventHandlers 'src\PeerOnQ.App\SharingIndicatorWindow.xaml' 'src\PeerOnQ.App\SharingIndicatorWindow.xaml.cs'
 
 if ($router -match '/app/billing') {

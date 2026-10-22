@@ -11,5 +11,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\PeerOnQ.Domain\PeerOnQ.Domain.csproj" />
     <ProjectReference Include="..\..\src\PeerOnQ.Media\PeerOnQ.Media.csproj" />
+    <ProjectReference Include="..\..\src\PeerOnQ.Transport\PeerOnQ.Transport.csproj" />
   </ItemGroup>
 </Project>

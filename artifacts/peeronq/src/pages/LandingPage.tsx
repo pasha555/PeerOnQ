@@ -19,7 +19,7 @@ const questions = [
   { question: "Do I need an account for every connection?", answer: "Accountless local LAN access remains supported. A portal account gives you access to your profile, account security, and organization tools. Device identity and organization ownership remain verified separately; signing in never grants control of a device." },
   { question: "Is PeerOnQ open source?", answer: "Yes. PeerOnQ is open-source software released under the MIT License, developed in public on GitHub. The installed client does not require a license key, product activation, a paid subscription, or an online entitlement check. You can inspect the code, report issues, and contribute. Third-party components have their own terms, documented in the repository." },
   { question: "Which platforms can I use?", answer: "Windows is the main host and controller client. Linux, Android, and Apple viewer/controller projects are available as source previews with separate release gates. A platform gets a download only when a package has been published for it." },
-  { question: "What should I expect from connection quality?", answer: "Quality and latency depend on the source display, hardware, network, and connection path. Resolution options include 4K/UHD on supported source displays, but sustained 4K performance and any particular latency are not guaranteed. Measured results and remaining limitations are published in the repository." },
+  { question: "What should I expect from connection quality?", answer: "Quality and latency depend on the source display, hardware, network, and connection path. Resolution is capped at 1080p, and smaller source displays are not upscaled. No particular latency is guaranteed. Measured results and remaining limitations are published in the repository." },
 ];
 const previewNavigation = [
   { icon: LayoutDashboard, label: "Dashboard" }, { icon: Monitor, label: "Devices" },
@@ -105,7 +105,7 @@ export function LandingPage() {
         { icon: Activity, title: "Useful diagnostics", text: "Inspect the connection path and session diagnostics in the client. Bring reproducible details to a support report without sharing credentials." },
         { icon: Download, title: "Verified Updates", text: "The Windows updater checks signed update metadata and package integrity. Invalid or unverifiable updates are rejected; installer signing is a separate release gate." },
       ].map(({ icon: Icon, title, text }) => <div key={title}><Icon className="h-5 w-5 text-primary" aria-hidden="true" /><h3 className="mt-5 font-semibold">{title}</h3><p className="mt-3 text-sm leading-7 text-muted-foreground">{text}</p></div>)}</div>
-      <p className="mt-5 max-w-3xl text-sm leading-7 text-muted-foreground">Implementation is documented in public. Real-world NAT coverage, sustained 4K performance, and latency targets require validation on the devices and networks you use.</p>
+      <p className="mt-5 max-w-3xl text-sm leading-7 text-muted-foreground">Implementation is documented in public. Sessions currently support up to 1080p. Real-world NAT coverage, performance, and latency targets require validation on the devices and networks you use.</p>
     </div></section>
 
     <section className="public-section border-y bg-card" aria-labelledby="portal-heading"><div className="public-container grid gap-12 lg:grid-cols-2 lg:items-center">

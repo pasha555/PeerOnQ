@@ -2,12 +2,15 @@ using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Net;
+using Microsoft.Extensions.Logging;
 using PeerOnQ.Application.Abstractions;
 using PeerOnQ.Application.Collaboration;
 using PeerOnQ.Application.Identity;
 using PeerOnQ.Application.Security;
 using PeerOnQ.Domain.Identity;
 using PeerOnQ.Domain.Sessions;
+using PeerOnQ.Transport.DataPlane;
 using SIPSorcery.Net;
 using Xunit;
 using Xunit.Abstractions;
@@ -89,6 +92,7 @@ public sealed class SyntheticCaptureSource(int width = 320, int height = 240) : 
             I420 = buffer,
             Timestamp = TimeSpan.FromSeconds(Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency),
             SequenceNumber = sequence,
+            BufferOwnershipCanTransfer = true,
         };
     }
 
@@ -111,7 +115,7 @@ public sealed class SyntheticCaptureSource(int width = 320, int height = 240) : 
 }
 
 [Collection("Real WebRTC acceptance")]
-public class WebRtcLoopbackTests(ITestOutputHelper output)
+public partial class WebRtcLoopbackTests(ITestOutputHelper output)
 {
     [Theory]
     [InlineData(128, 1_024, 80)]
@@ -566,8 +570,18 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             var source = Path.Combine(sourceRoot, "actual-channel.bin");
             var requestedSize = GetEnvironmentVariable("PEERONQ_LIVE_FILE_TRANSFER_BYTES");
             var fileSize = string.IsNullOrWhiteSpace(requestedSize)
-                ? 180_000L
+                ? 1024 * 1024 + 13L
                 : long.Parse(requestedSize, System.Globalization.CultureInfo.InvariantCulture);
+            var fileOptions = new FileTransferOptions();
+            var requestedChunk = GetEnvironmentVariable("PEERONQ_LIVE_FILE_TRANSFER_CHUNK_BYTES");
+            if (!string.IsNullOrWhiteSpace(requestedChunk))
+            {
+                if (!int.TryParse(requestedChunk, System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out var chunkBytes)
+                    || chunkBytes is < 1 or > CollaborationProtocolCodec.MaximumChunkBytes)
+                    throw new InvalidOperationException("PEERONQ_LIVE_FILE_TRANSFER_CHUNK_BYTES must be 1..262144 bytes.");
+                fileOptions = fileOptions with { ChunkBytes = chunkBytes };
+            }
             await WritePatternFileAsync(source, fileSize);
 
             IceConfiguration? iceConfiguration = null;
@@ -592,6 +606,25 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
                     RelayServerId = "turn-local-1",
                     RelayRegion = "local",
                 };
+            }
+
+            var nativeFileTransfer = string.Equals(
+                GetEnvironmentVariable("PEERONQ_LIVE_NATIVE_FILE_TRANSFER_TEST"), "1", StringComparison.Ordinal);
+            INativeBulkTransportFactory? nativeFactory = null;
+            if (nativeFileTransfer)
+            {
+                Assert.True(iceConfiguration is null,
+                    "The requested native QUIC file test requires direct LAN, not relay-only TURN mode.");
+                if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                {
+                    var factory = new ManagedQuicBulkTransportFactory();
+                    Assert.True(factory.IsSupported, "The requested native QUIC file test is unavailable on this platform.");
+                    nativeFactory = factory;
+                }
+                else
+                {
+                    throw new PlatformNotSupportedException("The requested native QUIC file test requires Windows, Linux or macOS.");
+                }
             }
 
             var sessionId = SessionId.New();
@@ -622,28 +655,53 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
                 await sharer.AddRemoteIceCandidateAsync(candidate.Candidate, candidate.SdpMid, candidate.SdpMLineIndex);
 
             await using var identities = await TestHybridIdentityPair.CreateAsync();
+            var senderNativeLog = nativeFileTransfer ? new NativeTestLogger() : null;
+            var receiverNativeLog = nativeFileTransfer ? new NativeTestLogger() : null;
             await using var senderTransport = new MediaCollaborationTransport(
                 sharer,
                 SessionPermission.FileTransfer,
                 identities.Sharer,
-                identities.ViewerLegacyFingerprint);
+                identities.ViewerLegacyFingerprint,
+                logger: senderNativeLog,
+                nativeBulkTransportFactory: nativeFactory);
             await using var receiverTransport = new MediaCollaborationTransport(
                 viewer,
                 SessionPermission.FileTransfer,
                 identities.Viewer,
-                identities.SharerLegacyFingerprint);
-            await using var sender = new FileTransferService(senderTransport);
-            await using var receiver = new FileTransferService(receiverTransport);
+                identities.SharerLegacyFingerprint,
+                logger: receiverNativeLog,
+                nativeBulkTransportFactory: nativeFactory);
+            await using var sender = new FileTransferService(senderTransport, fileOptions);
+            await using var receiver = new FileTransferService(receiverTransport, fileOptions);
+            using var diagnosticObserver = LoopbackFileTransferDiagnostics.ObserverFactory.Value?
+                .Invoke(sharer, viewer, sender, receiver);
             var readyLeft = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var readyRight = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             senderTransport.Ready += (_, _) => readyLeft.TrySetResult();
             receiverTransport.Ready += (_, _) => readyRight.TrySetResult();
             var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var nativeSenderObserved = 0;
+            var nativeReceiverObserved = 0;
             receiver.IncomingOffer += async (_, offer) =>
                 await receiver.AcceptAsync(offer.TransferId, destinationRoot, TransferCollisionPolicy.Rename);
+            sender.TransferChanged += (_, transfer) =>
+            {
+                if (nativeFileTransfer && transfer.Status == TransferStatus.Transferring
+                    && transfer.TransferredBytes > 0 && Volatile.Read(ref nativeSenderObserved) == 0
+                    && IsNativeFileTransferActive(senderTransport, transfer.TransferId))
+                    Volatile.Write(ref nativeSenderObserved, 1);
+                if (transfer.Status == TransferStatus.Failed)
+                    received.TrySetException(new InvalidOperationException($"Sender transfer failed: {transfer.FailureCode}"));
+            };
             receiver.TransferChanged += (_, transfer) =>
             {
+                if (nativeFileTransfer && transfer.Status == TransferStatus.Transferring
+                    && transfer.TransferredBytes > 0 && Volatile.Read(ref nativeReceiverObserved) == 0
+                    && IsNativeFileTransferActive(receiverTransport, transfer.TransferId))
+                    Volatile.Write(ref nativeReceiverObserved, 1);
                 if (transfer.Status == TransferStatus.Completed) received.TrySetResult();
+                if (transfer.Status == TransferStatus.Failed)
+                    received.TrySetException(new InvalidOperationException($"Receiver transfer failed: {transfer.FailureCode}"));
             };
 
             var offer = await sharer.CreateOfferAsync();
@@ -657,12 +715,35 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             }
             var answer = await viewer.CreateAnswerAsync(offer);
             await sharer.ApplyRemoteAnswerAsync(answer);
-            Assert.Equal(negotiateBulkDataLane, viewer.IsBulkDataLaneNegotiated);
-            Assert.Equal(negotiateBulkDataLane, sharer.IsBulkDataLaneNegotiated);
+            var expectedBulkDataLane = negotiateBulkDataLane && iceConfiguration is null;
+            Assert.Equal(expectedBulkDataLane, viewer.IsBulkDataLaneNegotiated);
+            Assert.Equal(expectedBulkDataLane, sharer.IsBulkDataLaneNegotiated);
             await Task.WhenAll(
                 readyLeft.Task.WaitAsync(TimeSpan.FromSeconds(30)),
                 readyRight.Task.WaitAsync(TimeSpan.FromSeconds(30)));
-            if (negotiateBulkDataLane)
+            if (nativeFileTransfer)
+            {
+                try
+                {
+                    await WaitUntilAsync(
+                        () => senderTransport.IsNativeBulkTransportReady && receiverTransport.IsNativeBulkTransportReady,
+                        "The requested real native QUIC path did not become ready on both LAN peers.");
+                }
+                finally
+                {
+                    output.WriteLine($"Native readiness sender: negotiated={sharer.IsNativeBulkTransportNegotiated} "
+                        + $"path={sharer.GetStatistics().ConnectionPath} selected={sharer.GetSelectedRemoteAddress()} "
+                        + $"ready={senderTransport.IsNativeBulkTransportReady}");
+                    output.WriteLine("Sender nominated " + NativeNominatedAddresses(sharer));
+                    output.WriteLine($"Native readiness receiver: negotiated={viewer.IsNativeBulkTransportNegotiated} "
+                        + $"path={viewer.GetStatistics().ConnectionPath} selected={viewer.GetSelectedRemoteAddress()} "
+                        + $"ready={receiverTransport.IsNativeBulkTransportReady}");
+                    output.WriteLine("Receiver nominated " + NativeNominatedAddresses(viewer));
+                    foreach (var entry in senderNativeLog!.Events) output.WriteLine("Sender " + entry);
+                    foreach (var entry in receiverNativeLog!.Events) output.WriteLine("Receiver " + entry);
+                }
+            }
+            if (expectedBulkDataLane)
                 await WaitUntilAsync(() => Volatile.Read(ref sharerBulkCandidates) > 0);
             else
                 Assert.Equal(0, Volatile.Read(ref sharerBulkCandidates));
@@ -675,6 +756,7 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             }
 
             var transferClock = Stopwatch.StartNew();
+            var effectiveChunkBytes = Math.Min(fileOptions.ChunkBytes, senderTransport.MaximumFileChunkBytes);
             await sender.OfferAsync([source]);
             var completionTimeout = fileSize > 8L * 1024 * 1024
                 ? TimeSpan.FromMinutes(15)
@@ -702,12 +784,20 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             Assert.Equal(fileSize, new FileInfo(receivedPath).Length);
             await using var sourceStream = File.OpenRead(source);
             await using var receivedStream = File.OpenRead(receivedPath);
-            Assert.Equal(
-                await SHA256.HashDataAsync(sourceStream),
-                await SHA256.HashDataAsync(receivedStream));
+            var sourceSha256 = await SHA256.HashDataAsync(sourceStream);
+            var receivedSha256 = await SHA256.HashDataAsync(receivedStream);
+            Assert.Equal(sourceSha256, receivedSha256);
             var transferStatistics = sharer.GetStatistics();
-            Assert.Equal(negotiateBulkDataLane, transferStatistics.BulkDataLaneNegotiated);
-            if (negotiateBulkDataLane)
+            Assert.Equal(expectedBulkDataLane, transferStatistics.BulkDataLaneNegotiated);
+            if (nativeFileTransfer)
+            {
+                Assert.True(senderTransport.IsNativeBulkTransportReady && receiverTransport.IsNativeBulkTransportReady);
+                Assert.Equal(1, Volatile.Read(ref nativeSenderObserved));
+                Assert.Equal(1, Volatile.Read(ref nativeReceiverObserved));
+                Assert.Equal(0, transferStatistics.BulkDataRecordsSent);
+                Assert.Equal(0, transferStatistics.BulkDataFragmentsSent);
+            }
+            else if (negotiateBulkDataLane)
             {
                 Assert.True(transferStatistics.BulkDataRecordsSent > 0);
                 Assert.True(
@@ -724,7 +814,11 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
             output.WriteLine(
                 $"bulkLane={negotiateBulkDataLane} fileBytes={fileSize} " +
                 $"elapsedSeconds={transferClock.Elapsed.TotalSeconds:F1} " +
-                $"throughputKiBps={fileSize / 1024d / transferClock.Elapsed.TotalSeconds:F1}");
+                $"throughputKiBps={fileSize / 1024d / transferClock.Elapsed.TotalSeconds:F1} " +
+                $"chunkBytes={effectiveChunkBytes} " +
+                $"nativeQuic={nativeFileTransfer} nativeFeedbackSamples={senderTransport.NativeBulkFeedbackSamples} " +
+                $"nativePathObserved={nativeSenderObserved == 1 && nativeReceiverObserved == 1} " +
+                $"diskSha256={Convert.ToHexStringLower(receivedSha256)}");
 
         }
         finally
@@ -1105,11 +1199,25 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
         Assert.True(frame.PipelineDecodedTimestamp > 0);
         Assert.True(frame.CaptureTimestampUnixMicroseconds > 0);
         Assert.True(frame.CaptureSequenceNumber > 0);
-        Assert.True(
-            await UntilAsync(
-                () => viewer.GetStatistics().CaptureToPresentLatencyP95Ms > 0,
-                TimeSpan.FromSeconds(10)),
-            "authenticated capture-to-present timing did not produce a bounded sample");
+        var hasBoundedCaptureTiming = await UntilAsync(
+            () => viewer.GetStatistics().CaptureToPresentLatencyP95Ms > 0,
+            TimeSpan.FromSeconds(10));
+        var timingFailureDetails = string.Empty;
+        if (!hasBoundedCaptureTiming)
+        {
+            var clock = viewer.GetPeerClockEstimate();
+            var timingStats = viewer.GetStatistics();
+            timingFailureDetails = $" frames={Volatile.Read(ref framesReceived)} rendered={timingStats.FramesRendered}"
+                + $" encoded={sharer.GetStatistics().FramesEncoded} clockPresent={clock.HasValue}"
+                + $" clockUncertaintyUs={clock?.UncertaintyMicroseconds ?? -1}"
+                + $" clockOffsetUs={clock?.RemoteMinusLocalOffsetMicroseconds ?? 0}"
+                + $" firstFrameClockUncertaintyUs={frame.PeerClockEstimate?.UncertaintyMicroseconds ?? -1}"
+                + $" firstLocalFrameAgeMs={Volatile.Read(ref firstLocalFrameAgeMs):F1}"
+                + $" lastLocalFrameAgeMs={Volatile.Read(ref lastLocalFrameAgeMs):F1}"
+                + $" captureToPresentP95Ms={timingStats.CaptureToPresentLatencyP95Ms:F1}";
+        }
+        Assert.True(hasBoundedCaptureTiming,
+            "authenticated capture-to-present timing did not produce a bounded sample" + timingFailureDetails);
 
         if (requireMultipleFrames)
         {
@@ -1544,11 +1652,58 @@ public class WebRtcLoopbackTests(ITestOutputHelper output)
         }
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    private static async Task WaitUntilAsync(Func<bool> condition, string? failureMessage = null)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
         while (!condition() && DateTimeOffset.UtcNow < deadline) await Task.Delay(10);
-        Assert.True(condition());
+        Assert.True(condition(), failureMessage);
+    }
+
+    private static bool IsNativeFileTransferActive(MediaCollaborationTransport transport, Guid transferId)
+    {
+        // File-only transfers are uncapped and intentionally produce no paced-budget feedback.
+        // Observe the actual selected native path while it is live, before completion clears it.
+        var field = typeof(MediaCollaborationTransport).GetField(
+            "_nativeBulkTransfers", BindingFlags.Instance | BindingFlags.NonPublic);
+        var transfers = Assert.IsType<ConcurrentDictionary<Guid, byte>>(field?.GetValue(transport));
+        return transfers.ContainsKey(transferId);
+    }
+
+    private sealed class NativeTestLogger : ILogger<MediaCollaborationTransport>
+    {
+        private readonly ConcurrentQueue<string> _events = new();
+        private int _count;
+        public string[] Events => _events.ToArray();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var original = (state as IEnumerable<KeyValuePair<string, object?>>)?
+                .FirstOrDefault(pair => pair.Key == "{OriginalFormat}").Value as string;
+            if (original is not ("Native bulk startup was unavailable" or "Native bulk negotiation was unavailable"
+                or "Native bulk listener was unavailable" or "Native bulk path ended; the interactive session remains active")
+                || Interlocked.Increment(ref _count) > 16) return;
+            // Never format arbitrary log state or exception messages: these diagnostics contain
+            // only constant native events, exception types and numeric failure codes.
+            var failures = new List<string>();
+            for (var depth = 0; exception is not null && depth < 3; depth++, exception = exception.InnerException)
+                failures.Add($"{exception.GetType().Name}:0x{exception.HResult:X8}");
+            _events.Enqueue(original + "; exceptions=" + string.Join("/", failures));
+        }
+    }
+
+    private static string NativeNominatedAddresses(WebRtcMediaSession session)
+    {
+        var field = typeof(WebRtcMediaSession).GetField("_peer", BindingFlags.Instance | BindingFlags.NonPublic);
+        var peer = Assert.IsType<RTCPeerConnection>(field?.GetValue(session));
+        var nominated = peer.GetRtpChannel().NominatedEntry;
+        if (nominated is null) return "none";
+        return $"local={NumericAddress(nominated.LocalCandidate.address)} "
+            + $"remote={NumericAddress(nominated.RemoteCandidate.address)}";
+
+        static string NumericAddress(string value) => IPAddress.TryParse(value, out var address)
+            ? $"{address}/{address.AddressFamily}" : "non-numeric";
     }
 
     private static void CloseDedicatedInputPeer(WebRtcMediaSession session)

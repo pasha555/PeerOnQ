@@ -245,8 +245,10 @@ public sealed class TurnIssuanceAndResumeFlowTests
         Assert.True(registry.IsOwnedBy(sessionId, viewer, "new-connection"));
     }
 
-    [Fact]
-    public async Task Turn_credentials_are_refused_before_acceptance_and_issued_after_acceptance()
+    [Theory]
+    [InlineData("awaiting_network_feedback")]
+    [InlineData("viewer_video_stall")]
+    public async Task Turn_credentials_are_refused_before_acceptance_and_issued_after_acceptance(string qualityReason)
     {
         const string secret = "integration-secret-with-at-least-32-characters";
         await using var harness = await SignalingHarness.StartAsync(options =>
@@ -324,7 +326,8 @@ public sealed class TurnIssuanceAndResumeFlowTests
             EncodedWidth: 1280,
             EncodedHeight: 720,
             EncoderName: "SoftwareVp8",
-            EncoderHardwareAccelerated: false));
+            EncoderHardwareAccelerated: false,
+            QualityChangeReason: qualityReason));
 
         var quality = await Wait.ForAsync(receivedQuality);
         Assert.Equal(sessionId, quality.SessionId);
@@ -338,6 +341,7 @@ public sealed class TurnIssuanceAndResumeFlowTests
         Assert.Equal(720, quality.EncodedHeight);
         Assert.Equal("SoftwareVp8", quality.EncoderName);
         Assert.False(quality.EncoderHardwareAccelerated);
+        Assert.Equal(qualityReason, quality.QualityChangeReason);
 
         var receivedPresentation = new TaskCompletionSource<SessionQualityNotification>();
         sharerClient.QualityReceived += (_, feedback) => receivedPresentation.TrySetResult(feedback);
@@ -386,6 +390,14 @@ public sealed class TurnIssuanceAndResumeFlowTests
             EncoderName = "SoftwareVp8",
             InputToInjectionLatencyP95Ms = 60_001,
         });
+        Assert.Equal(
+            SignalingErrorCodes.MalformedMessage,
+            (await Wait.ForAsync(malformedQuality)).Code);
+
+        malformedQuality = new TaskCompletionSource<SignalingErrorNotification>();
+        await sharerClient.SendQualityAsync(new SessionQualityNotification(
+            sessionId, 30, 29, 0.5, 4, 8_000, 2,
+            QualityChangeReason: "unsupported_policy_reason"));
         Assert.Equal(
             SignalingErrorCodes.MalformedMessage,
             (await Wait.ForAsync(malformedQuality)).Code);

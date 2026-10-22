@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using PeerOnQ.Application.Abstractions;
 using PeerOnQ.Application.Collaboration;
 using PeerOnQ.Application.Identity;
@@ -12,6 +13,7 @@ using PeerOnQ.Infrastructure.Security;
 using PeerOnQ.Media;
 using PeerOnQ.Platform.Windows;
 using PeerOnQ.Platform.Windows.Capture;
+using PeerOnQ.Platform.Windows.Media;
 using PeerOnQ.Signaling.Server;
 using PeerOnQ.Transport;
 using PeerOnQ.Transport.Protocol;
@@ -59,7 +61,9 @@ public sealed class PeerOnQDevice : IAsyncDisposable, IRegistrationProofProvider
     public Task<SessionCollaborationContext> CollaborationAvailable => _collaborationAvailable.Task;
     public string DataRoot => _paths.Root;
 
-    public static async Task<PeerOnQDevice> CreateAsync(string displayName, Uri signalingUri, bool useRealCapture)
+    public static async Task<PeerOnQDevice> CreateAsync(
+        string displayName, Uri signalingUri, bool useRealCapture,
+        IMediaEngine? mediaEngine = null, Func<IScreenCaptureSource>? captureFactory = null)
     {
         var paths = new PeerOnQPaths(Path.Combine(
             Path.GetTempPath(), "peeronq-e2e", Guid.NewGuid().ToString("N"))).EnsureCreated();
@@ -93,13 +97,13 @@ public sealed class PeerOnQDevice : IAsyncDisposable, IRegistrationProofProvider
 
         device.Coordinator = new SessionCoordinator(
             device.Signaling,
-            new WebRtcMediaEngine(),
+            mediaEngine ?? new WebRtcMediaEngine(),
             device.Prompt,
             new SqliteBlockedDeviceStore(database),
             new SqliteSessionAuditLog(database),
-            () => useRealCapture
+            captureFactory ?? (() => useRealCapture
                 ? new WindowsGraphicsCaptureSource()
-                : throw new InvalidOperationException("capture not enabled for this device"),
+                : throw new InvalidOperationException("capture not enabled for this device")),
             PeerOnQ.Application.Sessions.SessionOptions.Default with
             {
                 PermissionTimeout = TimeSpan.FromSeconds(20),
@@ -205,6 +209,211 @@ public class TwoDeviceAcceptanceTests(ITestOutputHelper output) : IAsyncLifetime
         await _server.StopAsync(cts.Token);
         await _server.DisposeAsync();
     }
+
+    [HardwareVideoTheory]
+    [InlineData(3840, 2160, true)]
+    [InlineData(2160, 3840, false)]
+    public async Task Four_k_coordinated_sessions_return_real_presentation_feedback_over_authenticated_signaling(
+        int width, int height, bool expectHardware)
+    {
+        // Separate from the direct codec fixture: real registration, attended acceptance,
+        // SDP/ICE and quality publishing/receiving all run through production coordinators.
+        MediaFoundationH264Encoder? hardware = null;
+        // SessionCoordinator owns and disposes the capture returned by its factory.
+        var capture = new HardwareVideoIntegrationTests.SyntheticVideoCapture(width, height);
+        var diagnostics = new CoordinatedFourKDiagnostics();
+        var engine = new WebRtcMediaEngine(
+            hardwareH264Available: () => HardwareEncoderProbe.Supports(HardwareVideoCodec.H264),
+            hardwareH264EncoderFactory: () => diagnostics.Observe(hardware = new MediaFoundationH264Encoder()),
+            h264DecoderFactory: () => diagnostics.Observe(new MediaFoundationH264Decoder()));
+        await using var viewer = await PeerOnQDevice.CreateAsync("Coordinated4K viewer", _signalingUri,
+            useRealCapture: false, mediaEngine: engine);
+        await using var sharer = await PeerOnQDevice.CreateAsync("Coordinated4K sharer", _signalingUri,
+            useRealCapture: false, mediaEngine: engine, captureFactory: () => capture);
+        viewer.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic);
+        sharer.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic);
+        sharer.Coordinator.PreferredCaptureTarget = new CaptureTargetInfo(
+            CaptureTargetKind.Display, "synthetic4k", "Synthetic gray4K", width, height);
+        sharer.Prompt.Answer = PermissionDecision.Accept;
+
+        var gate = new Lock();
+        var presentations = new List<CoordinatedPresentation>(1024);
+        var feedback = new List<CoordinatedFeedback>(256);
+        var errors = new List<string>();
+        var memory = new List<(long At, long Bytes)>();
+        var sustained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var accepting = 1;
+        var invalidFrames = 0;
+        var timedFrames = 0;
+        long firstAt = 0;
+        viewer.Coordinator.SessionRemoteFrameReceived += (_, received) =>
+        {
+            var frame = received.Frame;
+            if (frame.Width != width || frame.Height != height || frame.Pixels.Length != frame.ExpectedLength)
+            {
+                Interlocked.Increment(ref invalidFrames);
+                return;
+            }
+            // The headless test validates a complete output buffer before reporting presentation.
+            viewer.Coordinator.ReportFrameRendered(received.SessionId, new PresentedVideoFrame(
+                frame.PipelineDecodedTimestamp, frame.Width, frame.Height,
+                frame.CaptureTimestampUnixMicroseconds, frame.CaptureSequenceNumber, frame.PeerClockEstimate));
+            if (Volatile.Read(ref accepting) == 0) return;
+            var now = Stopwatch.GetTimestamp();
+            Interlocked.CompareExchange(ref firstAt, now, 0);
+            double? age = null;
+            if (frame.PeerClockEstimate is { UncertaintyMicroseconds: >= 0 and <= 50_000 } clock
+                && frame.CaptureTimestampUnixMicroseconds > 0)
+            {
+                var microseconds = (decimal)((DateTimeOffset.UtcNow.UtcTicks - DateTimeOffset.UnixEpoch.UtcTicks) / 10)
+                    + clock.RemoteMinusLocalOffsetMicroseconds - frame.CaptureTimestampUnixMicroseconds;
+                if (microseconds is > 0 and <= 60_000_000) age = (double)(microseconds / 1000);
+            }
+            if (age.HasValue) Interlocked.Increment(ref timedFrames);
+            lock (gate)
+            {
+                if (presentations.Count < 4096)
+                    presentations.Add(new(now, age, frame.PeerClockEstimate?.UncertaintyMicroseconds / 1000d));
+                if (presentations.Count >= 90 && Volatile.Read(ref timedFrames) >= 30)
+                    sustained.TrySetResult();
+            }
+        };
+        // The coordinator subscribed first during CreateAsync. This observer only records
+        // messages that passed registration, server session ownership and actual WebSocket delivery.
+        sharer.Signaling.QualityReceived += (_, quality) =>
+        {
+            if (Volatile.Read(ref accepting) == 0) return;
+            var statistics = sharer.Coordinator.StatisticsOf(quality.SessionId);
+            var item = new CoordinatedFeedback(Stopwatch.GetTimestamp(), quality.SessionId,
+                quality.CaptureToPresentLatencyP95Ms, quality.FrameAgeClockUncertaintyMs,
+                quality.DecodeFps, quality.RenderFps, statistics.QualityChangeReason,
+                statistics.TargetFps, statistics.AdaptiveQualityLevel);
+            lock (gate) if (feedback.Count < 1024) feedback.Add(item);
+        };
+        void RecordError(object? sender, SignalingErrorNotification error)
+        {
+            lock (gate) if (errors.Count < 32) errors.Add(error.Code);
+        }
+        viewer.Signaling.ErrorReceived += RecordError;
+        sharer.Signaling.ErrorReceived += RecordError;
+        using var process = Process.GetCurrentProcess();
+        SessionId? observingSessionId = null;
+        void SampleMemory()
+        {
+            process.Refresh();
+            memory.Add((Stopwatch.GetTimestamp(), process.PrivateMemorySize64));
+            if (observingSessionId is { } current)
+                diagnostics.ObservePipeline(sharer.Coordinator.StatisticsOf(current), viewer.Coordinator.StatisticsOf(current));
+        }
+        var diagnosticBeganAt = Stopwatch.GetTimestamp();
+        var allocated = GC.GetTotalAllocatedBytes(precise: true);
+        var collections = new[] { GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2) };
+        SampleMemory();
+        await viewer.ConnectAsync();
+        await sharer.ConnectAsync();
+        var sessionId = await viewer.Coordinator.RequestViewOnlySessionAsync(sharer.Identity.PublicId);
+        observingSessionId = sessionId;
+        var prompt = await sharer.Prompt.Shown.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(viewer.Identity.PublicId, prompt.RequesterId);
+        Assert.Equal(SessionMode.ViewOnly, prompt.RequestedMode);
+        var initialFrames = sustained.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        while (!initialFrames.IsCompleted)
+        {
+            await Task.WhenAny(initialFrames, Task.Delay(TimeSpan.FromSeconds(1)));
+            SampleMemory();
+        }
+        await initialFrames;
+        var initial = viewer.Coordinator.StatisticsOf(sessionId);
+        output.WriteLine($"Coordinated initial90 rolling p95={initial.CaptureToPresentLatencyP95Ms:F2}ms; "
+            + $"target100ms={(initial.CaptureToPresentLatencyP95Ms <= 100 ? "MET" : "MISSED")}");
+        while (Stopwatch.GetElapsedTime(Interlocked.Read(ref firstAt)) < TimeSpan.FromSeconds(30))
+        {
+            SampleMemory();
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+        SampleMemory();
+        var observationEndedAt = Stopwatch.GetTimestamp();
+        Volatile.Write(ref accepting, 0);
+        CoordinatedPresentation[] frames;
+        CoordinatedFeedback[] receivedFeedback;
+        string[] signalingErrors;
+        lock (gate)
+        {
+            frames = presentations.Where(item => item.At <= observationEndedAt).ToArray();
+            receivedFeedback = feedback.Where(item => item.At <= observationEndedAt).ToArray();
+            signalingErrors = errors.ToArray();
+        }
+        var senderStatistics = sharer.Coordinator.StatisticsOf(sessionId);
+        var viewerStatistics = viewer.Coordinator.StatisticsOf(sessionId);
+        var validFeedback = receivedFeedback.Where(item => item.AgeMs > 0 && item.ClockMs <= 50).ToArray();
+        output.WriteLine($"Coordinated synthetic gray {width}x{height}; presentationBoundary=validated-headless-output-buffer; "
+            + $"receivedQualityMessages={receivedFeedback.Length}; "
+            + $"usableQualityMessages={validFeedback.Length}; signalingErrorCodes={string.Join(',', signalingErrors)}; "
+            + $"encoder={senderStatistics.EncoderName}; hardware={senderStatistics.EncoderHardwareAccelerated}; "
+            + $"decoder={viewerStatistics.DecoderName}; "
+            + $"hardwareInitialisations={hardware?.InitialisationCount ?? 0}; targetFps={senderStatistics.TargetFps}; "
+            + $"targetBitrateKbps={senderStatistics.TargetBitrateKbps}; reason={senderStatistics.QualityChangeReason}; "
+            + $"captureToEncodeP95Ms={senderStatistics.CaptureToEncodeLatencyP95Ms:F2}; "
+            + $"viewerRollingAgeP95Ms={viewerStatistics.CaptureToPresentLatencyP95Ms:F2}; "
+            + $"viewerClockMs={viewerStatistics.FrameAgeClockUncertaintyMs:F2}; "
+            + $"pending={viewerStatistics.VideoPresentationQueueDepth}; replaced={viewerStatistics.VideoPresentationFramesReplaced}; "
+            + $"lastPresentationGapMs={Stopwatch.GetElapsedTime(frames[^1].At, observationEndedAt).TotalMilliseconds:F2}; "
+            + $"allocatedBytes={GC.GetTotalAllocatedBytes(precise: true) - allocated}; "
+            + $"GC0/1/2={GC.CollectionCount(0) - collections[0]}/{GC.CollectionCount(1) - collections[1]}/{GC.CollectionCount(2) - collections[2]}");
+        var first = frames[0].At;
+        var firstFiveEnd = first + 5 * Stopwatch.Frequency;
+        var lastFiveStart = observationEndedAt - 5 * Stopwatch.Frequency;
+        var finalWindow = frames.Where(item => item.At >= lastFiveStart && item.At <= observationEndedAt).ToArray();
+        LogWindow("startupFirst5s", frames.Where(item => item.At <= firstFiveEnd).ToArray(), first, firstFiveEnd);
+        LogWindow("entireSession", frames, first, observationEndedAt);
+        LogWindow("last5s", finalWindow, lastFiveStart, observationEndedAt);
+        diagnostics.Write(output, diagnosticBeganAt, observationEndedAt);
+        Assert.Equal(0, Volatile.Read(ref invalidFrames));
+        Assert.Equal(1, sharer.Prompt.Calls);
+        Assert.Equal(SessionState.ConnectedViewOnly, viewer.Coordinator.StateOf(sessionId));
+        Assert.Equal(SessionState.ConnectedViewOnly, sharer.Coordinator.StateOf(sessionId));
+        Assert.Equal(expectHardware, senderStatistics.EncoderHardwareAccelerated);
+        Assert.Equal(width, senderStatistics.EncodedWidth);
+        Assert.Equal(height, senderStatistics.EncodedHeight);
+        Assert.Equal(width, viewerStatistics.RenderedWidth);
+        Assert.Equal(height, viewerStatistics.RenderedHeight);
+        Assert.True(viewerStatistics.CaptureToPresentLatencyP95Ms > 0);
+        Assert.InRange(viewerStatistics.FrameAgeClockUncertaintyMs, 0, 50);
+        Assert.InRange(viewerStatistics.VideoPresentationQueueDepth, 0, 1);
+        Assert.NotEmpty(validFeedback);
+        Assert.NotEmpty(finalWindow);
+        Assert.All(receivedFeedback, item => Assert.Equal(sessionId, item.SessionId));
+        Assert.True(Stopwatch.GetElapsedTime(validFeedback[^1].At, observationEndedAt) < TimeSpan.FromSeconds(5),
+            "Authenticated viewer quality feedback was absent or stale at the end of the observation.");
+
+        void LogWindow(string name, CoordinatedPresentation[] window, long windowStart, long windowEnd)
+        {
+            var ages = window.Where(item => item.AgeMs.HasValue).Select(item => item.AgeMs!.Value).Order().ToArray();
+            var duration = Stopwatch.GetElapsedTime(windowStart, windowEnd).TotalSeconds;
+            var p95 = ages.Length == 0 ? 0 : ages[(int)Math.Ceiling(ages.Length * .95) - 1];
+            var clocks = window.Where(item => item.ClockMs.HasValue).Select(item => item.ClockMs!.Value).ToArray();
+            var quality = receivedFeedback.Where(item => item.At >= windowStart && item.At <= windowEnd).ToArray();
+            var privateBytes = memory.Where(item => item.At >= windowStart && item.At <= windowEnd)
+                .Select(item => item.Bytes).ToArray();
+            output.WriteLine($"Coordinated4K {name}: frames={window.Length}; authenticatedAgeSamples={ages.Length}; "
+                + $"durationSeconds={duration:F2}; fps={Math.Max(0, window.Length - 1) / duration:F2}; p95Ms={p95:F2}; "
+                + $"clockMaxMs={(clocks.Length == 0 ? double.NaN : clocks.Max()):F2}; target100ms={(ages.Length > 0 && p95 <= 100 ? "MET" : "MISSED")}; "
+                + $"receivedQualityMessages={quality.Length}; "
+                + (quality.Length == 0 ? "feedback=unavailable" :
+                    $"receivedAgeMin/Max/LastMs={quality.Min(item => item.AgeMs):F2}/{quality.Max(item => item.AgeMs):F2}/{quality[^1].AgeMs:F2}; "
+                    + $"receivedClockMax/LastMs={quality.Max(item => item.ClockMs):F2}/{quality[^1].ClockMs:F2}; "
+                    + $"receivedDecode/RenderFpsLast={quality[^1].DecodeFps:F2}/{quality[^1].RenderFps:F2}; "
+                    + $"senderTargetFpsMin/Max/Last={quality.Min(item => item.TargetFps)}/{quality.Max(item => item.TargetFps)}/{quality[^1].TargetFps}; "
+                    + $"senderLevelLast={quality[^1].Level}; senderReasons="
+                    + string.Join(',', quality.GroupBy(item => item.Reason).Select(group => $"{group.Key}:{group.Count()}")))
+                + $"; privateBytesSamples={privateBytes.Length}; privateBytesStart/Max/End="
+                + (privateBytes.Length == 0 ? "unavailable" : $"{privateBytes[0]}/{privateBytes.Max()}/{privateBytes[^1]}"));
+        }
+    }
+
+    private sealed record CoordinatedPresentation(long At, double? AgeMs, double? ClockMs);
+    private sealed record CoordinatedFeedback(long At, SessionId SessionId, double AgeMs, double ClockMs,
+        double DecodeFps, double RenderFps, string? Reason, int TargetFps, int? Level);
 
     [Fact]
     public void Windows_client_advertises_the_managed_hybrid_security_provider()

@@ -1,97 +1,108 @@
-# PeerOnQ server and clients 0.9.76 - release candidate
+# PeerOnQ 0.9.78 - private unsigned candidate
 
-The Windows packages retain the unsigned-public-pilot classification. The server bundle has no
-detached GPG signature. Checksums establish integrity, not production signing approval.
-Physical-device/WAN performance and release-signing gates remain open.
+This synchronized full-server/client candidate includes the automatic website download selection
+and the Windows dashboard simplification requested after 0.9.77. Directory.Build.props is the sole
+product-version source. Windows, Portable Support, Linux, Android and Apple derive 0.9.78;
+Android/Apple bundle codes advance to 9078. Older artifacts retain their original bytes/version.
 
-## Package contents and version truth
+## Changes since 0.9.77
 
-| Surface | Version / status |
-| --- | --- |
-| Full Linux x86_64 server upgrade | 0.9.76 |
-| Embedded Windows x64 MSI | 0.9.76; unsigned public pilot |
-| Matching Windows ARM64 MSI | 0.9.76; separate local website package |
-| Linux / Android / Apple | Matching source version only; no newly published packages |
+- Windows Dashboard removes both Display quality and Target resolution dropdowns. Startup directly
+  applies Automatic adaptive quality with an explicit P1080 target. This is a client behavior
+  change, not merely a version rebuild. Sound requests, consent and session permissions retain
+  their existing controls.
+- The existing 1080-pixel short-edge capture policy retains aspect ratio and portrait orientation,
+  never upscales a smaller source and independently caps the Windows capture path. A 3840x2160
+  display sends 1920x1080; ultrawide long edges can exceed 1920. 4K mode remains deferred.
+- The website automatically recommends x64 for Firefox/legacy Windows 64-bit compatibility
+  information. Authoritative ARM64 Client Hints override the recommendation. Explicit ARM64
+  survives missing/failed hints; a local 1.5-second deadline avoids indefinite checking. Manual
+  selection remains an optional override and wins over delayed hints. Unknown/unsupported
+  architectures remain unavailable. Reduced browser identities cannot prove every native CPU:
+  the legacy x64 fallback is explicitly a recommendation, not verified native-CPU detection.
+- Website-only builds now explicitly enable both server-owned Windows architecture links and
+  clear inherited embedded ARM64 URLs. Their signature and client-authority boundaries remain.
+  This full bundle supplies both exact checksum-verified installers and refreshed website metadata.
+- Cloud, customer Portal and Admin have no additional behavior change in this patch. Their images
+  are rebuilt with this same synchronized release. Server installation updates offered downloads;
+  it does not automatically replace already-installed clients.
 
-Directory.Build.props remains the single server/client version source. Android/Apple source codes
-advance to 9076. Native behavior/protocols are unchanged; matching Windows packages only advance
-the shared version stamp. Installing the server updates offered downloads, not installed clients.
-Earlier immutable artifacts remain unchanged. Matching MSI checksums accompany the package pair.
+## Artifacts and validation boundary
 
-## Website change
+Windows x64 and ARM64 installers use unsigned-public-pilot classification. Portable Support
+x64/ARM64 use unsigned-development and do not install the optional service broker. Linux remains
+a private unsigned attended viewer/controller preview; it has no hosting, file transfer,
+clipboard, audio or unattended capability. Android/Apple receive derived source versions only;
+no physical-device or distribution approval is implied.
 
-- Remove the prominent amber pilot warning and the testing-only sentence from the download hero.
-- Keep the existing unsigned classification and factual digital-signature status in a collapsed,
-  keyboard-operable native Installer details disclosure.
-- Keep the selected platform/architecture, canonical version, download link, integrity checks,
-  publication gates and actual installer signing status unchanged.
-- Successful full-server activation makes this bundled website authoritative and deactivates
-  any older website overlay through the existing validated installer transaction.
+Fresh source checks for this patch: public web tests 118/118, zero failed/skipped, TypeScript and
+ESLint passed. The native UI contract passed after removing both selectors; the strict WinUI x64
+source build passed with zero warnings/errors. Fresh installer payload/size/version/core checks,
+Portable/Linux checks and extracted-bundle runtime acceptance are recorded with exact artifacts
+and hashes in the accompanying VALIDATION.json. Require its explicit current pass.
+Prior 0.9.77 media/SCTP/hardware measurements remain historical evidence, not fresh 0.9.78 runs.
+Post-build acceptance and the whole-bundle hash are external to this immutable payload.
 
-## Preserved behavior and boundaries
+The fresh Windows pair passed full extracted-payload/ICE03 checks with zero warnings/errors;
+both remain below 96 MiB. Packaging inputs: 56, zero drift. Exact embedded inputs:
 
-- Existing production/staging Cloud API SMTP egress via customer-mail-egress. Control and
-  observability networks stay internal; database/cache/application ports are not published.
-- Real customer registration, password recovery, verification and login routes, with host-only
-  __Host- cookies, CSRF, rate limits, account/organization authorization and current MFA settings.
-- Production customer recovery, separate email verification and subsequent sign-in were confirmed
-  by the operator for one account on 2026-09-28. This is not a fresh test of this package on the host.
-- Password reset does not mark an account's email verified. Use the separate verification email.
-- Admin identity and mandatory privileged-role MFA remain separate from customer Portal identity.
-- Public portless Portal, operator CIDRs, unknown-host rejection and TLS/security headers.
-- Prior installer Node/version/cache/header-parsing fixes and validated embedded Windows downloads.
-- No native behavior, physical sharpness/4K/latency or remote-control protocol change is included.
+| Architecture | Bytes | SHA256 |
+| --- | ---: | --- |
+| x64 | 85,442,560 | a675bde4f9875d9b2dcd141bdcf3aa0a803ee58adb119caa2f1de25fd1c4d115 |
+| ARM64 | 77,930,496 | e80a252d2b7d9c9db1af6d1996b90291163b28a3cd8b91940b7fce17aea09e5b |
 
-## Existing production configuration
+Fresh Linux validation passed 48/48 (22+14+12), zero failed/skipped, 194 source inputs/zero drift,
+archive/core/notices and actual normal-close/startup-cancel checks. Its private preview archive is
+54,103,727 bytes, SHA256 dabe9707ee7db52d064aa67d10ce234377b46751b2f849d40a05955793ac2c7c.
+These local/container checks do not close the physical-device/publication gates below.
 
-Preserve /etc/peeronq/peeronq.env and the existing Resend SMTP API key/sender. Run the normal upgrade
-without --bootstrap, --disable-customer-mail or registration/MFA overrides. Do not replace working
-values with placeholders. This update does not require new DNS, firewall, SMTP or Admin credentials.
-The initial Admin onboarding record, if retained, is /etc/peeronq/admin-onboarding.txt (root-only).
-Use its Email/Password plus an authenticator code or unused recovery code; never share that file.
+All existing security/compatibility fixes are retained: maintained PeerOnQ.SIPSorcery 10.0.17.6
+provenance/notices, bounded authenticated transport, file integrity, protected optional LocalService
+broker, default-off attended audio, Node 24 Docker pins and nested CR/download-header checks.
+No encryption, authorization, licensing, quota, TLS, hash, package-size or release gate is relaxed.
 
-## Validation and limits
+## Configuration and coordinated rollback
 
-See AI_CHANGELOG.md and docs/CURRENT_STATE.md for the actual completed checks and exact hashes.
-Release validation covers the website regression/build, canonical paired client packaging,
-embedded MSI integrity, exact server payload, merged Compose and installer/ingress contracts.
-No production installation, real-browser visual acceptance or physical-device test is claimed.
-Existing media timing failures remain outside this UI/package change; the full media suite was
-not rerun and its thresholds were not changed.
+Reuse /etc/peeronq/peeronq.env and the existing /opt/peeronq installation. Preserve SMTP settings,
+TLS, customer registration/MFA, operator restrictions, data volumes and forward migrations.
+An existing installation must not use --bootstrap.
 
-## Operator install command
+No new migration is introduced after 0.9.77. The additive default-false system-audio policy column
+remains. Cloud/Signaling must both understand audio flag 64 before enabling that policy. A rollback
+to pre-audio parsers requires disabling the policy and refreshing device attestations, or waiting
+their lifetime plus verifier clock skew; older parsers reject flag 64 even for non-audio sessions.
+Keep the additive column/data and do not run a destructive database downgrade.
 
-Copy peeronq-server-0.9.76.run to /home/peeronq. First verify its exact published SHA-256 using the
-inline handoff checksum or its matching .run.sha256 sidecar if copied. Then run in Linux Bash:
+## Operator CLI
 
-```bash
+Copy the exact .run and trusted matching checksum sidecar to /home/peeronq. In Bash:
+
+~~~bash
 (
-set -e
+set -eu
 cd /home/peeronq
-chmod 700 peeronq-server-0.9.76.run
-sudo ./peeronq-server-0.9.76.run --env-file /etc/peeronq/peeronq.env --dry-run
-sudo ./peeronq-server-0.9.76.run --env-file /etc/peeronq/peeronq.env
-sudo ./peeronq-server-0.9.76.run --status --env-file /etc/peeronq/peeronq.env
+sha256sum --check peeronq-server-0.9.78.run.sha256
+chmod 700 peeronq-server-0.9.78.run
+sudo ./peeronq-server-0.9.78.run --env-file /etc/peeronq/peeronq.env --dry-run
+sudo ./peeronq-server-0.9.78.run --env-file /etc/peeronq/peeronq.env
+sudo ./peeronq-server-0.9.78.run --status --env-file /etc/peeronq/peeronq.env
 )
-```
+~~~
 
-After activation, reload the public website with Ctrl+F5. Confirm the amber notice is gone and
-Installer details opens; confirm the offered Windows package version is 0.9.76. Existing customer
-and Admin accounts remain unchanged. Test their normal sign-in paths without changing mail policy.
-If the server cannot reach its own public IP, retain TLS verification with this local probe:
+The checksum proves integrity, not publisher authenticity. This private candidate has no approved
+detached server signature or Authenticode/timestamp approval. It is not ready for production or
+public redistribution. Restricted dependency/license review, native source/build/security
+provenance and exact-artifact SBOM, clean-machine MSI/SCM/LocalService lifecycle, physical ARM64,
+two-endpoint media/audio/WAN and non-Windows capability/publication gates remain open.
+No production installation was performed while preparing the bundle.
 
-```bash
-curl --noproxy '*' --connect-timeout 5 --max-time 15 \
-  --resolve portal.peeronq.com:443:127.0.0.1 \
-  --fail --silent --show-error https://portal.peeronq.com/portal/v1/auth/capabilities
-```
+For an already installed candidate, after the applicable compatibility preconditions above,
+restore the retained previously verified release through the existing installer rollback:
 
-The existing portal.peeronq.com DNS must continue to resolve to the HTTPS ingress with valid TLS
-and reachable TCP 443. No public 8443 port is required. Source code does not alter public DNS.
+~~~bash
+sudo ./peeronq-server-0.9.78.run --rollback --env-file /etc/peeronq/peeronq.env
+sudo ./peeronq-server-0.9.78.run --status --env-file /etc/peeronq/peeronq.env
+~~~
 
-## Rollback
-
-Use the retained verified server release with --rollback --env-file /etc/peeronq/peeronq.env.
-Rollback to 0.9.75 restores the old website notice while retaining its SMTP egress fix. Preserve
-all data volumes, forward migrations and protected SMTP configuration. Server rollback does not
-downgrade installed clients. Do not re-bootstrap the existing installation.
+Rollback does not downgrade installed clients. Retain the earlier release files, data and protected
+configuration; preserve immutable 0.9.77 artifacts/evidence for comparison and recovery.

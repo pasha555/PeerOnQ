@@ -88,7 +88,8 @@ public sealed record ManagedDevicePolicyAttestation(
     bool ClipboardAllowed,
     bool HybridSecurityRequired,
     string MinimumClientVersion,
-    string ApprovedRelayRegionsCsv);
+    string ApprovedRelayRegionsCsv,
+    bool SystemAudioAllowed = false);
 
 public interface IDeviceBootstrapStore
 {
@@ -96,7 +97,8 @@ public interface IDeviceBootstrapStore
 }
 
 public sealed record DeviceAccessToken(string Token, DateTimeOffset ExpiresAtUtc);
-public sealed record DeviceAccessPrincipal(Guid DeviceId, Guid InstallationId, DateTimeOffset ExpiresAtUtc);
+public sealed record DeviceAccessPrincipal(Guid DeviceId, Guid InstallationId, DateTimeOffset ExpiresAtUtc,
+    int IdentityVersion = 0, int ProofBindingVersion = 0);
 public interface IDeviceAccessTokenValidator
 {
     Task<DeviceAccessPrincipal?> ValidateAsync(string token, CancellationToken cancellationToken);
@@ -104,7 +106,7 @@ public interface IDeviceAccessTokenValidator
 
 public interface IDeviceAccessTokenIssuer : IDeviceAccessTokenValidator
 {
-    Task<DeviceAccessToken> IssueAsync(Guid deviceId, Guid installationId, TimeSpan lifetime, CancellationToken cancellationToken);
+    Task<DeviceAccessToken> IssueAsync(Guid deviceId, Guid installationId, TimeSpan lifetime, CancellationToken cancellationToken, string? identityFingerprint = null);
     Task RevokeAsync(string token, CancellationToken cancellationToken);
 }
 

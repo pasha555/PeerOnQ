@@ -62,6 +62,8 @@ and all telemetry writes are idempotent.
 | POST | `/v1/installations/unregister` | Mark the installation unregistered | Device token; owner installation only |
 | POST | `/v1/devices/register` | Issue a one-use canonical ECDSA challenge bound to installation/SPKI/client metadata | Anonymous, rate-limited; persists no claim |
 | POST | `/v1/devices/authenticate` | Atomically verify proof, create Device+Installation, and assign a 12-digit routing alias | Anonymous challenge holder; replay/clone safe |
+| POST | `/v1/devices/ownership-links` | Issue a two-minute, single-use ownership code from the native app | Current identity/proof-bound device token; active installation; rate-limited |
+| GET | `/v1/devices/ownership-links/status` | Check organization ownership before native policy refresh | Current identity/proof-bound device token; active installation |
 | POST | `/v1/sessions/start` | Record requested session lifecycle start | Device token |
 | POST | `/v1/sessions/connected` | Record the first actual media-connected state | Device token |
 | POST | `/v1/sessions/heartbeat` | Refresh server-observed activity for a connected session | Device token; session participant only |
@@ -87,7 +89,7 @@ cookie/header.
 | POST | `/portal/v1/auth/password-reset/request`, `/complete` | Enumeration-safe reset issue and one-use completion | Anonymous/rate-limited |
 | POST | `/portal/v1/auth/logout` | Revoke current customer session | Customer session + CSRF |
 | GET/PUT | `/portal/v1/account/profile` | Read/update current profile | Customer session; PUT + CSRF |
-| POST/DELETE | `/portal/v1/account/mfa/setup`, `/mfa/confirm`, `/mfa` | Time-limited TOTP setup, recovery codes, verified disable; fail closed while customer MFA is disabled | Customer session + CSRF |
+| POST/DELETE | `/portal/v1/account/mfa/setup`, `/mfa/confirm`, `/mfa` | Account/session/version-bound TOTP setup; replacement requires current password/factor; fail closed while MFA is disabled | Customer session + CSRF |
 | GET/DELETE | `/portal/v1/account/sessions`, `/sessions/{id}` | List and revoke only the current account's sessions | Customer session + CSRF on delete |
 | GET/DELETE | `/portal/v1/account/trusted-devices`, `/trusted-devices/{id}` | List/revoke expiring account trust records | Customer session + CSRF on delete |
 | POST | `/portal/v1/account/data-requests` | Request account export or guarded deletion | Customer session + CSRF |
@@ -96,12 +98,30 @@ cookie/header.
 | POST/DELETE | `/portal/v1/organizations/{org}/invitations...` | Issue/revoke protected short-lived invitations | Owner/Admin + CSRF |
 | POST | `/portal/v1/organizations/invitations/accept` | One-use invitation acceptance bound to account email | Customer session + CSRF |
 | GET/POST/DELETE | `/portal/v1/organizations/{org}/teams...` | Tenant-scoped team and team-membership management | Member read; Owner/Admin mutation + CSRF |
-| GET/PUT/POST | `/portal/v1/organizations/{org}/policy...` | Read/update/evaluate security and operations policy | Member read/evaluate; Owner/Admin update + CSRF |
+| GET | `/portal/v1/organizations/{org}/teams/{team}/members` | List active organization members assigned to the selected team | Organization member; tenant/team checks |
+| GET/PUT/POST | `/portal/v1/organizations/{org}/policy...` | Read/update/evaluate security and operations policy, including default-off `SystemAudioAllowed` | Member read/evaluate; Owner/Admin update + CSRF |
 | GET/POST | `/portal/v1/organizations/{org}/devices...` | Tenant devices and proof-bound device claim | Member read; Owner/Admin claim + CSRF |
+| POST | `/portal/v1/organizations/{org}/devices/ownership-links/preview` | Preview the native code and bind confirmation to account/session/organization | Owner/Admin + CSRF + sensitive rate limit |
+| POST | `/portal/v1/organizations/{org}/devices/ownership-links/claim` | Atomically consume the code/preview and claim an unowned device; preserve existing same-organization owner | Owner/Admin + CSRF; current device/installation identity; cross-tenant denial |
 | GET | `/portal/v1/organizations/{org}/sessions` | Tenant-scoped remote-session metadata | Organization member |
 | GET | `/portal/v1/organizations/{org}/audit`, `/audit/export` | Redacted immutable organization events/JSON export | Organization member |
 | POST | `/portal/v1/organizations/{org}/transfer-ownership` | Explicit owner transfer | Current owner + CSRF |
 | DELETE | `/portal/v1/organizations/{org}` | Guarded deletion request after members/devices are resolved | Current owner + CSRF |
+
+Ownership exchange implementation: `src/PeerOnQ.Cloud.Api/DeviceOwnershipLinkService.cs` and
+`src/PeerOnQ.Shared.Contracts/V1/DeviceOwnershipContractsV1.cs`. Redis keys use
+`{prefix}:ownership-link:{SHA256(code)}` with a two-minute TTL, never the raw code. Preview is bound
+to the customer account, session and organization; replay/identity rotation fail closed. Native
+policy/signaling registration is refreshed after linking. Previously issued stateless attestations
+retain their configured expiry; linking does not retroactively revoke them.
+
+`OrganizationPolicy.SystemAudioAllowed` is additive and defaults to false (migration
+`20261018193000_AddOrganizationSystemAudioPolicy`). Signed attestation flag 64 permits attended
+audio only when both managed endpoints opt in; permission and ViewScreen remain mandatory.
+Upgrade Cloud and Signaling together before enabling it. Before paired old-server rollback,
+disable it through the new API, then refresh device attestations or wait their configured lifetime
+plus verifier clock skew. Old parsers reject flag 64 even for non-audio registrations. Retain the
+additive database column and existing data; the forward migration intentionally refuses Down.
 
 ### Phase 6 Presence Server
 
@@ -379,6 +399,12 @@ OrganizationPolicy, CustomerTrustedDevice, CustomerSecurityEvent, and AccountDat
 and internal Admin identity/role/session entities are deliberately unrelated.
 
 ## Background Jobs
+
+The optional Windows session broker exposes no HTTP/network endpoint. Local pipe
+`PeerOnQ.SessionBroker.v1` uses the bounded `WindowsSessionBrokerProtocol` registration/heartbeat/
+unregister exchange and kernel process/session/SID validation. MSI stores only `Enabled` and
+`HostExecutablePath` under protected HKLM64 `Software\PeerOnQ\SessionBroker`. Identity/private keys
+remain in the interactive user's existing stores; the broker cannot grant remote permissions.
 
 - `RetentionWorker`: bounded presence/session/download/diagnostic/health/admin-session cleanup plus
   policy-controlled audit/alert retention; legal holds win and destructive batches emit immutable

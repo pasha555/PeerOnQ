@@ -23,6 +23,10 @@ jobs:
         with:
           languages: csharp
           build-mode: manual
+      - name: Build maintained dependency from pinned source
+        run: >-
+          dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release --
+          --output eng/sipsorcery/packages
       - run: dotnet restore PeerOnQ.slnx
       - run: dotnet build PeerOnQ.slnx --no-restore -c Release
       - uses: github/codeql-action/analyze@f116a11b3d2ec2f382b4a6530d51b8f4cf136fee # v4.32.1

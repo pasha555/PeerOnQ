@@ -14,6 +14,7 @@ public enum SecureChannelKind : byte
     Clipboard = 4,
     FileTransfer = 5,
     Telemetry = 6,
+    Audio = 7,
 }
 
 public sealed record SecureSessionInfo
@@ -36,6 +37,13 @@ public interface ISessionTrafficProtector
     bool IsEstablished { get; }
     byte[] ProtectVideoFrame(ReadOnlySpan<byte> encodedFrame);
     bool TryUnprotectVideoFrame(ReadOnlySpan<byte> protectedFrame, out byte[] plaintext, out string? error);
+    byte[] ProtectAudioFrame(ReadOnlySpan<byte> frame) => throw new NotSupportedException();
+    bool TryUnprotectAudioFrame(ReadOnlySpan<byte> frame, out byte[] plaintext, out string? error)
+    {
+        plaintext = [];
+        error = "audio_not_supported";
+        return false;
+    }
 }
 
 /// <summary>
@@ -51,6 +59,7 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
     private const int HeaderBytes = 38;
     private const int TagBytes = 16;
     private const int NonceBytes = 12;
+    public const int RecordOverheadBytes = HeaderBytes + TagBytes;
     private const int DerivedStateBytes = 36;
     private static readonly byte[] Magic = "PNQE"u8.ToArray();
 
@@ -83,6 +92,12 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
         out byte[] plaintext,
         out string? error) =>
         TryUnprotect(SecureChannelKind.Video, Guid.Empty, protectedFrame, out plaintext, out error);
+
+    public byte[] ProtectAudioFrame(ReadOnlySpan<byte> frame) =>
+        Protect(SecureChannelKind.Audio, Guid.Empty, frame);
+
+    public bool TryUnprotectAudioFrame(ReadOnlySpan<byte> frame, out byte[] plaintext, out string? error) =>
+        TryUnprotect(SecureChannelKind.Audio, Guid.Empty, frame, out plaintext, out error);
 
     public bool TryUnprotect(
         ReadOnlySpan<byte> frame,
@@ -202,8 +217,8 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
             if (!ReferenceEquals(state, current)) state = current;
             if (epoch < state.Epoch)
             {
-                error = channel == SecureChannelKind.Video
-                    ? "stale_video_record"
+                error = IsLossyChannel(channel)
+                    ? StaleRecordError(channel)
                     : "invalid_key_epoch";
                 return false;
             }
@@ -221,11 +236,11 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
             lock (candidate.Gate)
             {
                 if (candidate.LastReceivedSequence is { } last
-                    && (channel == SecureChannelKind.Video ? sequence <= last : sequence != last + 1))
+                    && (IsLossyChannel(channel) ? sequence <= last : sequence != last + 1))
                 {
                     if (replacesCurrent) candidate.Dispose();
-                    error = channel == SecureChannelKind.Video
-                        ? "stale_video_record"
+                    error = IsLossyChannel(channel)
+                        ? StaleRecordError(channel)
                         : "replayed_or_out_of_order_record";
                     return false;
                 }
@@ -233,7 +248,7 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
                 // does not have to be the sender's sequence zero. Ordered collaboration channels
                 // still require an exact zero-based sequence from their first record.
                 if (candidate.LastReceivedSequence is null
-                    && channel != SecureChannelKind.Video
+                    && !IsLossyChannel(channel)
                     && sequence != 0)
                 {
                     if (replacesCurrent) candidate.Dispose();
@@ -283,6 +298,12 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
     }
 
     public void ForceRekey() => Interlocked.Increment(ref _forcedGeneration);
+
+    private static bool IsLossyChannel(SecureChannelKind channel) =>
+        channel is SecureChannelKind.Video or SecureChannelKind.Audio;
+
+    private static string StaleRecordError(SecureChannelKind channel) =>
+        channel == SecureChannelKind.Audio ? "stale_audio_record" : "stale_video_record";
 
     public void ForgetTransfer(Guid transferId)
     {

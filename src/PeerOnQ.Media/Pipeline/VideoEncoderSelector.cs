@@ -30,8 +30,8 @@ public sealed class VideoEncoderSelector(
     Func<bool>? hardwareH264Implemented = null)
 {
     /// <summary>
-    /// The shipping codec path has no Media Foundation encoder wrapper, so this is false. Hardware
-    /// detection still runs, which makes the production software fallback explicit and observable.
+    /// Platform composition must provide a real hardware implementation. The default preserves
+    /// software VP8 on platforms and builds without that implementation.
     /// </summary>
     private readonly Func<bool> _implemented = hardwareH264Implemented ?? (() => false);
 

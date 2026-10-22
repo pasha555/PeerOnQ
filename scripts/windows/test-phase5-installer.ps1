@@ -10,6 +10,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'PeerOnQ.DependencyNotices.ps1')
 $msi = (Resolve-Path -LiteralPath $MsiPath).Path
 if ([IO.Path]::GetExtension($msi) -ne '.msi') { throw 'MsiPath must be an MSI package.' }
 $expectedPublish = if ($ExpectedPublishDirectory) {
@@ -105,6 +106,8 @@ function Get-DirectoryHashManifest([string]$Root) {
     return $manifest
 }
 
+if ($expectedPublish) { Assert-PeerOnQMaintainedSipsorceryNotices -PublishDirectory $expectedPublish }
+
 $database = New-Object WixToolset.Dtf.WindowsInstaller.Database(
     $msi,
     ([WixToolset.Dtf.WindowsInstaller.DatabaseOpenMode]::ReadOnly))
@@ -191,8 +194,9 @@ try {
         $features[$row[0]] = [int]$row[1]
         $featureDirectories[$row[0]] = $row[2]
     }
-    if ($features['MainFeature'] -ne 1 -or $features['DesktopShortcutFeature'] -ne 1 -or $features['StartupFeature'] -ne 2) {
-        throw 'Core/optional feature levels do not default desktop on and startup off.'
+    if ($features['MainFeature'] -ne 1 -or $features['DesktopShortcutFeature'] -ne 1 -or
+        $features['StartupFeature'] -ne 2 -or $features['SessionBrokerFeature'] -ne 2) {
+        throw 'Core/optional feature levels must default desktop on, startup and session broker off.'
     }
     if ($featureDirectories['MainFeature'] -ne 'INSTALLFOLDER') {
         throw 'MainFeature must keep INSTALLFOLDER configurable so the Browse button is enabled.'
@@ -221,15 +225,35 @@ try {
     }
 
     $tables = @(Read-Rows $database 'SELECT `Name` FROM `_Tables`' | ForEach-Object { $_[0] })
-    if ($tables -contains 'ServiceInstall' -or $tables -contains 'ServiceControl') {
-        throw 'PeerOnQ MSI must not install or control a Windows service.'
+    if ($tables -notcontains 'ServiceInstall' -or $tables -notcontains 'ServiceControl') {
+        throw 'The opt-in session broker SCM lifecycle is missing.'
+    }
+    $serviceInstall = @(Read-Rows $database 'SELECT `Name`,`ServiceType`,`StartType`,`StartName`,`Component_` FROM `ServiceInstall`')
+    if ($serviceInstall.Count -ne 1 -or $serviceInstall[0][0] -ne 'PeerOnQ.SessionBroker' -or
+        $serviceInstall[0][1] -ne '16' -or $serviceInstall[0][2] -ne '2' -or
+        $serviceInstall[0][3] -ne 'NT AUTHORITY\LocalService' -or $serviceInstall[0][4] -ne 'SessionBrokerService') {
+        throw 'Only the non-interactive LocalService own-process session broker may be installed.'
+    }
+    $serviceControl = @(Read-Rows $database 'SELECT `Name`,`Event`,`Wait`,`Component_` FROM `ServiceControl`')
+    if ($serviceControl.Count -ne 1 -or $serviceControl[0][0] -ne 'PeerOnQ.SessionBroker' -or
+        $serviceControl[0][1] -ne '163' -or $serviceControl[0][2] -ne '1' -or $serviceControl[0][3] -ne 'SessionBrokerService') {
+        throw 'The session broker must start on install and stop/remove synchronously on uninstall.'
+    }
+    $brokerFeature = @(Read-Rows $database "SELECT ``Feature_`` FROM ``FeatureComponents`` WHERE ``Component_``='SessionBrokerService'")
+    if ($brokerFeature.Count -ne 1 -or $brokerFeature[0][0] -ne 'SessionBrokerFeature') {
+        throw 'Service installation must be isolated to its visible optional feature.'
+    }
+    $brokerDirectory = @(Read-Rows $database "SELECT ``Directory_Parent`` FROM ``Directory`` WHERE ``Directory``='BrokerMachineRoot'")
+    if ($brokerDirectory.Count -ne 1 -or $brokerDirectory[0][0] -ne 'ProgramFiles6432Folder') {
+        throw 'The service payload must remain under protected Program Files, independent of custom application directories.'
     }
     if ($tables -contains 'CustomAction') { throw 'Unexpected installer custom actions are not allowed.' }
 
     $startupFeature = @(Read-Rows $database `
         "SELECT ``Feature_`` FROM ``FeatureComponents`` WHERE ``Component_``='StartupShortcut'")
-    if ($startupFeature.Count -ne 1 -or $startupFeature[0] -ne 'StartupFeature') {
-        throw 'Startup persistence is not isolated to its visible optional feature.'
+    $startupFeatures = @($startupFeature | ForEach-Object { $_[0] } | Sort-Object)
+    if ($startupFeatures.Count -ne 2 -or $startupFeatures[0] -ne 'SessionBrokerFeature' -or $startupFeatures[1] -ne 'StartupFeature') {
+        throw 'Visible startup must belong only to the startup and session-broker opt-in features.'
     }
 
     $fileRows = @(Read-Rows $database 'SELECT `FileName`,`Language` FROM `File`')
@@ -274,6 +298,7 @@ if (-not $SkipAdministrativeExtraction) {
                 throw "Extracted MSI is missing self-contained Windows App Runtime file: $runtimeFile"
             }
         }
+        Assert-PeerOnQMaintainedSipsorceryNotices -PublishDirectory $extractedExecutable.DirectoryName
         if ($expectedPublish) {
             $expectedManifest = Get-DirectoryHashManifest $expectedPublish
             $packagedManifest = Get-DirectoryHashManifest $extractedExecutable.DirectoryName

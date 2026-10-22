@@ -38,6 +38,7 @@ public enum SessionPermission
     FileTransfer = 1 << 2,
     ClipboardText = 1 << 3,
     ClipboardImage = 1 << 4,
+    SystemAudio = 1 << 5,
 }
 
 public enum SessionAccessKind
@@ -59,7 +60,8 @@ public static class SessionPermissionPolicy
         SessionPermission.ControlInput |
         SessionPermission.FileTransfer |
         SessionPermission.ClipboardText |
-        SessionPermission.ClipboardImage;
+        SessionPermission.ClipboardImage |
+        SessionPermission.SystemAudio;
 
     public static SessionPermission ForMode(SessionMode mode) => mode switch
     {
@@ -77,8 +79,13 @@ public static class SessionPermissionPolicy
         if (permissions.HasFlag(SessionPermission.ControlInput)
             && !permissions.HasFlag(SessionPermission.ViewScreen))
             return false;
+        if (permissions.HasFlag(SessionPermission.SystemAudio)
+            && !permissions.HasFlag(SessionPermission.ViewScreen))
+            return false;
 
         if (mode == SessionMode.Custom) return true;
+        // Sound is an explicit extra grant. It never becomes part of a default profile.
+        permissions &= ~SessionPermission.SystemAudio;
         if (mode == SessionMode.FullControl)
         {
             var legacyFullControl = SessionPermission.ViewScreen | SessionPermission.ControlInput;

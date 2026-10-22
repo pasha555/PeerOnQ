@@ -17,8 +17,8 @@ network evidence remain release gates.
 
 | Purpose | Algorithm/provider |
 | --- | --- |
-| Hybrid key establishment | ephemeral ML-KEM-768 + ephemeral X25519 (Bouncy Castle 2.6.2) |
-| Hybrid peer authentication | ML-DSA-65 + Ed25519 (Bouncy Castle 2.6.2) |
+| Hybrid key establishment | ephemeral ML-KEM-768 + ephemeral X25519 (Bouncy Castle 2.7.0) |
+| Hybrid peer authentication | ML-DSA-65 + Ed25519 (Bouncy Castle 2.7.0) |
 | Existing directory binding | ECDSA P-256 signature over the hybrid public identity |
 | Key derivation | HKDF-SHA-512 |
 | Record protection | AES-256-GCM with authenticated session/channel/epoch/sequence context |
@@ -62,7 +62,7 @@ HKDF-SHA-512 uses the transcript hash as salt and a version/session/suite bindin
 derives independent viewer/sharer authentication keys and independent traffic states by:
 
 - direction: viewer-to-sharer or sharer-to-viewer;
-- channel: control, encoded video, input, clipboard, file transfer, or optional timing telemetry;
+- channel: control, encoded video, input, clipboard, file transfer, optional timing telemetry, or system audio;
 - transfer ID for every file transfer;
 - key epoch.
 
@@ -75,6 +75,13 @@ plaintext, are dropped, and request a recovery key frame. One lossy/truncated vi
 cannot terminate the session, while a sustained consecutive verification failure still terminates
 fail-closed. Ordered-channel replay or AEAD authentication failure remains immediately terminal.
 Keys and failed plaintext buffers are zeroed when their lifecycle ends.
+
+Optional `audio.pcm16.v1` adds distinct Audio context 7 with direction/session binding; authenticated
+forward gaps are allowed, while duplicates/old records expose no plaintext. No ordered channel's
+rules change. Audio uses its own attended-consent-gated association and default-off managed policy,
+never primary fallback. Exact bounded PCM and reverse PNQK receipts constrain unacknowledged audio
+to twelve frames; missing/future receipts close audio, and sustained authentication failures retain
+the security failure budget. This captures system render output only, not a microphone.
 
 ## Negotiated frame-age telemetry
 

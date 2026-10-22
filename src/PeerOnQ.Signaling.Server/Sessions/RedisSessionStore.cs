@@ -48,7 +48,8 @@ public sealed class RedisSessionStore(
         string accessKind = "attended",
         bool fileRelayEnabled = false,
         CancellationToken cancellationToken = default,
-        bool remoteScopeSelectionRequired = false)
+        bool remoteScopeSelectionRequired = false,
+        bool unicodeInputEnabled = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Guid.TryParse(sessionId, out _)
@@ -69,6 +70,7 @@ public sealed class RedisSessionStore(
             Permissions = permissions,
             AccessKind = accessKind,
             FileRelayEnabled = fileRelayEnabled,
+            UnicodeInputEnabled = unicodeInputEnabled,
             RemoteScopeSelectionRequired = remoteScopeSelectionRequired,
             CreatedAt = now,
             PermissionDeadline = now + _options.PermissionTimeout,
@@ -464,6 +466,7 @@ public sealed class RedisSessionStore(
         public int Permissions { get; set; }
         public string AccessKind { get; set; } = string.Empty;
         public bool FileRelayEnabled { get; set; }
+        public bool UnicodeInputEnabled { get; set; }
         public bool RemoteScopeSelectionRequired { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset PermissionDeadline { get; set; }
@@ -497,6 +500,7 @@ public sealed class RedisSessionStore(
             Permissions = Permissions,
             AccessKind = AccessKind,
             FileRelayEnabled = FileRelayEnabled,
+            UnicodeInputEnabled = UnicodeInputEnabled,
             RemoteScopeSelectionRequired = RemoteScopeSelectionRequired,
             CreatedAt = CreatedAt,
             PermissionDeadline = PermissionDeadline,

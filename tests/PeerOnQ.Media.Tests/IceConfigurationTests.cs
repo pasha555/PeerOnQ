@@ -1,3 +1,5 @@
+using System.Net;
+using System.Reflection;
 using PeerOnQ.Application.Abstractions;
 using PeerOnQ.Domain.Sessions;
 using PeerOnQ.Media;
@@ -8,6 +10,41 @@ namespace PeerOnQ.Media.Tests;
 
 public sealed class IceConfigurationTests
 {
+    [Fact]
+    public async Task Turn_tls_packet_rejection_does_not_end_the_receive_loop()
+    {
+        var channel = new RejectOnePacketIceChannel();
+        try
+        {
+            var packet = new STUNMessage(STUNMessageTypesEnum.BindingRequest).ToByteBuffer(null, false);
+            await using var stream = new MemoryStream(packet.Concat(packet).Concat(packet).ToArray());
+            // The dependency's stream-framing loop is internal. Exercise it directly so a
+            // transport package update cannot silently reintroduce GHSA-6848-qmp4-652w.
+            var receive = typeof(RtpIceChannel).GetMethod("StartTlsReadLoop", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(receive);
+            var operation = Assert.IsAssignableFrom<Task>(receive.Invoke(channel,
+                [new STUNUri(STUNSchemesEnum.turns, "127.0.0.1", 5349), stream, new IPEndPoint(IPAddress.Loopback, 5349)]));
+            await operation.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(3, channel.PacketsDispatched);
+        }
+        finally
+        {
+            channel.Close("test complete");
+        }
+    }
+
+    private sealed class RejectOnePacketIceChannel : RtpIceChannel
+    {
+        public int PacketsDispatched { get; private set; }
+
+        protected override void OnRTPPacketReceived(UdpReceiver receiver, int localPort, IPEndPoint remoteEndPoint, byte[] packet)
+        {
+            PacketsDispatched++;
+            if (PacketsDispatched == 1) throw new InvalidDataException("Rejected malformed packet.");
+        }
+    }
+
     [Fact]
     public void Relay_only_configuration_keeps_udp_tcp_and_tls_fallbacks()
     {

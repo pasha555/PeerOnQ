@@ -15,6 +15,7 @@ public interface ICollaborationTransport : IAsyncDisposable
 {
     SessionPermission Permissions { get; }
     bool IsReady { get; }
+    int MaximumFileChunkBytes => CollaborationProtocolCodec.MaximumChunkBytes;
     SecureSessionInfo? Security => null;
     event EventHandler? Ready;
     event EventHandler<CollaborationMessage>? MessageReceived;
@@ -133,6 +134,10 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
 
     public SessionPermission Permissions { get; }
     public bool IsReady => Volatile.Read(ref _disposed) == 0 && State == HandshakeState.Secure;
+    // A primary SCTP message is limited to 256 KiB including JSON and PNQE. Preserve
+    // headroom for the validated 220-character path, even if relay/native later falls back.
+    public int MaximumFileChunkBytes => _media.IsBulkDataLaneNegotiated
+        ? CollaborationProtocolCodec.MaximumChunkBytes : 240 * 1024;
     public SecureSessionInfo? Security { get; private set; }
     public TransferPriorityMode TransferPriorityMode { get; private set; } = TransferPriorityMode.Balanced;
     public bool IsInputAcknowledgementNegotiated => _media.IsInputAcknowledgementNegotiated;
@@ -432,8 +437,18 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
         }
     }
 
-    private void OnDataMessage(object? sender, ReadOnlyMemory<byte> payload) =>
+    private void OnDataMessage(object? sender, ReadOnlyMemory<byte> payload)
+    {
+        if (SessionTrafficProtector.TryReadRoutingContext(payload.Span, out var channel, out _)
+            && channel == SecureChannelKind.FileTransfer)
+        {
+            // Keep the media lane's bounded queue effective even while another file receive
+            // owns the gate. The header chooses backpressure only; AEAD remains authoritative.
+            ProcessInboundAsync(payload, requireDirectFilePath: true).GetAwaiter().GetResult();
+            return;
+        }
         _ = ProcessInboundAsync(payload, requireDirectFilePath: true);
+    }
 
     private void OnFileRelayReceived(object? sender, FileRelayFrame frame)
     {
@@ -1179,7 +1194,7 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
                         await SendClockTelemetryAsync(
                             ClockSyncCodec.EncodeRequest(requestId, localSentAt),
                             _lifetime.Token);
-                        var reply = await completion.Task.WaitAsync(TimeSpan.FromSeconds(1), _lifetime.Token);
+                        var reply = await completion.Task.WaitAsync(TimeSpan.FromSeconds(1), _time, _lifetime.Token);
                         if (PeerClockEstimator.TryCalculate(
                                 localSentAt,
                                 reply.RemoteReceivedAtUnixMicroseconds,
@@ -1207,7 +1222,7 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
                     }
 
                     if (sample < 4)
-                        await Task.Delay(TimeSpan.FromMilliseconds(25), _lifetime.Token);
+                        await Task.Delay(TimeSpan.FromMilliseconds(25), _time, _lifetime.Token);
                 }
             }
             catch (OperationCanceledException)
@@ -1224,7 +1239,11 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
 
             try
             {
-                await Task.Delay(TimeSpan.FromMinutes(1), _lifetime.Token);
+                // A startup timeout or too-uncertain estimate must not suppress bounded frame-age
+                // measurements for a minute. Keep retries modest; successful clocks refresh normally.
+                var retryDelay = best is { UncertaintyMicroseconds: >= 0 and <= 50_000 }
+                    ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(1);
+                await Task.Delay(retryDelay, _time, _lifetime.Token);
             }
             catch (OperationCanceledException)
             {
@@ -1541,7 +1560,8 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
                            && (statistics.FramesCaptured > 0
                                || statistics.FramesEncoded > 0
                                || statistics.FramesRendered > 0
-                               || statistics.CurrentBitrateKbps > 0);
+                               || statistics.CurrentBitrateKbps > 0
+                               || statistics.SystemAudioReservationKbps > 0);
         if (!hasLiveMedia)
         {
             statistics = statistics with
@@ -1727,7 +1747,11 @@ internal sealed class AdaptiveFileTransferPacer(TimeProvider? timeProvider = nul
                 // turn a 150 Mbps policy into a materially lower payload rate. The initial credit
                 // remains exactly one record, so a fast producer still cannot front-load a large
                 // bulk queue ahead of input.
-                var bucketCapacity = payloadBytes + (bytesPerSecond * MaximumSchedulerCreditSeconds);
+                // Scheduler credit is also a burst window. A fast measured link must not
+                // turn a delayed timer wake into more queued bulk than the QoS policy allows.
+                var bucketCapacity = Math.Max(payloadBytes, Math.Min(
+                    policy.MaximumBulkBufferedBytes,
+                    payloadBytes + (bytesPerSecond * MaximumSchedulerCreditSeconds)));
                 if (!_initialized)
                 {
                     _initialized = true;

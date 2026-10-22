@@ -7,6 +7,18 @@ namespace PeerOnQ.Media.Tests;
 
 public class AdaptiveQualityControllerTests
 {
+    [Theory]
+    [InlineData(1920, 1080, 75)]
+    [InlineData(3840, 2160, 100)]
+    [InlineData(2160, 3840, 100)]
+    [InlineData(7680, 1080, 100)]
+    [InlineData(0, 0, 75)]
+    public void Automatic_frame_age_target_uses_actual_encoded_pixels(int width, int height, double expected)
+    {
+        Assert.Equal(expected, ConnectionPolicyProvider.GetTargetCaptureToPresentP95Ms(
+            CaptureResolution.Automatic, width, height));
+    }
+
     private static QualitySample Healthy => new()
     {
         PacketLossFraction = 0.0,
@@ -41,6 +53,22 @@ public class AdaptiveQualityControllerTests
         Assert.Equal(12_000, session.Adaptive.Current.MaxBitrateKbps);
     }
 
+    [Theory]
+    [InlineData(QualityProfile.Automatic, CaptureResolution.Automatic)]
+    [InlineData(QualityProfile.Quality, CaptureResolution.P2160)]
+    [InlineData(QualityProfile.Balanced, CaptureResolution.P2160)]
+    [InlineData(QualityProfile.Performance, CaptureResolution.Native)]
+    public async Task Source_detail_choices_keep_pixels_while_latency_qos_can_reduce_fps_and_bitrate(
+        QualityProfile quality, CaptureResolution resolution)
+    {
+        var profile = MediaProfile.For(quality) with { Resolution = resolution };
+        await using var session = WebRtcMediaSession.CreateSharer(SessionId.New(), capture: null, profile);
+        var ladder = Assert.IsType<AdaptiveQualityController>(session.Adaptive).Ladder;
+        Assert.All(ladder, level => Assert.Equal(1, level.DownscaleFactor));
+        Assert.True(ladder[^1].TargetFps < profile.TargetFps);
+        Assert.True(ladder[^1].MaxBitrateKbps < profile.MaxBitrateKbps);
+    }
+
     [Fact]
     public void It_starts_at_the_requested_quality()
     {
@@ -72,8 +100,8 @@ public class AdaptiveQualityControllerTests
         await using var session = WebRtcMediaSession.CreateSharer(SessionId.New(), capture: null, profile);
         var controller = Assert.IsType<AdaptiveQualityController>(session.Adaptive);
 
-        Assert.Equal(CaptureResolution.P2160, profile.Resolution);
-        Assert.Equal(36_000, controller.Current.MaxBitrateKbps);
+        Assert.Equal(CaptureResolution.P1080, profile.Resolution);
+        Assert.Equal(12_000, controller.Current.MaxBitrateKbps);
         Assert.All(controller.Ladder, level => Assert.Equal(1, level.DownscaleFactor));
     }
 

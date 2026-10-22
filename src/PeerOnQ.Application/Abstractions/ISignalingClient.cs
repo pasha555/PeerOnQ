@@ -29,7 +29,8 @@ public sealed record IncomingSessionNotification(
     string? SupportInvitationToken = null,
     string? SupportInvitationPassword = null,
     bool FileRelay = false,
-    bool RemoteScopeSelectionRequired = false);
+    bool RemoteScopeSelectionRequired = false,
+    bool UnicodeInput = false);
 
 public sealed record PermissionResultNotification(
     SessionId SessionId,
@@ -38,7 +39,8 @@ public sealed record PermissionResultNotification(
     string? PeerKeyFingerprint = null,
     bool FileRelay = false,
     SessionMode? GrantedMode = null,
-    SessionPermission? GrantedPermissions = null);
+    SessionPermission? GrantedPermissions = null,
+    bool UnicodeInput = false);
 
 public sealed record SdpNotification(SessionId SessionId, string SdpType, string Sdp);
 

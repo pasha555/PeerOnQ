@@ -116,7 +116,7 @@ main#main { min-height: calc(100vh - var(--top)); padding: 36px clamp(24px, 3.5v
 .badge.muted { color: hsl(var(--muted)); }
 .form-grid { display: grid; gap: 20px; max-width: 800px; }
 .form-grid label, .inline-form label, .auth-card label, .compact-form label { display: grid; gap: 7px; font-size: .8125rem; font-weight: 600; }
-.form-grid input, .inline-form input, .inline-form select, .auth-card input, .compact-form input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--surface)); color: hsl(var(--foreground)); }
+.form-grid input, .form-grid select, .inline-form input, .inline-form select, .auth-card input, .compact-form input { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--surface)); color: hsl(var(--foreground)); }
 input[readonly] { background: hsl(var(--subtle)); }
 .inline-form { display: flex; align-items: end; gap: 12px; margin-bottom: 20px; }
 .inline-form label { min-width: 0; flex: 1; }

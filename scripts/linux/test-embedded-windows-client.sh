@@ -64,3 +64,65 @@ rm "$temporary/unsigned-without-opt-in-marker/artifacts/peeronq/public/downloads
 expect_failure 'unsigned pilot without notice' "$temporary/unsigned-without-opt-in-marker"
 
 printf 'Embedded Windows client invariant tests passed.\n'
+
+make_pair_fixture() {
+  make_fixture "$1" signed
+  pair_downloads="$1/artifacts/peeronq/public/downloads"
+  printf 'test-arm64-msi-payload\n' > "$pair_downloads/PeerOnQ-Windows-arm64.msi"
+  pair_hash=$(sha256sum "$pair_downloads/PeerOnQ-Windows-arm64.msi" | awk '{ print $1 }')
+  printf '%s  PeerOnQ-Windows-arm64.msi\n' "$pair_hash" >> "$pair_downloads/SHA256SUMS.txt"
+}
+
+make_pair_fixture "$temporary/pair"
+sh "$validator" "$temporary/pair"
+make_pair_fixture "$temporary/pair-missing-arm64"
+rm "$pair_downloads/PeerOnQ-Windows-arm64.msi"
+expect_failure 'paired ARM64 MSI missing' "$temporary/pair-missing-arm64"
+make_pair_fixture "$temporary/pair-arm64-tampered"
+printf 'changed\n' >> "$pair_downloads/PeerOnQ-Windows-arm64.msi"
+expect_failure 'paired ARM64 hash mismatch' "$temporary/pair-arm64-tampered"
+make_pair_fixture "$temporary/pair-arm64-hash-missing"
+sed -i '/PeerOnQ-Windows-arm64.msi/d' "$pair_downloads/SHA256SUMS.txt"
+expect_failure 'paired ARM64 checksum missing' "$temporary/pair-arm64-hash-missing"
+make_pair_fixture "$temporary/pair-arm64-duplicate-hash"
+duplicate_hash=$(tail -n 1 "$pair_downloads/SHA256SUMS.txt")
+printf '%s\n' "$duplicate_hash" >> "$pair_downloads/SHA256SUMS.txt"
+expect_failure 'paired ARM64 duplicate checksum' "$temporary/pair-arm64-duplicate-hash"
+make_pair_fixture "$temporary/pair-arm64-symlink"
+mv "$pair_downloads/PeerOnQ-Windows-arm64.msi" "$pair_downloads/real-arm64.msi"
+ln -s real-arm64.msi "$pair_downloads/PeerOnQ-Windows-arm64.msi"
+expect_failure 'paired ARM64 symlink' "$temporary/pair-arm64-symlink"
+printf 'Paired Windows client invariant tests passed.\n'
+
+# Execute the real Dockerfile's embedded-release RUN gate with only its final
+# pnpm build replaced by a stub. Failed hash/file tests must stop before build.
+dockerfile="$script_dir/../../artifacts/peeronq/Dockerfile"
+mkdir -p "$temporary/bin"
+printf '#!/bin/sh\n[ "$VITE_PEERONQ_EMBEDDED_WINDOWS_ARM64_URL" = /downloads/PeerOnQ-Windows-arm64.msi ]\n' > "$temporary/bin/pnpm"
+chmod +x "$temporary/bin/pnpm"
+awk '
+  /^RUN set -eu; if / { copy = 1; sub(/^RUN /, "") }
+  copy { sub(/ \\$/, ""); print }
+  copy && /pnpm --filter @workspace\/peeronq run build/ { exit }
+' "$dockerfile" > "$temporary/docker-gate-template.sh"
+[ -s "$temporary/docker-gate-template.sh" ] || { printf 'Docker embedded validation gate is missing.\n' >&2; exit 1; }
+run_docker_gate() {
+  sed "s|/workspace|$1|g" "$temporary/docker-gate-template.sh" > "$temporary/docker-gate.sh"
+  PATH="$temporary/bin:$PATH" sh "$temporary/docker-gate.sh"
+}
+make_pair_fixture "$temporary/docker-valid"
+run_docker_gate "$temporary/docker-valid"
+for failure in missing-arm64 changed-arm64 changed-x64; do
+  fixture="$temporary/docker-$failure"
+  make_pair_fixture "$fixture"
+  case "$failure" in
+    missing-arm64) rm "$pair_downloads/PeerOnQ-Windows-arm64.msi" ;;
+    changed-arm64) printf 'changed\n' >> "$pair_downloads/PeerOnQ-Windows-arm64.msi" ;;
+    changed-x64) printf 'changed\n' >> "$pair_downloads/PeerOnQ-Windows-x64.msi" ;;
+  esac
+  if run_docker_gate "$fixture" >/dev/null 2>&1; then
+    printf 'Docker embedded validation accepted %s.\n' "$failure" >&2
+    exit 1
+  fi
+done
+printf 'Docker paired file/hash validation gates passed.\n'

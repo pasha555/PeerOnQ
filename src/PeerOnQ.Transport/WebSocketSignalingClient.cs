@@ -89,6 +89,7 @@ public sealed class WebSocketSignalingClient(
     private long _lastFileRelayReceiveCompletionTimestamp;
     private long _serverClockOffsetTicks;
     private long _registrationRefreshAtUtcTicks;
+    private TaskCompletionSource? _requestedRegistrationRefresh;
 
     public SignalingConnectionState State
     {
@@ -1017,7 +1018,8 @@ public sealed class WebSocketSignalingClient(
                     incoming.SupportInvitationToken,
                     incoming.SupportInvitationPassword,
                     incoming.FileRelay,
-                    incoming.RemoteScopeSelectionRequired));
+                    incoming.RemoteScopeSelectionRequired,
+                    incoming.UnicodeInput));
                 break;
 
             case UnattendedChallengeIncomingMessage challengeIncoming:
@@ -1061,7 +1063,8 @@ public sealed class WebSocketSignalingClient(
                     permission.PeerKeyFingerprint,
                     permission.FileRelay,
                     grantedMode,
-                    grantedPermissions));
+                    grantedPermissions,
+                    permission.UnicodeInput));
                 break;
 
             case SdpMessage sdp when SessionId.TryParse(sdp.SessionId, out var sdpSession):
@@ -1213,6 +1216,7 @@ public sealed class WebSocketSignalingClient(
 
     private void FailPending(Exception ex)
     {
+        Interlocked.Exchange(ref _requestedRegistrationRefresh, null)?.TrySetException(ex);
         _pendingChallenge?.TrySetException(ex);
         _pendingRegistration?.TrySetException(ex);
         foreach (var pending in _pendingIce.Values) pending.TrySetException(ex);
@@ -1349,6 +1353,16 @@ public sealed class WebSocketSignalingClient(
     internal static bool ShouldRefreshRegistration(long refreshAtUtcTicks, DateTimeOffset serverNow) =>
         refreshAtUtcTicks > 0 && serverNow.UtcTicks >= refreshAtUtcTicks;
 
+    public Task RequestRegistrationRefreshAsync(CancellationToken cancellationToken = default)
+    {
+        if (State != SignalingConnectionState.Registered)
+            throw new InvalidOperationException("Signaling must be connected before refreshing organization policy.");
+        var requested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        requested = Interlocked.CompareExchange(ref _requestedRegistrationRefresh, requested, null) ?? requested;
+        Volatile.Write(ref _registrationRefreshAtUtcTicks, 1);
+        return requested.Task.WaitAsync(cancellationToken);
+    }
+
     internal static bool ShouldSurfaceSignalingError(string code) =>
         !string.Equals(code, SignalingErrorCodes.TokenExpired, StringComparison.Ordinal);
 
@@ -1357,6 +1371,7 @@ public sealed class WebSocketSignalingClient(
         CancellationToken cancellationToken)
     {
         if (!ReferenceEquals(socket, _socket) || State != SignalingConnectionState.Registered) return;
+        var requestedRefresh = Volatile.Read(ref _requestedRegistrationRefresh);
 
         var identity = _identity ?? throw new InvalidOperationException("ConnectAsync was not called.");
         var capabilities = _capabilities
@@ -1380,6 +1395,11 @@ public sealed class WebSocketSignalingClient(
         if (!ReferenceEquals(socket, _socket)) return;
 
         ApplyRegistration(registered, capabilities);
+        if (requestedRefresh is not null
+            && ReferenceEquals(Interlocked.CompareExchange(ref _requestedRegistrationRefresh, null, requestedRefresh), requestedRefresh))
+            requestedRefresh.TrySetResult();
+        if (Volatile.Read(ref _requestedRegistrationRefresh) is not null)
+            Volatile.Write(ref _registrationRefreshAtUtcTicks, 1);
         _log.LogInformation(
             "Refreshed signaling registration for {Device} without replacing the active connection",
             identity.ToLogString());

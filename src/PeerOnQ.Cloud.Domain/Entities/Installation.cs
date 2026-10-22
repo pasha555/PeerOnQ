@@ -183,6 +183,14 @@ public sealed class Installation
         ConcurrencyVersion++;
     }
 
+    public void ConfirmOwnershipLink()
+    {
+        EnsureUsable();
+        if (DeviceId is null || ProofBindingVersion <= 0)
+            throw new InvalidOperationException("An ownership link requires a proof-bound installation.");
+        ConcurrencyVersion++;
+    }
+
     public void Unblock()
     {
         IsBlocked = false;

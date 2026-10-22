@@ -1402,7 +1402,40 @@ verify_embedded_windows_client() {
         printf "Public Downloads page is not the current base web release.\n" >&2
         exit 1
       }
-    ' sh "$expected_hash" "$expected_version"
+    ' sh "$expected_hash" "$expected_version" || return 1
+  if [ -f "$downloads_path/PeerOnQ-Windows-arm64.msi" ]; then
+    arm64_hash=$(awk '$2 == "PeerOnQ-Windows-arm64.msi" { print $1; exit }' "$downloads_path/SHA256SUMS.txt")
+    verify_embedded_windows_arm64 "$release_path" "$expected_version" "$arm64_hash" || return 1
+  fi
+}
+
+verify_embedded_windows_arm64() {
+  run_compose_step "verify embedded Windows ARM64 publication" "$1" \
+    exec -T web-ui sh -ec '
+      actual_hash=$(wget --quiet -O - "http://127.0.0.1:8080/downloads/PeerOnQ-Windows-arm64.msi?v=$2" \
+        | sha256sum | awk '\''{ print $1 }'\'')
+      [ "$actual_hash" = "$1" ]
+      grep -R -F -q "/downloads/PeerOnQ-Windows-arm64.msi" /usr/share/nginx/html/assets
+    ' sh "$3" "$2" || return 1
+  run_compose_step "verify Windows ARM64 proxy publication" "$1" \
+    exec -T proxy sh -ec '
+      nginx -T 2>&1 | awk '\''
+        /^[[:space:]]*location = \/downloads\/PeerOnQ-Windows-arm64\.msi \{/ { inside = 1; found = 1 }
+        inside && /proxy_buffering off;/ { streaming = 1 }
+        inside && /proxy_max_temp_file_size 0;/ { no_temp_file = 1 }
+        inside && /^[[:space:]]*}/ { inside = 0 }
+        END { exit !(found && streaming && no_temp_file) }
+      '\''
+      arm64_url="https://$PEERONQ_WEB_HOST/downloads/PeerOnQ-Windows-arm64.msi?v=$2"
+      actual_hash=$(curl --fail --silent --show-error --proto =https --tlsv1.2 --noproxy "*" \
+        --connect-timeout 10 --max-time 600 --resolve "$PEERONQ_WEB_HOST:443:127.0.0.1" "$arm64_url" \
+        | sha256sum | awk '\''{ print $1 }'\'')
+      [ "$actual_hash" = "$1" ]
+      cache_control=$(curl --fail --silent --show-error --head --proto =https --tlsv1.2 --noproxy "*" \
+        --connect-timeout 10 --max-time 30 --resolve "$PEERONQ_WEB_HOST:443:127.0.0.1" "$arm64_url" \
+        | tr -d "\r" | awk '\''tolower($1) == "cache-control:" { print; exit }'\'')
+      printf "%s\n" "$cache_control" | grep -Fq "no-store"
+    ' sh "$3" "$2"
 }
 
 transition_website_overlay() {

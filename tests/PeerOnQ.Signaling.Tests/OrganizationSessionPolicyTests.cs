@@ -30,6 +30,24 @@ public sealed class OrganizationSessionPolicyTests
     }
 
     [Fact]
+    public void ManagedAudioNeedsIndependentSignedOptInForBothParticipantsAndAttendedViewing()
+    {
+        var organization = Guid.NewGuid();
+        var flags = SignalingOrganizationPolicyFlags.ViewOnly | SignalingOrganizationPolicyFlags.FullControl;
+        var audioFlags = flags | SignalingOrganizationPolicyFlags.SystemAudio;
+        var permissions = (int)(SessionPermission.ViewScreen | SessionPermission.SystemAudio);
+        Assert.False(OrganizationSessionPolicy.AllowsSession(organization, flags, organization, flags, "view-only", permissions, "attended"));
+        Assert.False(OrganizationSessionPolicy.AllowsSession(organization, audioFlags, organization, flags, "view-only", permissions, "attended"));
+        Assert.False(OrganizationSessionPolicy.AllowsSession(organization, flags, organization, audioFlags, "view-only", permissions, "attended"));
+        Assert.True(OrganizationSessionPolicy.AllowsSession(organization, audioFlags, organization, audioFlags, "view-only", permissions, "attended"));
+        Assert.False(OrganizationSessionPolicy.AllowsSession(organization, audioFlags, organization, audioFlags, "view-only", permissions, "unattended"));
+        Assert.False(OrganizationSessionPolicy.AllowsSession(organization, audioFlags, organization, audioFlags, "full-control", (int)SessionPermission.SystemAudio, "attended"));
+        Assert.Equal(32, SignalingOrganizationPolicyFlags.HybridRequired);
+        Assert.Equal(64, SignalingOrganizationPolicyFlags.SystemAudio);
+        Assert.True(OrganizationSessionPolicy.AllowsSession(organization, flags, organization, flags, "full-control", (int)(SessionPermission.ViewScreen | SessionPermission.ControlInput), "attended"));
+    }
+
+    [Fact]
     public void CrossTenantManagedSessionFailsClosed()
     {
         var flags = SignalingOrganizationPolicyFlags.ViewOnly | SignalingOrganizationPolicyFlags.FullControl;

@@ -27,6 +27,7 @@ public static class AndroidClientCapabilityProfile
             Capabilities = capabilities,
             OptionalFeatures =
             [
+                OptionalProtocolFeatureNames.UnicodeInput,
                 OptionalProtocolFeatureNames.SafeUnknownMessages,
                 OptionalProtocolFeatureNames.SessionCapabilityDetails,
             ],

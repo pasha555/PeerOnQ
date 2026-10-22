@@ -327,6 +327,13 @@ versioned MSI paths. Set `PEERONQ_RELEASE_ARTIFACT_HOST` and `PEERONQ_UPDATE_HOS
 host. Keep `PEERONQ_WINDOWS_DOWNLOADS_AVAILABLE=false` until at least one signed release has passed
 the clean-VM and canary gates.
 
+Unreleased managed-system-audio policy adds a default-false database column and signed attestation
+flag 64. Upgrade Cloud and Signaling together before enabling `SystemAudioAllowed`. Before paired
+old-server rollback, disable it through the new API, then refresh all affected device attestations
+or wait their configured lifetime plus verifier clock skew. Old parsers reject flag 64 even for a
+non-audio registration. Retain the additive column/data; its migration deliberately refuses Down.
+Client consent is still required, and this policy does not enable unattended audio.
+
 Cloud-to-signaling device enrollment uses a separate ECDSA P-256 attestation key pair. Mount only the
 PKCS#8 `BEGIN PRIVATE KEY` PEM in Cloud and only the SPKI `BEGIN PUBLIC KEY` PEM in Signaling. Set one
 exact HTTPS issuer and audience on both services; production, staging, and the reference development
@@ -578,9 +585,10 @@ waive signing, physical-device or other release gates, or require a version bump
 `scripts/windows/build-peeronq-server-run.ps1` creates a self-extracting Linux server deployment
 bundle and SHA-256 file. This `.run` installs the cloud, website, Admin, download, signaling, TURN,
 and observability stack; it is not a Linux desktop client. Every server bundle must explicitly embed
-one verified x64 Windows MSI so a healthy public Downloads route can never be deployed without its
-client. Authenticode verification is required by default; `-IncludeUnsignedWindowsPilot` is accepted
-only with an actually unsigned MSI for an authorized controlled pilot. For a production artifact,
+a verified x64 and ARM64 Windows MSI pair matching the canonical version and release classification.
+Existing immutable x64-only bundles remain verifiable; a new partial pair fails closed.
+Authenticode verification of both installers is required by default; `-IncludeUnsignedWindowsPilot`
+is accepted only with an actually unsigned pair for an authorized controlled pilot. For a production artifact,
 pass an approved offline GPG key and `-RequireSignature`, publish the `.run`, `.sha256`, and `.asc`
 together, and verify the detached signature on the Linux host before invoking `sudo`. The builder
 stages all three files on the output filesystem, publishes the signature and checksum first, and
@@ -593,6 +601,7 @@ pwsh ./scripts/windows/build-peeronq-server-run.ps1 `
   -Version $ReleaseVersion `
   -OutputDirectory ./dist/server `
   -WindowsClientMsiPath "./dist/release/$ReleaseVersion/PeerOnQ-$ReleaseVersion-x64.msi" `
+  -WindowsClientArm64MsiPath "./dist/release/$ReleaseVersion/PeerOnQ-$ReleaseVersion-arm64.msi" `
   -GpgKeyId <offline-release-key-id> `
   -RequireSignature
 ```

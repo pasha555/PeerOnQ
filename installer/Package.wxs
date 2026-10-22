@@ -20,6 +20,11 @@
 
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="PeerOnQ" />
+      <!-- The service binary stays under the machine-protected Program Files root even
+           when the user selects a custom directory for the interactive application. -->
+      <Directory Id="BrokerMachineRoot" Name="PeerOnQ">
+        <Directory Id="SERVICEFOLDER" Name="SessionBroker" />
+      </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="PeerOnQProgramMenuFolder" Name="PeerOnQ" />
@@ -33,8 +38,27 @@
         <Exclude Files="!(bindpath.Publish)\**\*.xml" />
         <Exclude Files="!(bindpath.Publish)\e_sqlite3.dll" />
         <Exclude Files="!(bindpath.Publish)\PeerOnQ.exe" />
+        <Exclude Files="!(bindpath.Publish)\SessionBroker\**" />
       </Files>
     </ComponentGroup>
+
+    <ComponentGroup Id="SessionBrokerFiles" Directory="SERVICEFOLDER">
+      <Files Include="!(bindpath.Publish)\SessionBroker\**">
+        <Exclude Files="!(bindpath.Publish)\SessionBroker\**\*.pdb" />
+        <Exclude Files="!(bindpath.Publish)\SessionBroker\**\*.xml" />
+        <Exclude Files="!(bindpath.Publish)\SessionBroker\PeerOnQ.SessionBroker.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <Component Id="SessionBrokerService" Directory="SERVICEFOLDER" Guid="B1372408-8F76-4E2A-AD63-5A2C4620A44E">
+      <File Id="SessionBrokerExecutable" Source="!(bindpath.Publish)\SessionBroker\PeerOnQ.SessionBroker.exe" KeyPath="yes" />
+      <RegistryValue Root="HKLM" Key="Software\PeerOnQ\SessionBroker" Name="Enabled" Type="integer" Value="1" />
+      <RegistryValue Root="HKLM" Key="Software\PeerOnQ\SessionBroker" Name="HostExecutablePath" Type="string" Value="[INSTALLFOLDER]PeerOnQ.exe" />
+      <ServiceInstall Id="InstallSessionBroker" Name="PeerOnQ.SessionBroker" DisplayName="PeerOnQ session broker"
+                      Description="Registers signed-in PeerOnQ hosts. Remote access remains in the visible user session; no pre-login or UAC desktop access."
+                      Type="ownProcess" Start="auto" ErrorControl="normal" Account="NT AUTHORITY\LocalService" Vital="yes" />
+      <ServiceControl Id="ControlSessionBroker" Name="PeerOnQ.SessionBroker" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+    </Component>
 
     <!-- SQLite is unversioned, so repair/upgrade follows the signed, versioned application executable. -->
     <Component Id="AppCoreFiles" Directory="INSTALLFOLDER" Guid="ACDAB784-34CF-41EF-B081-930AB2230E76">
@@ -90,8 +114,15 @@
         <ComponentRef Id="DesktopShortcut" />
       </Feature>
       <Feature Id="StartupFeature" Title="Start PeerOnQ when users sign in"
-               Description="Optional visible all-users startup shortcut. No service or hidden persistence is installed."
+               Description="Optional visible all-users startup shortcut. The session broker is a separate optional feature."
                Level="2">
+        <ComponentRef Id="StartupShortcut" />
+      </Feature>
+      <Feature Id="SessionBrokerFeature" Title="Windows session broker and sign-in startup"
+               Description="Optional LocalService broker with visible app startup at sign-in. Requires a signed-in user; no logged-out, UAC or secure-desktop remote access."
+               Level="2" AllowAdvertise="no">
+        <ComponentGroupRef Id="SessionBrokerFiles" />
+        <ComponentRef Id="SessionBrokerService" />
         <ComponentRef Id="StartupShortcut" />
       </Feature>
     </Feature>

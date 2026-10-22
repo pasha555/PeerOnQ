@@ -11,6 +11,20 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="PeerOnQSignalingUrl" Value="$(PeerOnQSignalingUrl)" />
+    <AssemblyMetadata Include="PeerOnQApiBaseUrl" Value="$(PeerOnQApiBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQPresenceUrl" Value="$(PeerOnQPresenceUrl)" />
+    <AssemblyMetadata Include="PeerOnQUpdatesBaseUrl" Value="$(PeerOnQUpdatesBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDownloadsBaseUrl" Value="$(PeerOnQDownloadsBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDiagnosticsBaseUrl" Value="$(PeerOnQDiagnosticsBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDeploymentEnvironment" Value="$(PeerOnQDeploymentEnvironment)" />
+    <AssemblyMetadata Include="PeerOnQRegion" Value="$(PeerOnQRegion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+    <Content Include="..\..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
@@ -26,5 +40,11 @@
   <Target Name="ValidatePeerOnQLinuxClientVersion" BeforeTargets="PrepareForBuild">
     <Error Condition="'$(PeerOnQLinuxClientVersion)' == ''"
            Text="PeerOnQLinuxClientVersion must be defined in Directory.Build.props." />
+  </Target>
+  <Target Name="RemoveWindowsVp8FromLinuxPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(Filename)%(Extension)' == 'vpxmd.dll'" />
+    </ItemGroup>
   </Target>
 </Project>

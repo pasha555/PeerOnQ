@@ -68,6 +68,15 @@ awk '
   inside && /^[[:space:]]*}/ { inside = 0 }
   END { exit !(found && patch_root && patch_index && !proxy) }
 ' /etc/nginx/conf.d/peeronq.conf
+awk '
+  /^[[:space:]]*location = \/downloads\/PeerOnQ-Windows-arm64\.msi \{/ { inside = 1; found = 1 }
+  inside && /proxy_buffering off;/ { streaming = 1 }
+  inside && /proxy_max_temp_file_size 0;/ { no_temp_file = 1 }
+  inside && /add_header Cache-Control "no-store, max-age=0" always;/ { no_store = 1 }
+  inside && /proxy_pass http:\/\/web_ui;/ { base_owned = 1 }
+  inside && /^[[:space:]]*}/ { inside = 0 }
+  END { exit !(found && streaming && no_temp_file && no_store && base_owned) }
+' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'location = /_peeronq/base-downloads {' /etc/nginx/conf.d/peeronq.conf
 grep -Fq 'proxy_pass http://web_ui/;' /etc/nginx/conf.d/peeronq.conf
 awk '
@@ -106,11 +115,13 @@ base_root=/tmp/peeronq-base-web
 mkdir -p "$patch_root/downloads" "$base_root/downloads"
 printf '%s\n' 'active website downloads page' > "$patch_root/index.html"
 printf '%s\n' 'patch-owned bytes must not escape' > "$patch_root/downloads/PeerOnQ-Windows-x64.msi"
+printf '%s\n' 'patch-owned ARM64 bytes must not escape' > "$patch_root/downloads/PeerOnQ-Windows-arm64.msi"
 printf '%s\n' 'patch-owned hash must not escape' > "$patch_root/downloads/SHA256SUMS.txt"
 printf '%s\n' 'patch-owned classification must not escape' > "$patch_root/downloads/embedded-windows-release-type.txt"
 printf '%s\n' 'patch-owned arbitrary installer' > "$patch_root/downloads/Other.msi"
 printf '%s\n' 'base downloads page' > "$base_root/index.html"
 printf '%s\n' 'base server msi' > "$base_root/downloads/PeerOnQ-Windows-x64.msi"
+printf '%s\n' 'base server arm64 msi' > "$base_root/downloads/PeerOnQ-Windows-arm64.msi"
 printf '%s\n' 'base server hash' > "$base_root/downloads/SHA256SUMS.txt"
 printf '%s\n' '0.5.1' > "$base_root/downloads/embedded-windows-version.txt"
 printf '%s\n' 'unsigned-pilot' > "$base_root/downloads/embedded-windows-release-type.txt"
@@ -245,6 +256,7 @@ test "$unknown_exit" = 52
 cp "$patch_root/index.html" "$patch_root/peeronq-downloads-ui-v1.html"
 test "$(fetch_public /downloads)" = 'active website downloads page'
 test "$(fetch_public /downloads/PeerOnQ-Windows-x64.msi)" = 'base server msi'
+test "$(fetch_public /downloads/PeerOnQ-Windows-arm64.msi)" = 'base server arm64 msi'
 test "$(fetch_public /downloads/SHA256SUMS.txt)" = 'base server hash'
 test "$(fetch_public /downloads/embedded-windows-version.txt)" = '0.5.1'
 test "$(fetch_public /downloads/embedded-windows-release-type.txt)" = 'unsigned-pilot'
@@ -252,6 +264,7 @@ test "$(fetch_public /downloads/UNSIGNED-PILOT-NOTICE.txt)" = 'base server pilot
 for no_store_path in \
   /downloads \
   '/downloads/PeerOnQ-Windows-x64.msi?v=0.5.1' \
+  '/downloads/PeerOnQ-Windows-arm64.msi?v=0.5.1' \
   /downloads/SHA256SUMS.txt \
   /downloads/embedded-windows-version.txt \
   /downloads/embedded-windows-release-type.txt \
@@ -268,14 +281,18 @@ publication_release=/tmp/peeronq-publication-release
 publication_downloads="$publication_release/artifacts/peeronq/public/downloads"
 mkdir -p "$publication_downloads" "$publication_release/scripts/linux" /usr/share/nginx/html/assets
 cp "$base_root/downloads/PeerOnQ-Windows-x64.msi" "$publication_downloads/"
+cp "$base_root/downloads/PeerOnQ-Windows-arm64.msi" "$publication_downloads/"
 cp "$base_root/downloads/embedded-windows-version.txt" "$publication_downloads/"
 cp "$base_root/downloads/embedded-windows-release-type.txt" "$publication_downloads/"
 publication_hash=$(sha256sum "$publication_downloads/PeerOnQ-Windows-x64.msi" | awk '{ print $1 }')
 printf '%s  PeerOnQ-Windows-x64.msi\n' "$publication_hash" > "$publication_downloads/SHA256SUMS.txt"
+publication_arm64_hash=$(sha256sum "$publication_downloads/PeerOnQ-Windows-arm64.msi" | awk '{ print $1 }')
+printf '%s  PeerOnQ-Windows-arm64.msi\n' "$publication_arm64_hash" >> "$publication_downloads/SHA256SUMS.txt"
 printf '%s\n' 'This x64 MSI is unsigned and is authorized only for controlled PeerOnQ pilot testing.' \
   > "$publication_downloads/UNSIGNED-PILOT-NOTICE.txt"
 cp "${installer_source%/*}/verify-embedded-windows-client.sh" "$publication_release/scripts/linux/"
 printf '%s\n' '/downloads/PeerOnQ-Windows-x64.msi?v=0.5.1' > /usr/share/nginx/html/assets/publication-fixture.js
+printf '%s\n' '/downloads/PeerOnQ-Windows-arm64.msi?v=0.5.1' >> /usr/share/nginx/html/assets/publication-fixture.js
 rm "$patch_root/peeronq-downloads-ui-v1.html"
 awk '
   /^verify_embedded_windows_client\(\)/ { copy = 1 }

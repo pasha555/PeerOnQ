@@ -84,3 +84,35 @@ actual_hash=$(sha256sum "$msi_path" | awk '{ print $1 }')
   printf 'Embedded Windows client SHA-256 does not match its metadata.\n' >&2
   exit 1
 }
+
+# Older immutable server bundles embedded x64 only. A new paired bundle must never
+# degrade to that legacy shape when either ARM64 artifact or checksum is present.
+arm64_path="$downloads_path/PeerOnQ-Windows-arm64.msi"
+if [ -e "$arm64_path" ] || [ -L "$arm64_path" ] || grep -q 'PeerOnQ-Windows-arm64\.msi' "$hash_path"; then
+  [ -f "$arm64_path" ] && [ ! -L "$arm64_path" ] || {
+    printf 'Embedded Windows ARM64 client file is missing or unsafe.\n' >&2
+    exit 1
+  }
+  arm64_size=$(stat -c '%s' "$arm64_path")
+  case "$arm64_size" in *[!0-9]*|'') exit 1 ;; esac
+  [ "$arm64_size" -gt 0 ] && [ "$arm64_size" -le 100663296 ] || {
+    printf 'Embedded Windows ARM64 client must be between 1 byte and 96 MiB.\n' >&2
+    exit 1
+  }
+  expected_arm64_hash=$(awk '
+    $2 == "PeerOnQ-Windows-arm64.msi" {
+      count++
+      if (NF != 2 || length($1) != 64 || $1 ~ /[^0-9a-f]/) invalid = 1
+      value = $1
+    }
+    END { if (count != 1 || invalid) exit 1; print value }
+  ' "$hash_path") || {
+    printf 'Embedded Windows ARM64 client SHA-256 metadata is missing or invalid.\n' >&2
+    exit 1
+  }
+  actual_arm64_hash=$(sha256sum "$arm64_path" | awk '{ print $1 }')
+  [ "$actual_arm64_hash" = "$expected_arm64_hash" ] || {
+    printf 'Embedded Windows ARM64 client SHA-256 does not match its metadata.\n' >&2
+    exit 1
+  }
+fi

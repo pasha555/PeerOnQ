@@ -24,6 +24,10 @@ internal sealed class InputLatencyProbe
     {
         public long EventAt, CommandAt, ProtectedAt, AdmissionAt, ReceivedAt, DecryptedAt;
         public long InjectionEnteredAt, InjectedAt, AcknowledgedAt;
+        public long EventGcPauseTicks, InjectedGcPauseTicks;
+        public long EventPendingWorkItems, InjectedPendingWorkItems;
+        public int EventWorkerThreads, InjectedWorkerThreads;
+        public long EventSnapshotAt, InjectedSnapshotAt;
         public byte[]? ProtectedRecord;
         public bool AcknowledgementRequested;
     }
@@ -31,6 +35,10 @@ internal sealed class InputLatencyProbe
     public Sample Begin()
     {
         var sample = new Sample { EventAt = Stopwatch.GetTimestamp() };
+        sample.EventGcPauseTicks = GC.GetTotalPauseDuration().Ticks;
+        sample.EventPendingWorkItems = ThreadPool.PendingWorkItemCount;
+        sample.EventWorkerThreads = ThreadPool.ThreadCount;
+        sample.EventSnapshotAt = Stopwatch.GetTimestamp();
         Volatile.Write(ref _active, sample);
         return sample;
     }
@@ -44,7 +52,13 @@ internal sealed class InputLatencyProbe
     public void Injected(long timestamp)
     {
         if (Volatile.Read(ref _active) is { } sample)
+        {
+            sample.InjectedGcPauseTicks = GC.GetTotalPauseDuration().Ticks;
+            sample.InjectedPendingWorkItems = ThreadPool.PendingWorkItemCount;
+            sample.InjectedWorkerThreads = ThreadPool.ThreadCount;
+            sample.InjectedSnapshotAt = Stopwatch.GetTimestamp();
             Volatile.Write(ref sample.InjectedAt, timestamp);
+        }
     }
 
     public IMediaSession ObserveMedia(WebRtcMediaSession media, bool sender)
@@ -132,6 +146,27 @@ internal sealed class InputLatencyProbe
         WriteStage("permission_focus_rate_validation", sample => (sample.DecryptedAt, sample.InjectionEnteredAt));
         WriteStage("fake_sink_injection", sample => (sample.InjectionEnteredAt, sample.InjectedAt));
         WriteStage("authenticated_ack_return", sample => (sample.InjectedAt, sample.AcknowledgedAt));
+
+        // Snapshot reads occur after each existing boundary timestamp. Disclose their
+        // skew: a pause after injection must not be attributed to measured input latency.
+        for (var index = 0; index < samples.Count; index++)
+        {
+            var sample = samples[index];
+            var injectedAt = Volatile.Read(ref sample.InjectedAt);
+            if (injectedAt <= 0 || sample.EventSnapshotAt <= 0 || sample.InjectedSnapshotAt <= 0)
+            {
+                output.WriteLine($"latency scenario={scenario} runtime_sample={index} unavailable");
+                continue;
+            }
+            var gcPauseMs = TimeSpan.FromTicks(sample.InjectedGcPauseTicks - sample.EventGcPauseTicks).TotalMilliseconds;
+            output.WriteLine($"latency scenario={scenario} runtime_sample={index} " +
+                             $"eventToInjectionMs={Stopwatch.GetElapsedTime(sample.EventAt, injectedAt).TotalMilliseconds:F3} " +
+                             $"gcPauseDeltaMs={gcPauseMs:F3} " +
+                             $"pendingAtBegin={sample.EventPendingWorkItems} pendingAtInjected={sample.InjectedPendingWorkItems} " +
+                             $"workerThreadsAtBegin={sample.EventWorkerThreads} workerThreadsAtInjected={sample.InjectedWorkerThreads} " +
+                             $"beginSnapshotSkewUs={Stopwatch.GetElapsedTime(sample.EventAt, sample.EventSnapshotAt).TotalMicroseconds:F3} " +
+                             $"injectedSnapshotSkewUs={Stopwatch.GetElapsedTime(injectedAt, sample.InjectedSnapshotAt).TotalMicroseconds:F3}");
+        }
 
         void WriteStage(string name, Func<Sample, (long Start, long End)> boundary)
         {

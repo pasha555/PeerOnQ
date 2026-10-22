@@ -19,6 +19,7 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
     private readonly Lock _gate = new();
     private readonly ILogger _log = logger ?? NullLogger<WindowsInputController>.Instance;
     private readonly HashSet<ushort> _pressedKeys = [];
+    private readonly HashSet<char> _pressedUnicode = [];
     private readonly HashSet<RemotePointerButton> _pressedButtons = [];
     private DisplayBounds? _target;
     private bool _enabled;
@@ -107,6 +108,13 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
                 case RemoteInputEventKind.Key:
                     commands.Add(CreateKey(input.VirtualKey, input.IsPressed, input.IsExtendedKey));
                     break;
+                case RemoteInputEventKind.Text:
+                    foreach (var character in input.Text!)
+                    {
+                        commands.Add(CreateUnicodeKey(character, isPressed: true));
+                        commands.Add(CreateUnicodeKey(character, isPressed: false));
+                    }
+                    break;
                 default:
                     return false;
             }
@@ -120,6 +128,8 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
                 // retain the state so a later safe release can retry instead of forgetting it.
                 if (input.Kind == RemoteInputEventKind.Key && input.IsPressed)
                     _pressedKeys.Add(input.VirtualKey);
+                else if (input.Kind == RemoteInputEventKind.Text)
+                    foreach (var character in input.Text!) _pressedUnicode.Add(character);
                 else if (input.Kind == RemoteInputEventKind.PointerButton && input.IsPressed)
                     _pressedButtons.Add(input.Button);
                 _log.LogWarning(
@@ -154,10 +164,11 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
 
     private bool ReleaseAllCore()
     {
-        if (_pressedKeys.Count == 0 && _pressedButtons.Count == 0) return true;
+        if (_pressedKeys.Count == 0 && _pressedButtons.Count == 0 && _pressedUnicode.Count == 0) return true;
 
         var releases = new List<NativeInput>(_pressedKeys.Count + _pressedButtons.Count);
         releases.AddRange(_pressedKeys.Select(key => CreateKey(key, isPressed: false, IsExtendedKey(key))));
+        releases.AddRange(_pressedUnicode.Select(character => CreateUnicodeKey(character, isPressed: false)));
         releases.AddRange(_pressedButtons.Select(button => CreatePointerButton(button, isPressed: false)));
         var sent = SendInput((uint)releases.Count, [.. releases], Marshal.SizeOf<NativeInput>());
         if (sent != (uint)releases.Count)
@@ -169,6 +180,7 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
         }
 
         _pressedKeys.Clear();
+        _pressedUnicode.Clear();
         _pressedButtons.Clear();
         return true;
     }
@@ -243,6 +255,15 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
         },
     };
 
+    private static NativeInput CreateUnicodeKey(char character, bool isPressed) => new()
+    {
+        Type = InputKeyboard,
+        Data = new InputUnion
+        {
+            Keyboard = new KeyboardInput { ScanCode = character, Flags = KeyUnicode | (isPressed ? 0u : KeyUp) },
+        },
+    };
+
     private static bool IsExtendedKey(ushort virtualKey) => virtualKey is
         0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28
         or 0x2D or 0x2E or 0x5B or 0x5C or 0x6F or 0x90 or 0x91 or 0xA3 or 0xA5;
@@ -270,6 +291,7 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
     private const uint MouseAbsolute = 0x8000;
     private const uint KeyExtended = 0x0001;
     private const uint KeyUp = 0x0002;
+    private const uint KeyUnicode = 0x0004;
     private const uint XButton1 = 0x0001;
     private const uint XButton2 = 0x0002;
     private const ushort VirtualKeyControl = 0x11;

@@ -30,6 +30,8 @@ public sealed partial class MainWindow : Window
     private bool _sessionActionRunning;
     private bool _allowClose;
 
+    internal Func<Task>? CancelStartupAsync { get; set; }
+
     public MainWindow()
     {
         InitializeComponent();
@@ -38,8 +40,9 @@ public sealed partial class MainWindow : Window
         Closed += (_, _) => _remoteBitmap?.Dispose();
     }
 
-    public async Task AttachAsync(LinuxAppServices services)
+    public async Task AttachAsync(LinuxAppServices services, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         _services = services ?? throw new ArgumentNullException(nameof(services));
         LocalIdText.Text = services.Identity.PublicId.ToString();
         services.Signaling.StateChanged += OnSignalingStateChanged;
@@ -49,7 +52,7 @@ public sealed partial class MainWindow : Window
         services.Coordinator.CollaborationAvailable += OnCollaborationAvailable;
 
         SetSessionStatus("Secure identity is ready. Connecting to the signaling server…", busy: true);
-        await TryConnectSignalingAsync();
+        await TryConnectSignalingAsync(cancellationToken);
     }
 
     public void ShowStartupError(Exception exception)
@@ -61,15 +64,20 @@ public sealed partial class MainWindow : Window
         RetryServerButton.IsVisible = false;
     }
 
-    private async Task TryConnectSignalingAsync()
+    private async Task TryConnectSignalingAsync(CancellationToken cancellationToken = default)
     {
         if (_services is null) return;
         ClearError();
         RetryServerButton.IsVisible = false;
         try
         {
-            await _services.ConnectAsync();
+            await _services.ConnectAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             SetSessionStatus("Ready. Enter the PeerOnQ ID of a Windows device.", busy: false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception)
         {
@@ -78,6 +86,7 @@ public sealed partial class MainWindow : Window
             RetryServerButton.IsVisible = true;
         }
 
+        LocalIdText.Text = _services.Identity.PublicId.ToString();
         UpdateActions();
     }
 
@@ -204,6 +213,7 @@ public sealed partial class MainWindow : Window
             await DisableRemoteInputAsync();
             _remoteInput = null;
             _currentSession = null;
+            ClearRemoteFrame();
             RemoteInputToggle.IsEnabled = false;
             SetSessionStatus($"Session ended ({FormatEndReason(closed.Reason)}).", busy: false);
             UpdateActions();
@@ -242,8 +252,7 @@ public sealed partial class MainWindow : Window
         {
             _pendingFrame = new PendingFrame(
                 sessionFrame.SessionId,
-                sessionFrame.Frame.Width,
-                sessionFrame.Frame.Height,
+                FramePixelConverter.DescribePresentation(sessionFrame.Frame),
                 pixels);
             if (_frameDispatchScheduled) return;
             _frameDispatchScheduled = true;
@@ -261,12 +270,14 @@ public sealed partial class MainWindow : Window
             _frameDispatchScheduled = false;
         }
         if (pending is not null)
-            RenderFrame(pending.SessionId, pending.Width, pending.Height, pending.Pixels);
+            RenderFrame(pending.SessionId, pending.Presentation, pending.Pixels);
     }
 
-    private void RenderFrame(SessionId sessionId, int width, int height, byte[] pixels)
+    private void RenderFrame(SessionId sessionId, PresentedVideoFrame presentation, byte[] pixels)
     {
         if (_currentSession != sessionId || _services is null) return;
+        var width = presentation.Width;
+        var height = presentation.Height;
         if (_remoteBitmap is null || _frameWidth != width || _frameHeight != height)
         {
             _remoteBitmap?.Dispose();
@@ -295,7 +306,19 @@ public sealed partial class MainWindow : Window
 
         RemoteImage.IsVisible = true;
         EmptyViewportContent.IsVisible = false;
-        _services.Coordinator.ReportFrameRendered(sessionId);
+        RemoteImage.InvalidateVisual();
+        _services.Coordinator.ReportFrameRendered(sessionId, presentation);
+    }
+
+    private void ClearRemoteFrame()
+    {
+        lock (_pendingFrameGate) _pendingFrame = null;
+        RemoteImage.Source = null;
+        RemoteImage.IsVisible = false;
+        EmptyViewportContent.IsVisible = true;
+        _remoteBitmap?.Dispose();
+        _remoteBitmap = null;
+        _frameWidth = _frameHeight = 0;
     }
 
     private async void OnRemoteInputChanged(object? sender, RoutedEventArgs e)
@@ -351,16 +374,19 @@ public sealed partial class MainWindow : Window
     {
         if (_allowClose) return;
         e.Cancel = true;
-        await DisableRemoteInputAsync();
         try
         {
+            if (CancelStartupAsync is not null)
+                await CancelStartupAsync();
+            await DisableRemoteInputAsync();
             if (_services is not null)
                 await _services.DisposeAsync();
         }
         finally
         {
+            ClearRemoteFrame();
             _allowClose = true;
-            Close();
+            Dispatcher.UIThread.Post(Close);
         }
     }
 
@@ -561,5 +587,5 @@ public sealed partial class MainWindow : Window
         _ => reason.ToString(),
     };
 
-    private sealed record PendingFrame(SessionId SessionId, int Width, int Height, byte[] Pixels);
+    private sealed record PendingFrame(SessionId SessionId, PresentedVideoFrame Presentation, byte[] Pixels);
 }

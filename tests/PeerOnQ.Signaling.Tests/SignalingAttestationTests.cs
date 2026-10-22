@@ -1,8 +1,12 @@
 using System.Security.Cryptography;
 using PeerOnQ.Domain.Errors;
 using PeerOnQ.Domain.Identity;
+using PeerOnQ.Domain.Sessions;
+using PeerOnQ.Application.Abstractions;
 using PeerOnQ.Signaling.Server;
 using PeerOnQ.Signaling.Server.Security;
+using PeerOnQ.Signaling.Server.Sessions;
+using PeerOnQ.Transport.Protocol;
 using Microsoft.Extensions.Options;
 using PeerOnQ.Shared.Contracts.Security;
 using Xunit;
@@ -172,6 +176,49 @@ public sealed class SignalingAttestationTests : IDisposable
         Assert.Equal("eu-west", claims.ApprovedRelayRegionsCsv);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task ActualSignalingRequiresBothManagedAudioSignaturesBeforeCreatingSession(bool viewerAudio, bool hostAudio)
+    {
+        using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        await using var server = await StartAttestedServerAsync([WritePublicKey(signer, "audio-policy.pem")]);
+        using var viewer = new TestDevice("Audio policy viewer");
+        using var host = new TestDevice("Audio policy host");
+        var organization = Guid.NewGuid();
+        viewer.SignalingAttestation = Issue(signer, viewer, organizationId: organization,
+            policyFlags: SignalingOrganizationPolicyFlags.ViewOnly | (viewerAudio ? SignalingOrganizationPolicyFlags.SystemAudio : 0));
+        host.SignalingAttestation = Issue(signer, host, organizationId: organization,
+            policyFlags: SignalingOrganizationPolicyFlags.ViewOnly | (hostAudio ? SignalingOrganizationPolicyFlags.SystemAudio : 0));
+        var manifest = TestClientCapabilities.All(capabilities: [.. TestClientCapabilities.All().Capabilities,
+            EndpointCapabilityNames.SystemAudioCapture, EndpointCapabilityNames.SystemAudioPlayback],
+            optionalFeatures: [OptionalProtocolFeatureNames.SystemAudio]);
+        await using var viewerClient = viewer.CreateClient(server.WebSocketUri, manifest);
+        await using var hostClient = host.CreateClient(server.WebSocketUri, manifest);
+        await viewerClient.ConnectAsync(viewer.Identity);
+        await hostClient.ConnectAsync(host.Identity);
+        var incoming = new TaskCompletionSource<IncomingSessionNotification>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var error = new TaskCompletionSource<SignalingErrorNotification>(TaskCreationOptions.RunContinuationsAsynchronously);
+        hostClient.SessionRequested += (_, value) => incoming.TrySetResult(value);
+        viewerClient.ErrorReceived += (_, value) => error.TrySetResult(value);
+        var sessionId = SessionId.New();
+        var permissions = SessionPermission.ViewScreen | SessionPermission.SystemAudio;
+        await viewerClient.RequestSessionAsync(sessionId, host.Id, SessionMode.ViewOnly, permissions, SessionAccessKind.Attended);
+        if (viewerAudio && hostAudio)
+        {
+            Assert.Equal(permissions, (await Wait.ForAsync(incoming)).Permissions);
+            Assert.NotNull(await server.Service<ISessionStore>().GetAsync(sessionId.ToString()));
+        }
+        else
+        {
+            Assert.Equal(SignalingErrorCodes.OrganizationPolicyDenied, (await Wait.ForAsync(error)).Code);
+            Assert.Null(await server.Service<ISessionStore>().GetAsync(sessionId.ToString()));
+            Assert.False(incoming.Task.IsCompleted);
+        }
+    }
+
     [Fact]
     public void Validator_enforces_version_size_clock_and_maximum_lifetime_bounds()
     {
@@ -277,7 +324,9 @@ public sealed class SignalingAttestationTests : IDisposable
         TestDevice device,
         string audience = Audience,
         DateTimeOffset? issuedAt = null,
-        DateTimeOffset? expiresAt = null)
+        DateTimeOffset? expiresAt = null,
+        Guid? organizationId = null,
+        int policyFlags = SignalingOrganizationPolicyFlags.Unmanaged)
     {
         var spki = Convert.FromBase64String(device.Identity.PublicKey!);
         var now = issuedAt ?? DateTimeOffset.UtcNow;
@@ -293,7 +342,8 @@ public sealed class SignalingAttestationTests : IDisposable
                 SignalingAttestationTokenV1.ComputeKeyId(signer.ExportSubjectPublicKeyInfo()),
                 now.ToUnixTimeSeconds(),
                 expiry.ToUnixTimeSeconds(),
-                SignalingAttestationTokenV1.Base64UrlEncode(RandomNumberGenerator.GetBytes(16))),
+                SignalingAttestationTokenV1.Base64UrlEncode(RandomNumberGenerator.GetBytes(16)),
+                organizationId, policyFlags, organizationId.HasValue ? string.Empty : null, organizationId.HasValue ? string.Empty : null),
             signer);
     }
 

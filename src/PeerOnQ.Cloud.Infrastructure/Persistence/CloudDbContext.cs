@@ -161,6 +161,7 @@ public sealed class CloudDbContext(DbContextOptions<CloudDbContext> options) : D
         policy.HasKey(value => value.OrganizationId);
         policy.Property(value => value.ApprovedRelayRegionsCsv).HasMaxLength(512).IsRequired();
         policy.Property(value => value.MinimumClientVersion).HasMaxLength(64).IsRequired();
+        policy.Property(value => value.SystemAudioAllowed).HasDefaultValue(false);
         policy.Property(value => value.ConcurrencyVersion).IsConcurrencyToken();
         policy.HasOne<Organization>().WithOne().HasForeignKey<OrganizationPolicy>(value => value.OrganizationId).OnDelete(DeleteBehavior.Cascade);
 

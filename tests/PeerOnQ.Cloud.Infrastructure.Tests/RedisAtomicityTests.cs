@@ -10,12 +10,12 @@ namespace PeerOnQ.Cloud.Infrastructure.Tests;
 
 public sealed class RedisAtomicityTests
 {
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_REDIS")]
     [Trait("Category", "ExternalIntegration")]
     public async Task ChallengeIsConsumedExactlyOnceWhenRedisIsConfigured()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_REDIS");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_REDIS is required for this integration test.");
 
         await using var redis = await ConnectionMultiplexer.ConnectAsync(connectionString);
         var store = new RedisDeviceChallengeStore(redis, new RedisKeySpace { Prefix = $"peeronq:test:{Guid.NewGuid():N}" });
@@ -31,12 +31,12 @@ public sealed class RedisAtomicityTests
         Assert.Single(attempts, value => value is not null);
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_REDIS")]
     [Trait("Category", "ExternalIntegration")]
     public async Task PresenceLeaseAtomicallyDisplacesAndRejectsOldConnection()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_REDIS");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_REDIS is required for this integration test.");
 
         await using var redis = await ConnectionMultiplexer.ConnectAsync(connectionString);
         var store = new RedisPresenceLeaseStore(redis, new RedisKeySpace { Prefix = $"peeronq:test:{Guid.NewGuid():N}" });
@@ -65,12 +65,12 @@ public sealed class RedisAtomicityTests
         Assert.Equal(0, await store.CountActiveDevicesAsync(now.AddSeconds(3), CancellationToken.None));
     }
 
-    [Fact]
+    [ExternalIntegrationFact("PEERONQ_TEST_REDIS")]
     [Trait("Category", "ExternalIntegration")]
     public async Task DistributedOperationLease_HasOneOwnerAndTransfersAfterRelease()
     {
         var connectionString = Environment.GetEnvironmentVariable("PEERONQ_TEST_REDIS");
-        if (string.IsNullOrWhiteSpace(connectionString)) return;
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new InvalidOperationException("PEERONQ_TEST_REDIS is required for this integration test.");
 
         await using var redis = await ConnectionMultiplexer.ConnectAsync(connectionString);
         var keySpace = new RedisKeySpace { Prefix = $"peeronq:test:{Guid.NewGuid():N}" };

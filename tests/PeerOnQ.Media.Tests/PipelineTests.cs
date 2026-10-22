@@ -221,6 +221,99 @@ public class FrameRateLimiterTests
         Assert.Equal(1, new FrameRateLimiter(0).TargetFps);
         Assert.Equal(120, new FrameRateLimiter(10_000).TargetFps);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Thirty_three_millisecond_capture_keeps_the_average_target_cadence(bool jitter)
+    {
+        var time = new ManualTimeProvider();
+        var limiter = new FrameRateLimiter(30, time);
+        Assert.True(limiter.ShouldAccept());
+        var intervals = jitter ? new[] { 32, 33, 34 } : new[] { 33 };
+        for (var frame = 0; frame < 600; frame++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(intervals[frame % intervals.Length]));
+            limiter.ShouldAccept();
+        }
+        var elapsed = time.GetElapsedTime(0, time.GetTimestamp()).TotalSeconds;
+        Assert.InRange((limiter.Accepted - 1) / elapsed, 29.8, 30.1);
+    }
+
+    [Fact]
+    public void Jittered_sixty_hertz_capture_keeps_thirty_fps_without_losing_deadline_phase()
+    {
+        var time = new ManualTimeProvider();
+        var limiter = new FrameRateLimiter(30, time);
+        Assert.True(limiter.ShouldAccept());
+        int[] intervals = [16, 17, 16, 18, 15, 17];
+        for (var frame = 0; frame < 1200; frame++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(intervals[frame % intervals.Length]));
+            limiter.ShouldAccept();
+        }
+        var elapsed = time.GetElapsedTime(0, time.GetTimestamp()).TotalSeconds;
+        Assert.InRange((limiter.Accepted - 1) / elapsed, 29.8, 30.1);
+    }
+
+    [Fact]
+    public void Returning_after_idle_does_not_accumulate_a_catch_up_burst()
+    {
+        var time = new ManualTimeProvider();
+        var limiter = new FrameRateLimiter(30, time);
+        Assert.True(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.True(limiter.ShouldAccept());
+        for (var frame = 0; frame < 20; frame++) Assert.False(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.False(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(33));
+        Assert.True(limiter.ShouldAccept());
+    }
+
+    [Fact]
+    public void Wall_clock_jumps_do_not_change_capture_admission()
+    {
+        var time = new ManualTimeProvider();
+        var limiter = new FrameRateLimiter(30, time);
+        Assert.True(limiter.ShouldAccept());
+        time.ShiftWallClock(TimeSpan.FromDays(1));
+        Assert.False(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(34));
+        Assert.True(limiter.ShouldAccept());
+        time.ShiftWallClock(TimeSpan.FromDays(-2));
+        Assert.False(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(34));
+        Assert.True(limiter.ShouldAccept());
+    }
+
+    [Fact]
+    public void Target_changes_apply_the_new_interval_from_the_last_accepted_frame_and_keep_clamps()
+    {
+        var time = new ManualTimeProvider();
+        var limiter = new FrameRateLimiter(30, time);
+        Assert.True(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(10));
+        limiter.SetTargetFps(60);
+        Assert.False(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(7));
+        Assert.True(limiter.ShouldAccept());
+        limiter.SetTargetFps(15);
+        time.Advance(TimeSpan.FromMilliseconds(34));
+        Assert.False(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(33));
+        Assert.True(limiter.ShouldAccept());
+        limiter.SetTargetFps(0);
+        Assert.Equal(1, limiter.TargetFps);
+        time.Advance(TimeSpan.FromMilliseconds(999));
+        Assert.False(limiter.ShouldAccept());
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.True(limiter.ShouldAccept());
+        limiter.SetTargetFps(10_000);
+        Assert.Equal(120, limiter.TargetFps);
+        time.Advance(TimeSpan.FromMilliseconds(9));
+        Assert.True(limiter.ShouldAccept());
+    }
 }
 
 public class MediaStatisticsCollectorTests
@@ -427,8 +520,12 @@ public class MediaStatisticsCollectorTests
 public sealed class ManualTimeProvider : TimeProvider
 {
     private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private long _timestamp;
 
     public override DateTimeOffset GetUtcNow() => _now;
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+    public override long GetTimestamp() => _timestamp;
 
-    public void Advance(TimeSpan by) => _now += by;
+    public void Advance(TimeSpan by) { _now += by; _timestamp += by.Ticks; }
+    public void ShiftWallClock(TimeSpan by) => _now += by;
 }

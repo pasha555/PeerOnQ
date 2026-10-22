@@ -1,0 +1,11 @@
+--- a/src/SIPSorcery/net/SCTP/SctpDataSender.cs
++++ b/src/SIPSorcery/net/SCTP/SctpDataSender.cs
+@@ -403,7 +403,7 @@
+                 // Parse the gap report to identify missing chunks that have now been acknowledged in the gap report
+                 foreach (var block in sackGapBlocks)
+                 {
+-                    for (ushort offset = block.Start; offset <= block.End; offset++)
++                    for (uint offset = block.Start; offset <= block.End; offset++)
+                     {
+                         uint goodTSN = _cumulativeAckTSN + offset;
+ 

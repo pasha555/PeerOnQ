@@ -30,6 +30,229 @@ Rollback:
 
 ## Entries
 
+## 2026-10-18 — Full 0.9.78 server/client patch candidate
+
+Task: Prepare the requested full synchronized patch with the latest native UI and website fixes.
+Files changed: Canonical version/mobile codes, operator release notes and current release records;
+the release rebuilds the Windows/Portable/Linux clients and full server bundle from current source.
+Reason: The immutable 0.9.77 packages predate native selector removal and automatic website-client
+selection. Version 0.9.78 / mobile codes 9078 includes fixed Automatic/P1080 startup, Firefox
+64-bit x64 recommendations, authoritative/preserved ARM64 hints, bounded local checking and the
+website builder's ARM64 availability/inherited-metadata correction. Security/protocol and existing
+1080p constraints remain unchanged.
+Validation: Fresh public web 118/118, zero failed/skipped, typecheck/lint passed. Fresh Ubuntu 24.04
+Linux viewer 48/48 (22+14+12), zero skipped, 194 inputs with zero drift; package/ELF/inner checksums,
+exact .6 core/ten notices and actual self-contained normal close/startup cancellation passed.
+New private archive: 54,103,727 bytes, SHA256
+dabe9707ee7db52d064aa67d10ce234377b46751b2f849d40a05955793ac2c7c,
+under app-updates/linux/release-0.9.78-preview. Both owned containers are absent; old 0.9.77 bytes
+are preserved. Fresh evidence is under app-updates/validation/2026-10-18-patch-0.9.78.
+The new Windows x64/ARM64 MSI pair passed full payload, ICE03 and unchanged 96 MiB size gates,
+zero warnings/errors, in 412.88 s; all 56 frozen inputs have zero drift. Exact bytes/hashes are in
+CURRENT_STATE. Full server bundle build passed in 23.7013412 s: 163,633,566 bytes, SHA256
+41dd381e56d518ada6539181889ab681ffb6628af206b479c852412a0a42567d.
+Release notes are frozen at c512ec57faf4b0970fd977f477517d4f81afd7a133e5d7691d425bc6d3d36d3e.
+Controlled local publication passed: restarted preview selects 0.9.78/unsigned-public-pilot via
+local metadata; both complete MSI HTTP200 streams match exact sizes/hashes and the matching
+checksums. Older versioned files/checksum backup are retained; remote production is untouched.
+Portable pair payload verification passed: 585/581 inner files, exact checksums/version/architecture,
+.6 core/ten notices, ephemeral profile manifests and product broker absence; 56 inputs have zero
+drift. No Portable app launch/install/network proof is claimed. Actual extracted-server acceptance
+attempt 1 passed: runtimeExecuted=true, 356.3283211 s, 106 commands, 5,964 harness assertions
+(not tests), nine images and 744 extracted inputs / 168,614,423 bytes with exact hashes. Cleanup
+errors were zero; no named volume or production environment was used. The final exact-artifact
+verifier exited 0: six binaries/six companions and 56 frozen source inputs with zero drift.
+VALIDATION.json under the new evidence root and beside the server .run is byte-identical,
+7,401 bytes, SHA256 a76c79c4acfb5aaa6985fa7ca6fad6f52d10b267a2732098bf61f5ea8338a001.
+Decision: privateUnsigned=true, productionReady=false, productionDeployment=false;
+localControlledPreviewPublished=true.
+Prior 1,310 tests/hardware/SCTP results remain historical
+baseline evidence; they are not relabeled as fresh 0.9.78 executions.
+Risk: Private unsigned candidates/previews are not production-ready; remote production is
+untouched. Signing, distribution/native provenance, physical/WAN and SCM/LocalService gates
+remain open. No source commit/push or Linux publication.
+Rollback: Retain all prior packages and sealed evidence; installer/server rollback must follow the
+delivered operator procedure. Do not rename old packages or replace historical proof records.
+
+## 2026-10-18 — Remove native display-profile selectors
+
+Task: Remove the circled Display quality and Target resolution controls because the client uses
+the temporary 1080p scope.
+Files changed: MainWindow.xaml/code-behind, existing native UI gate, PROJECT_MAP, DESIGN_SYSTEM
+and CURRENT_STATE.
+Reason: Separate profile/resolution selectors add a choice the user no longer wants.
+Validation: Strict Release WinUI x64 build passed in 53.49 s, zero warnings/errors; updated native
+UI gate and scoped diff check passed. Startup directly applies Automatic quality with P1080;
+both controls, their handler and selected-item parsing are removed. Existing audio/consent and
+session paths remain intact. No new tests/dependencies or product-version bump.
+Risk: This source/build follow-up is not included in the immutable previously packaged 0.9.77
+MSIs/server bundle; no installer publication, installed-client replacement or GUI launch performed.
+The existing aspect-ratio/no-upscaling capture policy remains in force.
+Rollback: Restore only the two XAML selectors, their profile helper/call and matching UI-gate hunks;
+preserve earlier media/transport and website-selection changes.
+
+## 2026-10-18 — Automatic website client selection
+
+Task: Remove mandatory manual architecture selection after the user reproduced it in Firefox.
+Files changed: DownloadsPage, dedicated downloadSelection tests, website builder/invariant,
+frontend contracts/design guidance, PROJECT_MAP and CURRENT_STATE.
+Reason: Firefox lacks UA Client Hints; legacy 64-bit information was ignored. Partial/failed hints
+could erase explicit ARM64, and a stalled query had no deadline. Website-only builds also omitted
+ARM64 availability and did not clear an inherited embedded ARM64 URL.
+Validation: Public tests 118/118 (33 selection cases), zero failed/skipped; typecheck, lint and
+website-builder invariant pass. Production web build 13.70 s; six inputs unchanged. Private unsigned
+review ZIP: 236,568 bytes / 15 verified entries, SHA256
+7c261576289dd9853d7f1596ec2a17660ef659b99cb16ae40cddd4e8803f071d,
+under dist/website/review-auto-client-detection-2026-10-18. No installer/client-version selection.
+Read-only public probes downloaded both 0.9.77 MSIs over HTTPS/HTTP200 with exact trusted hashes;
+the website's existing production packages were not changed by this task. Canonical version stays
+0.9.77. Navigator fixtures in jsdom were tested; no physical browser GUI execution is claimed.
+Risk: Reduced UAs cannot prove every native ARM64 CPU; legacy 64-bit x64 fallback is explicitly a
+recommendation, authoritative ARM64 hints/manual choices win, unknown unsupported devices remain
+unavailable. This review ZIP has no trusted signature and is not Admin-activatable. Live activation
+awaits the existing trusted website signer/publication access; no deployment/commit/push performed.
+Rollback: Keep the current website activation; revert only these website hunks, retaining the
+existing server/client artifacts, version and data. Exact pre-change source copies are in the
+task's peeronq-download-autoselect-before TEMP directory.
+
+## 2026-10-18 — Temporary 1080p scope and private 0.9.77 candidate
+
+Task: Apply the user's decision to defer 4K and keep 1080p; prepare the previously requested patch.
+Files changed: Shared capture policy/profile, coordinator, Windows scaler/native picker, landing
+copy and regressions; canonical version/codes, broker-only publish settings, maps/current evidence
+and operator release notes.
+Reason: 4K latency remained unmet. Remove the current offer without erasing prior failed evidence.
+Validation: Pre-broker-packaging strict build 20.71 s, zero warnings/errors; 19 projects completed:
+1,310 total / 1,283 passed / zero failed / 27 explicit environment skips. Application 234/234,
+EndToEnd 165/165, actual resolution/capture 62/62, adaptive 40/40 and corrected native UI gate pass.
+Web 228/228 plus lint/typecheck/build pass. Hardware 1080p: 600.68 s, 17,946 frames, 29.88 FPS,
+538 GPU / zero CPU samples. SCTP copied 1 GiB twice with equal disk SHA256 in 72.1/60.5 s;
+separate 35 ms input gates pass. All 27 exact skipped identities match actual supplemental Passed
+rows (Linux 6, Cloud 16, Signaling 4, TURN 1), zero unmatched; primary skips/counts are preserved.
+Additional native QUIC 1 GiB payload contention passed 1/1, zero skips: 25.2 MiB/s, input p95
+0.5 ms / 2,430 samples; this is not disk-file SHA256 proof. Current Ubuntu viewer 48/48
+(22+14+12), normal close/startup cancel and 194 inputs / zero drift passed. Its private archive
+is 54,105,863 bytes, SHA256 2af4e49e5537f5a6839ac4af98277d244e9cf1c214890f6061abbb9a840ddd95.
+Current TURN UDP/TCP + signaling restart passed 3/3; valid four-protocol auth and invalid/expired
+rejection passed. The initial read-only preflight variable collision is retained before correction.
+The original private x64/ARM64 MSI pair passed payload but failed the existing 96 MiB size gate
+at 112,365,568 / 103,153,664 bytes. Broker-only WinRT-reference removal still failed at
+107,302,912 bytes; trimmed-broker scratch passed payload/size at 85,422,080 bytes, zero warnings.
+The broker excludes unused WinRT SDK references and trims its private runtime with compiler/
+linker warnings fatal, retaining its Windows TFM, multifile layout and security boundary.
+Original artifacts/41 frozen functional inputs are preserved; seven broker-packaging inputs are
+tracked separately. The 1,310 totals are not rerun/changed; post-packaging strict whole build
+passed 33.21 s / zero warnings/errors and ordinary Service tests 12/12. The actual trimmed broker
+passed six managed groups on shared .NET 10.0.13 and self-contained non-SCM exit 2; no SCM,
+LocalService or trimmed-worker DI proof. Final MSIs passed payload/96 MiB gates at 85,467,136 /
+77,930,496 bytes (exact hashes in CURRENT_STATE); Portable pair payload checks passed.
+Immutable server .run: 163,670,630 bytes, SHA256
+c6e1af61945dcb74bf8dfa125a3de645c6e764bddc14e9aa6ec48827507cd774.
+Server attempt 6 passed 119.4647906 s / 104 commands / 5,964 harness assertions, not test cases:
+nine non-root images/six ASP.NET 10.0.13 runtimes, restricted migrations twice/delivered roles,
+permissions/default-false audio, actual Cloud health/401, three web/six Portal SPA routes and
+both MSI HTTP 200/full hashes/version/classification/checksums. Extracted 744 inputs unchanged,
+cleanup zero. Failed attempts 1–5, fixture-only dual-network diagnostic and external Desktop
+restart are retained; product bytes/release notes remain unchanged.
+Final writer/seal: 1,180 curated proofs, 48 inputs / zero drift, 12 exact artifacts; original
+19 TRXs/27 exact supplemental identities remain unchanged. Seal-summary SHA256
+a7d0a25671232e822e950c3ab3489961082c746df5fcac5189c5c79b3b35077f; evidence-sums SHA256
+86444354ca840e9fa6342c5d7adf58a3868b15147134488a2aa1b1f66b8047a5. Both copied byte-identically
+beside the .run with CANDIDATE_VALIDATION, INSTALL and immutable 4,326-byte notes. Candidate remains
+private/unsigned, production-ready/published false; no production deployment or commit/push.
+An initial filter ran zero cases; the obsolete UI 4K assertion and a Portal focus-test race were
+corrected. The first Media fixture accidentally requested TURN without credentials and failed
+before transfer; corrected direct SCTP results above retain the two failed attempt records.
+Risk: 1080 means a 1080-pixel short edge with preserved aspect ratio/no upscaling; ultrawide
+long edges can exceed 1920. Private unsigned 0.9.77 does not supersede published 0.9.76 packages.
+Signing, distribution/native provenance and physical/WAN gates remain; no production deployment.
+Rollback: Revert only this scope's policy/picker/version hunks; preserve prior transport/media
+remediation, immutable 0.9.76 artifacts and additive database migrations.
+
+## 2026-10-18 — Release prerequisite: encoder callbacks and exact SIMD conversion
+
+Task: Resolve measured 4K performance before selecting the requested next release.
+Files changed: Windows encoder/event helper; exact I420/NV12 BGR and guarded BGRA AVX2 conversion;
+VP8 native reconfiguration/version guard; focused regressions; maps, PHASE5 and evidence docs.
+Reason: Polling overslept up to 16.52 ms; scalar conversion and repeated VP8 initialization cost
+material frame time. Modern libvpx encoder defaults can overwrite the pinned 384-byte layout.
+Validation: Final strict whole build 32.00 s, zero warnings/errors. All 19 projects completed:
+1,274 total / 1,246 passed / zero failed / 28 explicit environment skips. Actual supplements:
+Ubuntu 48/48, Cloud 63/63, distributed signaling 3/3, audio 1/1, TURN UDP/TCP + restart 3/3;
+all zero skips. Web 228/228, typecheck/build/lint pass. Exact SIMD/scalar regressions pass,
+including every RGB/YUV triple; native VP8 final 37/37.
+All 28 primary skip identities match actual supplemental Passed rows, zero unmatched; primary
+skip records remain unchanged. Final 14 frozen source hashes match and .6 output cores match.
+Current SCTP copied 1 GiB twice with
+equal full disk SHA256 in 67.5/61.5 s; unchanged 35 ms input gates pass separately. Hardware
+1080p continuity: 600.24 s / 17,987 frames / 29.97 FPS, 538 hardware and zero CPU samples.
+Private Linux preview 54,105,078 bytes, SHA 8a5792ef...778bd, 194 inputs / zero drift; archive,
+actual normal close/startup cancel pass. No incompatible distro encoder probe was executed.
+Risk: 4K condition still fails: latest capture-inclusive whole p95 224.02/102.57 ms; final
+current I420-only landscape 105.28 ms. Neither proves physical 4K/30 FPS or WAN performance.
+Cold callback initialization regression 791.78 ms and rejected experiments remain recorded.
+Canonical version stays 0.9.76: no new patch/MSI/publication/deployment/commit is claimed.
+Physical Linux/4K, signing and native-source provenance gates remain; preview is unpublished.
+Rollback: Exact pre-change sources and reverse-only SIMD patch retained in ignored validation/
+2026-10-18-release-performance-gate/rollback; preserve all earlier SCTP/D3D/filler changes.
+
+## 2026-10-18 — Large SCTP transfer, native 4K and Linux client follow-up
+
+Task: Resolve the remaining large-file SCTP and 4K timing/performance issues; retain native 4K
+on supported displays and deliver a runnable Linux viewer/controller client.
+Files changed: Maintained dependency patches/builder/notices; capture/policy/clock; owned video
+planes/latest worker/MF codecs; Linux app/keyring/Cloud/portable scripts; finite signaling quality
+reason compatibility; focused regressions and centrally maintained maps/evidence documents.
+Reason: Prior 1 GiB SCTP compatibility transfer did not finish; Automatic capture still reduced
+4K sources, portrait sizing treated the long edge as the resolution target, and the Linux viewer
+needed current runnable-package/runtime evidence. Do not overwrite the earlier failed observations.
+Validation: Final .6: two identical packages, builder22/API7/RTCP9 pass, 6,674 APIs unchanged.
+Strict solution build33.21s, zero warnings/errors. Final19-project suite1,213 total:1,186 passed,
+zero failed,27 explicit environment skips, including119/119 EndToEnd. Both SCTP lanes copied
+1GiB with equal disk SHA256 in66.1/62.3s; unchanged35ms input gates pass. Encrypted1080p
+soak600.43s/17,994 frames/29.97FPS, hardware decoder true throughout537 samples, CPU0.
+Focused GPU/filler/fallback35 and coordinator2 pass; native12 exact pictures/fresh7 recoveries.
+Final Linux54,101,107B, SHA f1704c67…e27a, actual Ubuntu48/48 plus archive/launch/close/cancel,
+192 inputs/zero drift. Managed inventory41 projects/zero vulnerable entries; secret scan1212/zero.
+Current x64/test consumers and eight adopted sources match frozen hashes. Earlier failures and
+checkpoints remain in PERFORMANCE_REPORT; raw final results retained under app-updates/validation/.
+Risk: Preserve permissions, TLS/encryption, bounded buffers, independent stream ordering, signing,
+license and physical-Linux publication gates. Final4K whole p95 remains116.82/130.00ms;
+all100ms windows missed. No physical4K/30FPS or AnyDesk-parity claim. Source version0.9.76;
+no public MSI/server deployment or version change.
+Rollback: Keep the earlier remediation; revert only this follow-up's coherent hunks/artifacts.
+
+## 2026-10-18 — Audit remediation: verified source and open acceptance gates
+
+Task: Fix the AnyDesk-competitor audit; enforce supported-source 1080p, no artificial file-size quota and adaptive speed; implement the user-approved H264/audio/service dependencies.
+Files changed: Native session/input/capture/transport/media, Cloud auth/ownership/policy, Portal/download selection, paired bundle/installer gates, dependency pins, tests, maps and dated evidence docs.
+Reason: Confirmed auth/account, focus/capture, estimator/pacing, ordered receive and publication defects. Full legacy chunks exceeded the channel limit; payload stride now reserves framing space. Wildcard ICE blocked the real LAN fast path. Fixed deterministic package timestamps/equal DLL sizes could leave stale MSBuild output; exact-hash repair and six regressions now cover build/publish. Repo-local SDK resolution/bootstrap and unused catalog entry fix the reported IDE/restore issues.
+Validation: SDK 10.0.402/.NET 10.0.13 whole-solution CI/analyzer build and plain restore pass,
+zero warnings/errors. Web 228/types/lint/build, frozen pnpm lock for 10 workspaces, 41-project
+NuGet/original-upstream advisory/pnpm scans pass. Maintained SIPSorcery 10.0.17.4: two identical
+clean packages, 16 builder self-tests, seven compatibility/API checks, three ordinary SCTP
+regressions; exact consumer hashes and six notices verified. Whole suite: 1,065 = 1,043 passed /
+one failed / 21 skipped. Sole 4K timing failure retained despite one diagnostic rerun pass. Both
+unchanged 35 ms synthetic input gates pass (15.627-18.284 ms). Actual Cloud PG/Redis 63 and
+distributed signaling three pass separately; EndToEnd 64 and broker 12 pass. Default-unbound
+native 1 GiB disk transfer 2/2 with equal SHA (20.6/9.9 s); separate 1 GiB QUIC coexistence
+25.2 MiB/s, input p95 0.8 ms / 2,540 samples. Final Android 116 / ARM64 159 inputs have zero
+drift; private packages/notices/.4 core verified. Final .4 hardware soak passed: 600.36 s,
+16,938 synthetic 1080p frames at 28.21 fps; Connected/hardware/H.264/dimensions retained. Live
+TURN controller passed completely in a serial rerun (exit 0): HTTPS/STUN, UDP/TCP/DTLS/TLS auth,
+invalid/expired credential rejection, two relay-video cases, two file-offer rejection cases and
+restart/re-authentication. Harness expectations now respect RelayOnly policy and each theory gets
+its own production-style quota subject. An earlier overlapping build hit locked test DLLs; that
+failed orchestration attempt is retained. See docs/CURRENT_STATE.md and docs/PERFORMANCE_REPORT.md.
+Risk: Legacy SCTP 1 GiB failed at 15 min near 64 MiB; later .2 / 32 KiB diagnostics were aborted
+incomplete, not passes. 4K capture-to-present measurement/performance and its exact failure cause
+remain open. No product version bump, MSI publication, GitHub commit or production deploy.
+Signing, restricted SIPSorcery/native libvpx provenance, physical two-endpoint/WAN, Android SDK402
+workload, Apple Mac/Xcode and clean-VM SCM gates remain open. Automatic review rejected some
+TEMP/cache cleanup (policy) and a malformed-boundary probe (risk); denied actions were not retried.
+The counter hardening has code review and benign regression evidence only.
+Rollback: Revert coherent source changes; preserve the additive audio-policy column/data. Disable managed audio through the new API, then refresh attestations or wait lifetime+clockskew before paired old-server rollback; remove optional broker feature independently. No production data or installed service was changed.
+
 ## 2026-09-28 - Package the website presentation update as 0.9.76
 
 Task: Deliver a full server patch for the operator's production installation, including the

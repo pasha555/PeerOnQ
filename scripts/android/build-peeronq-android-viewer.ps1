@@ -95,6 +95,9 @@ if (-not $staging.StartsWith($outputPrefix, [StringComparison]::OrdinalIgnoreCas
 }
 [IO.Directory]::CreateDirectory($staging) | Out-Null
 try {
+    & dotnet run --project (Join-Path $repoRoot 'eng/PeerOnQ.DependencyBuilder') -c Release -- `
+        --output (Join-Path $repoRoot 'eng/sipsorcery/packages')
+    if ($LASTEXITCODE -ne 0) { throw 'Maintained media dependency build failed.' }
     $buildStartedAt = [DateTime]::UtcNow
     $arguments = @(
         'build', $project, '--configuration', 'Release', '--framework', 'net10.0-android', '--nologo', '-t:Rebuild',

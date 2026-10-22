@@ -120,6 +120,8 @@ public sealed class AppServices : IAsyncDisposable, IRegistrationProofProvider
     public UpdateService? Updates { get; }
     private readonly HttpClient? _updateHttpClient;
     private readonly HttpClient? _cloudHttpClient;
+    private readonly CancellationTokenSource _sessionBrokerLifetime = new();
+    private Task? _sessionBrokerTask;
 
     /// <summary>Set by the permission dialog host before any session can arrive.</summary>
     public static IPermissionPrompt? PermissionPrompt { get; set; }
@@ -301,7 +303,9 @@ public sealed class AppServices : IAsyncDisposable, IRegistrationProofProvider
             signaling,
             new WebRtcMediaEngine(
                 loggerFactory,
-                hardwareH264Available: () => HardwareEncoderProbe.Supports(HardwareVideoCodec.H264)),
+                hardwareH264Available: () => HardwareEncoderProbe.Supports(HardwareVideoCodec.H264),
+                hardwareH264EncoderFactory: () => new MediaFoundationH264Encoder(),
+                h264DecoderFactory: MediaFoundationH264Decoder.TryCreate),
             prompt,
             blockedDevices,
             sessionAudit,
@@ -317,7 +321,9 @@ public sealed class AppServices : IAsyncDisposable, IRegistrationProofProvider
             clientSessionEvents: clientTelemetry,
             hybridIdentity: hybridIdentity,
             supportInvitations: supportInvitations,
-            nativeBulkTransportFactory: new ManagedQuicBulkTransportFactory());
+            nativeBulkTransportFactory: new ManagedQuicBulkTransportFactory(),
+            systemAudioCaptureFactory: () => new WindowsSystemAudioCapture(),
+            systemAudioPlaybackFactory: () => new WindowsSystemAudioPlayback());
 
         HttpClient? cloudHttpClient = null;
         CloudPlatformClient? cloudPlatform = null;
@@ -402,6 +408,9 @@ public sealed class AppServices : IAsyncDisposable, IRegistrationProofProvider
                 services.Identity = enrolledIdentity;
         }
         cloudPlatform?.Start();
+        if (!App.IsPortableSupport)
+            services._sessionBrokerTask = new WindowsSessionBrokerClient(
+                loggerFactory.CreateLogger<WindowsSessionBrokerClient>()).RunAsync(services._sessionBrokerLifetime.Token);
         return services;
     }
 
@@ -416,6 +425,13 @@ public sealed class AppServices : IAsyncDisposable, IRegistrationProofProvider
 
     public async ValueTask DisposeAsync()
     {
+        await _sessionBrokerLifetime.CancelAsync();
+        if (_sessionBrokerTask is not null)
+        {
+            try { await _sessionBrokerTask; }
+            catch (OperationCanceledException) when (_sessionBrokerLifetime.IsCancellationRequested) { }
+        }
+        _sessionBrokerLifetime.Dispose();
         await Coordinator.DisposeAsync();
         await Signaling.DisposeAsync();
         NetworkDoctor.Dispose();

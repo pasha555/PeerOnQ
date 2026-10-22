@@ -66,6 +66,8 @@ public sealed class SessionCoordinator : IAsyncDisposable
     private readonly IHybridDeviceIdentityProvider? _hybridIdentity;
     private readonly SupportInvitationService? _supportInvitations;
     private readonly INativeBulkTransportFactory? _nativeBulkTransportFactory;
+    private readonly Func<ISystemAudioCaptureSource>? _systemAudioCaptureFactory;
+    private readonly Func<ISystemAudioPlaybackSink>? _systemAudioPlaybackFactory;
     private readonly Func<IMediaSession, SessionPermission, string, ICollaborationTransport>?
         _collaborationTransportFactory;
     private readonly SessionTimelineStore _timeline;
@@ -99,7 +101,9 @@ public sealed class SessionCoordinator : IAsyncDisposable
         Func<IMediaSession, SessionPermission, string, ICollaborationTransport>?
             collaborationTransportFactory = null,
         SupportInvitationService? supportInvitations = null,
-        INativeBulkTransportFactory? nativeBulkTransportFactory = null)
+        INativeBulkTransportFactory? nativeBulkTransportFactory = null,
+        Func<ISystemAudioCaptureSource>? systemAudioCaptureFactory = null,
+        Func<ISystemAudioPlaybackSink>? systemAudioPlaybackFactory = null)
     {
         _signaling = signaling;
         _mediaEngine = mediaEngine;
@@ -107,6 +111,8 @@ public sealed class SessionCoordinator : IAsyncDisposable
         _blockedDevices = blockedDevices;
         _auditLog = auditLog;
         _captureFactory = captureFactory;
+        _systemAudioCaptureFactory = systemAudioCaptureFactory;
+        _systemAudioPlaybackFactory = systemAudioPlaybackFactory;
         _options = options ?? SessionOptions.Default;
         _log = logger ?? NullLogger<SessionCoordinator>.Instance;
         _time = timeProvider ?? TimeProvider.System;
@@ -259,7 +265,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
             changed = !runtime.RevokedPermissions.HasFlag(SessionPermission.ControlInput);
             runtime.RevokedPermissions |= SessionPermission.ControlInput;
             remoteInput = runtime.Collaboration?.RemoteInput;
-            _inputSafety.DisableAndReleaseAll();
+            DisablePlatformInput(runtime);
         }
         finally
         {
@@ -337,10 +343,16 @@ public sealed class SessionCoordinator : IAsyncDisposable
     public async Task<SessionId> RequestRemoteSelectedSessionAsync(
         PeerOnQId target,
         CancellationToken cancellationToken = default) =>
+        await RequestRemoteSelectedSessionAsync(target, requestSystemAudio: false, cancellationToken);
+
+    public async Task<SessionId> RequestRemoteSelectedSessionAsync(
+        PeerOnQId target,
+        bool requestSystemAudio,
+        CancellationToken cancellationToken = default) =>
         await RequestSessionCoreAsync(
             target,
             SessionMode.FullControl,
-            Phase1SessionScope.FullControlPermissions,
+            Phase1SessionScope.FullControlPermissions | (requestSystemAudio ? SessionPermission.SystemAudio : SessionPermission.None),
             SessionAccessKind.Attended,
             unattendedPassword: null,
             supportInvitationToken: null,
@@ -420,7 +432,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
         if (remoteScopeSelectionRequired
             && (accessKind != SessionAccessKind.Attended
                 || mode != SessionMode.FullControl
-                || permissions != Phase1SessionScope.FullControlPermissions))
+                || !Phase1SessionScope.IsRemoteScopeSelectionEnvelope(permissions)))
         {
             throw new ArgumentException(
                 "Remote scope selection is available only for attended full-control requests.",
@@ -428,7 +440,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
         }
 
         var sessionId = SessionId.New();
-        var requestedProfile = Profile;
+        var requestedProfile = Profile with { Resolution = CaptureResolutionPolicy.Normalize(Profile.Resolution) };
         var runtime = new SessionRuntime(
             sessionId,
             SessionRole.Viewer,
@@ -556,7 +568,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
         var requestedProfile = MediaProfile.For(notification.Quality);
         if (notification.Resolution is { } requestedResolution)
-            requestedProfile = requestedProfile with { Resolution = requestedResolution };
+            requestedProfile = requestedProfile with { Resolution = CaptureResolutionPolicy.Normalize(requestedResolution) };
 
         if (!SessionPermissionPolicy.IsValid(notification.Mode, notification.Permissions)
             || !Phase1SessionScope.IsAllowed(
@@ -630,6 +642,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
             requestedProfile,
             notification.RemoteScopeSelectionRequired);
         runtime.FileRelayEnabled = notification.FileRelay;
+        runtime.UnicodeInputEnabled = notification.UnicodeInput;
 
         lock (_gate)
         {
@@ -800,7 +813,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
             await StartSharingAsync(runtime, cancellationToken);
         }
         catch (OperationCanceledException) when (
-            cancellationToken.IsCancellationRequested || runtime.IsReleased)
+            cancellationToken.IsCancellationRequested || runtime.IsEnding || runtime.IsReleased)
         {
             if (cancellationToken.IsCancellationRequested) throw;
         }
@@ -838,6 +851,8 @@ public sealed class SessionCoordinator : IAsyncDisposable
                                  "No capture target was selected. PeerOnQ never captures the desktop implicitly.");
                 capture = _captureFactory();
                 runtime.Capture = capture;
+                runtime.CaptureStoppedHandler = (_, reason) => OnCaptureStopped(runtime, capture, reason);
+                capture.CaptureStopped += runtime.CaptureStoppedHandler;
 
                 captureRequest = new CaptureRequest
                 {
@@ -877,7 +892,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
                     var activeTarget = capture.Target
                         ?? throw new InvalidOperationException(
                             "Full Control capture did not expose an active input target.");
-                    _remoteInputSink!.SetCaptureTarget(activeTarget);
+                    _remoteInputFocus.ExecuteIfUnowned(() => _remoteInputSink!.SetCaptureTarget(activeTarget));
                 }
             }
             await ApplyPendingNegotiationSignalsAsync(runtime, media, pendingSignals, operationToken);
@@ -948,14 +963,30 @@ public sealed class SessionCoordinator : IAsyncDisposable
             _log.LogInformation("Switching shared display to {Display}", target.DisplayName);
             await adaptive.SwitchTargetAsync(target);
             PreferredCaptureTarget = target;
-            _remoteInputSink?.SetCaptureTarget(target);
 
             await PublishDisplaysAsync(runtime);
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Could not switch the shared display");
+            if (runtime.Capture?.IsCapturing == false)
+                OnCaptureStopped(runtime, runtime.Capture, CaptureStoppedReason.Error);
         }
+    }
+
+    private void OnCaptureStopped(SessionRuntime runtime, IScreenCaptureSource capture, CaptureStoppedReason reason)
+    {
+        if (!ReferenceEquals(runtime.Capture, capture) || !IsRuntimeActive(runtime)) return;
+
+        // Disable synchronously: teardown may wait for a startup/media operation, but a frozen
+        // or unavailable screen must never leave its remote input route active during that wait.
+        runtime.BeginEnding();
+        runtime.Collaboration?.ConnectionInterrupted();
+        DisablePlatformInput(runtime);
+        _timeline.Record(runtime.SessionId, "capture.stopped", $"Screen capture stopped ({reason})");
+        RunStartupOperation(
+            _ => FailAsync(runtime, SessionEndReason.MediaLost),
+            "Failed to end a session after screen capture stopped");
     }
 
     /// <summary>Sharer: tell the viewer which displays exist and which one is live.</summary>
@@ -1016,6 +1047,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
             runtime.PeerDisplayName = notification.PeerDisplayName ?? runtime.PeerDisplayName;
             runtime.PeerKeyFingerprint = notification.PeerKeyFingerprint;
             runtime.FileRelayEnabled = notification.FileRelay;
+            runtime.UnicodeInputEnabled = notification.UnicodeInput;
             if (!TryResolveGrantedScope(
                     runtime.Mode,
                     runtime.Permissions,
@@ -1232,7 +1264,13 @@ public sealed class SessionCoordinator : IAsyncDisposable
                     runtime.Role,
                     transport,
                     runtime.Role == SessionRole.Sharer ? _remoteInputSink : null,
-                    runtime.Role == SessionRole.Sharer ? _remoteInputFocus : null)
+                    runtime.Role == SessionRole.Sharer ? _remoteInputFocus : null,
+                    captureTarget: runtime.Role == SessionRole.Sharer
+                        ? () => !runtime.IsEnding
+                                && runtime.EffectivePermissions.HasFlag(SessionPermission.ControlInput)
+                            ? runtime.Capture?.Target : null
+                        : null,
+                    unicodeInputEnabled: runtime.UnicodeInputEnabled)
                 : null;
             if (remoteInput is not null)
             {
@@ -1248,7 +1286,13 @@ public sealed class SessionCoordinator : IAsyncDisposable
                 transport,
                 fileTransfers,
                 clipboard,
-                remoteInput);
+                remoteInput,
+                runtime.Permissions.HasFlag(SessionPermission.SystemAudio)
+                    ? new SystemAudioSession(media, runtime.Permissions,
+                        runtime.Role == SessionRole.Sharer ? _systemAudioCaptureFactory : null,
+                        runtime.Role == SessionRole.Viewer ? _systemAudioPlaybackFactory : null,
+                        _time)
+                    : null);
             if (fileTransfers is not null)
             {
                 // Start every authorized file-transfer session with the largest bounded window and
@@ -1376,10 +1420,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
             runtime.CancelTimeout();
             if (isResuming) runtime.Collaboration.ConnectionResumed();
             if (runtime.Role == SessionRole.Sharer && _remoteInputSink is not null)
-            {
-                _remoteInputSink.SetCaptureTarget(runtime.Capture?.Target);
-                _inputSafety.RestoreApprovedScope(runtime.EffectivePermissions);
-            }
+                RestorePlatformInput(runtime);
             if (_qualitySignaling is not null)
                 runtime.StartQualityPublisher(ct => PublishQualityAsync(runtime, ct));
             if (isResuming)
@@ -1400,6 +1441,12 @@ public sealed class SessionCoordinator : IAsyncDisposable
         }
 
         if (!IsRuntimeActive(runtime)) return;
+        if (runtime.Role == SessionRole.Sharer && runtime.Collaboration?.SystemAudio is { } audio
+            && !runtime.InitialAudioCaptureStarted)
+        {
+            runtime.InitialAudioCaptureStarted = true;
+            _ = StartApprovedSystemAudioAsync(runtime, audio);
+        }
         if (!runtime.SecurityStartAudited)
         {
             runtime.SecurityStartAudited = true;
@@ -1434,6 +1481,18 @@ public sealed class SessionCoordinator : IAsyncDisposable
         _log.LogWarning(exception, "Mandatory secure session establishment failed for session {SessionId}", runtime.SessionId);
         if (IsRuntimeActive(runtime))
             await FailAsync(runtime, SessionEndReason.AuthenticationMismatch);
+    }
+
+    private async Task StartApprovedSystemAudioAsync(SessionRuntime runtime, SystemAudioSession audio)
+    {
+        try { await audio.SetCaptureEnabledAsync(true, runtime.LifecycleToken); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or NotSupportedException
+            or System.Runtime.InteropServices.COMException)
+        {
+            audio.RevokeLocalPermission();
+            _log.LogWarning("System sound did not start for session {SessionId}; sound remains disabled", runtime.SessionId);
+        }
     }
 
     private async Task ApplyPendingNegotiationSignalsAsync(
@@ -1714,7 +1773,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
         runtime.Reconnect.Fire(ReconnectTrigger.RetryStarted);
 
         // This is deliberately first: uncertain transport must never leave a key/button held.
-        _inputSafety.DisableAndReleaseAll();
+        DisablePlatformInput(runtime);
 
         runtime.StartReconnect(ct => RecoverAsync(runtime, ct));
     }
@@ -1909,8 +1968,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
         runtime.CancelReconnect();
         if (restoreInput && runtime.Role == SessionRole.Sharer)
         {
-            _remoteInputSink?.SetCaptureTarget(runtime.Capture?.Target);
-            _inputSafety.RestoreApprovedScope(runtime.EffectivePermissions);
+            RestorePlatformInput(runtime);
         }
         Notify(runtime);
     }
@@ -1980,11 +2038,40 @@ public sealed class SessionCoordinator : IAsyncDisposable
             // Serialize against the Connected callback that grants the approved input scope. Once
             // IsEnding is set, no late media event can restore input after this fail-closed reset.
             runtime.Collaboration?.ConnectionInterrupted();
-            _inputSafety.DisableAndReleaseAll();
+            DisablePlatformInput(runtime);
         }
         finally
         {
             runtime.LifecycleGate.Release();
+        }
+    }
+
+    private void DisablePlatformInput(SessionRuntime runtime)
+    {
+        if (_remoteInputSink is null)
+        {
+            _inputSafety.DisableAndReleaseAll();
+            return;
+        }
+        if (runtime.Role != SessionRole.Sharer) return;
+        if (!_remoteInputFocus.ExecuteIfOwner(runtime.SessionId, _inputSafety.DisableAndReleaseAll))
+            _remoteInputFocus.ExecuteIfUnowned(_inputSafety.DisableAndReleaseAll);
+    }
+
+    private void RestorePlatformInput(SessionRuntime runtime)
+    {
+        if (_remoteInputSink is null)
+        {
+            _inputSafety.RestoreApprovedScope(runtime.EffectivePermissions);
+            return;
+        }
+        if (!_remoteInputFocus.ExecuteIfOwner(runtime.SessionId,
+                () => _inputSafety.RestoreApprovedScope(runtime.EffectivePermissions)))
+        {
+            // Connection readiness alone never grants injection. Only an acknowledged focus
+            // request may restore ControlInput, and another session's sink is left untouched.
+            _remoteInputFocus.ExecuteIfUnowned(() => _inputSafety.RestoreApprovedScope(
+                runtime.EffectivePermissions & ~SessionPermission.ControlInput));
         }
     }
 
@@ -2054,7 +2141,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
             runtime.CancelTimeout();
             runtime.CancelReconnect();
             runtime.CancelQualityPublisher();
-            _inputSafety.DisableAndReleaseAll();
+            DisablePlatformInput(runtime);
 
             if (runtime.Collaboration is not null)
             {
@@ -2088,6 +2175,11 @@ public sealed class SessionCoordinator : IAsyncDisposable
 
             if (runtime.Capture is not null)
             {
+                if (runtime.CaptureStoppedHandler is not null)
+                {
+                    runtime.Capture.CaptureStopped -= runtime.CaptureStoppedHandler;
+                    runtime.CaptureStoppedHandler = null;
+                }
                 try
                 {
                     await runtime.Capture.StopAsync();
@@ -2443,11 +2535,8 @@ public sealed class SessionCoordinator : IAsyncDisposable
         }
         else if (accessKind != SessionAccessKind.Attended
                  || requestedMode != SessionMode.FullControl
-                 || requestedPermissions != Phase1SessionScope.FullControlPermissions
-                 || (grantedMode != SessionMode.ViewOnly
-                     && grantedMode != SessionMode.FullControl)
-                 || grantedPermissions != SessionPermissionPolicy.ForMode(grantedMode.Value)
-                 || (grantedPermissions.Value & ~requestedPermissions) != 0)
+                 || !Phase1SessionScope.IsRemoteScopeSelectionEnvelope(requestedPermissions)
+                 || !Phase1SessionScope.IsRemoteScopeSelectionGrant(grantedMode.Value, grantedPermissions.Value, requestedPermissions))
         {
             return false;
         }
@@ -2499,6 +2588,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
         public SessionStateMachine Machine { get; } = new();
         public IMediaSession? Media { get; set; }
         public IScreenCaptureSource? Capture { get; set; }
+        public EventHandler<CaptureStoppedReason>? CaptureStoppedHandler { get; set; }
         public SessionCollaborationContext? Collaboration { get; set; }
         public ReconnectStateMachine Reconnect { get; } = new();
         public int ReconnectAttempts { get; set; }
@@ -2509,6 +2599,8 @@ public sealed class SessionCoordinator : IAsyncDisposable
         public SessionQualityNotification? RemoteQuality { get; set; }
         public bool PermissionAccepted { get; set; }
         public bool FileRelayEnabled { get; set; }
+        public bool UnicodeInputEnabled { get; set; }
+        public bool InitialAudioCaptureStarted { get; set; }
         public bool SessionStartAudited { get; set; }
         public bool SecurityStartAudited { get; set; }
         public bool CloudConnectedQueued { get; set; }

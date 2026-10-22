@@ -391,8 +391,8 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
             sourceHeight = Math.Min(height, (int)sourceDescription.Height);
             if (sourceWidth <= 0 || sourceHeight <= 0) return null;
 
-            // The encoder input size follows the requested resolution, and the adaptive
-            // controller can shrink it further while the session is running.
+            // Keep requested and actual dimensions separate. Adaptation may reduce larger
+            // sources, but never below the capture floor or above the source's real detail.
             var (targetWidth, targetHeight) =
                 FrameScaler.ResolveOutputSize(sourceWidth, sourceHeight, _resolution);
             requestedWidth = targetWidth;
@@ -401,10 +401,8 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
             var factor = Volatile.Read(ref _downscaleFactor);
             if (factor > 1)
             {
-                targetWidth = Math.Max(2, targetWidth / factor);
-                targetHeight = Math.Max(2, targetHeight / factor);
-                targetWidth -= targetWidth % 2;
-                targetHeight -= targetHeight % 2;
+                (targetWidth, targetHeight) = FrameScaler.ResolveOutputSize(
+                    sourceWidth, sourceHeight, _resolution, factor);
             }
 
             if (targetWidth <= 0 || targetHeight <= 0) return null;

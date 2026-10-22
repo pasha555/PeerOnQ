@@ -149,7 +149,8 @@ public sealed class DeviceRegistrationService(
             completed.DeviceId,
             completed.InstallationId,
             options.DeviceAccessTokenLifetime,
-            cancellationToken);
+            cancellationToken,
+            challenge.IdentityFingerprint);
         return new DeviceAuthenticationResultV1(
             token.Token,
             token.ExpiresAtUtc,

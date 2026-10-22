@@ -284,6 +284,17 @@ public sealed class OrganizationMembership
         Role = role; ConcurrencyVersion++;
     }
     public void Revoke(DateTimeOffset now) { if (RevokedAtUtc is null) { RevokedAtUtc = now; ConcurrencyVersion++; } }
+
+    public void Reactivate(CustomerRoleKind role, DateTimeOffset now)
+    {
+        if (IsActive) throw new InvalidOperationException("Membership is already active.");
+        if (!Enum.IsDefined(role) || role == CustomerRoleKind.Owner)
+            throw new ArgumentException("A valid non-owner invitation role is required.", nameof(role));
+        Role = role;
+        JoinedAtUtc = now;
+        RevokedAtUtc = null;
+        ConcurrencyVersion++;
+    }
 }
 
 public sealed class Team
@@ -360,6 +371,7 @@ public sealed class OrganizationPolicy
     public bool FullControlAllowed { get; private set; }
     public bool FileTransferAllowed { get; private set; }
     public bool ClipboardAllowed { get; private set; }
+    public bool SystemAudioAllowed { get; private set; }
     public bool UnattendedAccessAllowed { get; private set; }
     public bool MfaRequired { get; private set; }
     public bool HybridSecurityRequired { get; private set; }
@@ -376,7 +388,8 @@ public sealed class OrganizationPolicy
         _ => false,
     };
     public void Update(bool viewOnly, bool fullControl, bool fileTransfer, bool clipboard, bool unattended, bool mfaRequired,
-        int trustedDeviceLifetimeDays, int auditRetentionDays, string? approvedRelayRegionsCsv, string? minimumClientVersion, bool hybridSecurityRequired)
+        int trustedDeviceLifetimeDays, int auditRetentionDays, string? approvedRelayRegionsCsv, string? minimumClientVersion, bool hybridSecurityRequired,
+        bool? systemAudioAllowed = null)
     {
         if (trustedDeviceLifetimeDays is < 1 or > 3650) throw new ArgumentOutOfRangeException(nameof(trustedDeviceLifetimeDays));
         if (auditRetentionDays is < 1 or > 3650) throw new ArgumentOutOfRangeException(nameof(auditRetentionDays));
@@ -384,6 +397,7 @@ public sealed class OrganizationPolicy
         UnattendedAccessAllowed = unattended; MfaRequired = mfaRequired; TrustedDeviceLifetimeDays = trustedDeviceLifetimeDays;
         AuditRetentionDays = auditRetentionDays; ApprovedRelayRegionsCsv = NormalizeRelayRegions(approvedRelayRegionsCsv);
         MinimumClientVersion = NormalizeOptional(minimumClientVersion, 64); HybridSecurityRequired = hybridSecurityRequired; ConcurrencyVersion++;
+        if (systemAudioAllowed.HasValue) SystemAudioAllowed = systemAudioAllowed.Value;
     }
     private static string NormalizeOptional(string? value, int max) { var normalized = value?.Trim() ?? string.Empty; return normalized.Length <= max ? normalized : throw new ArgumentOutOfRangeException(nameof(value)); }
     private static string NormalizeRelayRegions(string? value)

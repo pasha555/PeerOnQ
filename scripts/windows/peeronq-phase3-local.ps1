@@ -609,22 +609,26 @@ function Invoke-Test {
             }
         }
 
-        Write-Host "Running real relay-only file-transfer acceptance over TURN UDP $TurnPort..."
-        $fileCredential = New-TurnRestCredential ([DateTimeOffset]::UtcNow.AddMinutes(5)) 'local-file-acceptance'
-        $env:PEERONQ_LIVE_FILE_TRANSFER_TEST = '1'
-        $env:PEERONQ_LIVE_TURN_URL = "turn:${TurnHost}:$TurnPort?transport=udp"
-        $env:PEERONQ_LIVE_TURN_USERNAME = $fileCredential.Username
-        $env:PEERONQ_LIVE_TURN_CREDENTIAL = $fileCredential.Credential
-        try {
-            & dotnet test (Join-Path $RepoRoot 'tests\PeerOnQ.Media.Tests\PeerOnQ.Media.Tests.csproj') `
-                --no-restore -c Release `
-                --filter 'FullyQualifiedName~File_transfer_flows_over_the_authorized_data_only_media_session' | Out-Host
-            if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
-        } finally {
-            Remove-Item Env:PEERONQ_LIVE_FILE_TRANSFER_TEST -ErrorAction SilentlyContinue
-            Remove-Item Env:PEERONQ_LIVE_TURN_URL -ErrorAction SilentlyContinue
-            Remove-Item Env:PEERONQ_LIVE_TURN_USERNAME -ErrorAction SilentlyContinue
-            Remove-Item Env:PEERONQ_LIVE_TURN_CREDENTIAL -ErrorAction SilentlyContinue
+        foreach ($fileBulkCase in @('True', 'False')) {
+            Write-Host "Running real relay-only file-transfer acceptance over TURN UDP $TurnPort (bulk=$fileBulkCase)..."
+            # Production credentials are session-specific; distinct theories must not share a quota subject.
+            $fileSubject = 'local-file-acceptance-' + [Guid]::NewGuid().ToString('N')
+            $fileCredential = New-TurnRestCredential ([DateTimeOffset]::UtcNow.AddMinutes(5)) $fileSubject
+            $env:PEERONQ_LIVE_FILE_TRANSFER_TEST = '1'
+            $env:PEERONQ_LIVE_TURN_URL = "turn:${TurnHost}:$TurnPort?transport=udp"
+            $env:PEERONQ_LIVE_TURN_USERNAME = $fileCredential.Username
+            $env:PEERONQ_LIVE_TURN_CREDENTIAL = $fileCredential.Credential
+            try {
+                & dotnet test (Join-Path $RepoRoot 'tests\PeerOnQ.Media.Tests\PeerOnQ.Media.Tests.csproj') `
+                    --no-restore -c Release `
+                    --filter "FullyQualifiedName~File_transfer_flows_over_the_authorized_data_only_media_session&DisplayName~$fileBulkCase" | Out-Host
+                if ($LASTEXITCODE -ne 0) { return $LASTEXITCODE }
+            } finally {
+                Remove-Item Env:PEERONQ_LIVE_FILE_TRANSFER_TEST -ErrorAction SilentlyContinue
+                Remove-Item Env:PEERONQ_LIVE_TURN_URL -ErrorAction SilentlyContinue
+                Remove-Item Env:PEERONQ_LIVE_TURN_USERNAME -ErrorAction SilentlyContinue
+                Remove-Item Env:PEERONQ_LIVE_TURN_CREDENTIAL -ErrorAction SilentlyContinue
+            }
         }
 
         Write-Host 'Running live signaling restart/re-authentication acceptance...'

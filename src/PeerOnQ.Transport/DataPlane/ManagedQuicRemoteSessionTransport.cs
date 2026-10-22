@@ -222,7 +222,9 @@ public sealed class ManagedQuicRemoteSessionTransport : IReliableRemoteSessionTr
             while (!_lifetime.IsCancellationRequested)
             {
                 var stream = await _connection.AcceptInboundStreamAsync(_lifetime.Token);
-                var task = ProcessInboundLaneAsync(stream);
+                // A buffered file stream can complete reads synchronously for many records.
+                // Keep that work off the accept loop so a new input lane is admitted promptly.
+                var task = Task.Run(() => ProcessInboundLaneAsync(stream));
                 _inboundLanes[stream.Id] = task;
                 _ = task.ContinueWith(
                     (completedTask, state) =>

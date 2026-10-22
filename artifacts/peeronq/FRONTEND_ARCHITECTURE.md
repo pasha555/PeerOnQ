@@ -98,8 +98,16 @@ be absolute HTTPS and fails closed when absent or invalid; unknown devices never
 The hero mounts `DownloadsPage` once at `#client-download`; its optional `secondaryAction` slots the
 portal anchor beside the package action without changing release selection. Header/mobile download
 anchors return to that selector; `#download` retains platform status and legacy route compatibility.
-The selector preserves source selection/validation, shows browser-detected device/architecture,
-and displays version/classification only where supplied by the selected release source. Known
+The selector preserves source selection/validation and automatically recommends the available
+installer using local browser platform/architecture information. Authoritative UA Client Hints
+take priority; explicit legacy Windows/Linux 64-bit compatibility information may recommend x64, clearly
+labeled as a recommendation rather than confirmed native CPU detection. Reduced user agents cannot
+reliably distinguish every ARM64 device. Explicit ARM64 information survives missing/failed hints;
+a bounded local lookup prevents indefinite waiting. Manual selection remains an optional override
+and wins over late hints. Unknown/32-bit devices without supported 64-bit information do not silently
+receive an installer. No detection request contacts a server. New server
+bundles provide both checksum-verified Windows architectures with matching classification.
+Version/classification appears only where supplied by the selected release source. Known
 unsigned builds are labeled for testing; server-owned or tracked sources never imply a signature
 or version from unrelated local metadata.
 
@@ -135,6 +143,7 @@ Vitest with jsdom (`src/test/`):
 | `emptyState.test.tsx` | Zero-state rendering |
 | `permissionDialog.test.tsx` | Connect flow only opens the notice dialog; Escape closes it; focus stays trapped |
 | `routeSeparation.test.tsx` | Layout isolation, legacy redirects, native-app fallback, and safe Phase 6 dev links |
+| `downloadSelection.test.tsx` | Automatic browser/platform selection, labeled legacy recommendations, ARM64 precedence, bounded hints and manual-override races |
 | `settings.test.ts` | Settings persistence |
 | `theme.test.ts` | Theme resolution and persistence |
 

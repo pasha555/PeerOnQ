@@ -20,28 +20,21 @@ public static class FrameScaler
     public static (int Width, int Height) ResolveOutputSize(
         int sourceWidth,
         int sourceHeight,
-        CaptureResolution resolution)
+        CaptureResolution resolution,
+        int downscaleFactor = 1)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(downscaleFactor);
         if (sourceWidth <= 0 || sourceHeight <= 0) return (0, 0);
 
-        var targetHeight = resolution switch
-        {
-            CaptureResolution.P720 => 720,
-            CaptureResolution.P1080 => 1080,
-            CaptureResolution.P1440 => 1440,
-            CaptureResolution.P2160 => 2160,
-            CaptureResolution.Native => sourceHeight,
+        var sourceShortEdge = Math.Min(sourceWidth, sourceHeight);
+        _ = CaptureResolutionPolicy.Normalize(resolution);
 
-            // Automatic keeps native up to 1080p and scales anything larger down to it.
-            CaptureResolution.Automatic => Math.Min(sourceHeight, 1080),
-            _ => sourceHeight,
-        };
-
-        // Never upscale: it costs bandwidth and adds no detail.
-        targetHeight = Math.Min(targetHeight, sourceHeight);
-
-        var scale = (double)targetHeight / sourceHeight;
+        // Preserve at least 1080 lines on landscape displays, or a 1080-pixel short edge
+        // on portrait displays. Smaller sources stay native: upscaling creates no detail.
+        // The same bound is now the maximum, including old Native/1440p/2160p requests.
+        var scale = Math.Min(1d, (double)CaptureResolutionPolicy.MaximumShortEdge / sourceShortEdge);
         var targetWidth = (int)Math.Round(sourceWidth * scale);
+        var targetHeight = (int)Math.Round(sourceHeight * scale);
 
         targetWidth = Math.Max(2, targetWidth - (targetWidth % 2));
         targetHeight = Math.Max(2, targetHeight - (targetHeight % 2));
@@ -216,6 +209,9 @@ public static class FrameScaler
 
     private static unsafe byte[] BgraToI420Native(nint source, int stride, int width, int height)
     {
+        if (BgraI420Avx2Converter.CanConvert(source, stride, width, height))
+            return BgraI420Avx2Converter.Convert(source, stride, width, height);
+
         var ySize = width * height;
         var chromaSize = ySize / 4;
         var output = new byte[ySize + (chromaSize * 2)];

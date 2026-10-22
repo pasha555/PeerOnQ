@@ -131,7 +131,11 @@ public sealed class FileTransferService : IAsyncDisposable
             Entries = entries,
         };
 
-        var runtime = TransferRuntime.Outbound(offer, sources, _options.ChunkBytes);
+        var chunkBytes = Math.Min(_options.ChunkBytes, _transport.MaximumFileChunkBytes);
+        if (chunkBytes <= 0) throw new InvalidOperationException("The transport file chunk limit must be positive.");
+        // Freeze the outbound stride before acceptance so reconnect/resume checkpoints remain
+        // valid even if the underlying transport's available lanes subsequently change.
+        var runtime = TransferRuntime.Outbound(offer, sources, chunkBytes);
         Add(runtime);
         await _transport.SendAsync(offer, cancellationToken);
         await AuditAsync(SecurityAuditEventType.FileTransferOffered, transferId, "sent");
@@ -396,12 +400,12 @@ public sealed class FileTransferService : IAsyncDisposable
             foreach (var entry in runtime.Offer.Entries.Where(entry => entry.Kind == TransferItemKind.File))
             {
                 var source = runtime.SourcePaths[entry.RelativePath];
-                await using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, _options.ChunkBytes, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                await using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, runtime.ChunkBytes, FileOptions.Asynchronous | FileOptions.SequentialScan);
                 var offset = runtime.RemoteOffsets.GetValueOrDefault(entry.RelativePath);
                 if (offset < 0 || offset > stream.Length) throw new InvalidDataException("Invalid resume offset.");
                 stream.Position = offset;
-                var index = offset / _options.ChunkBytes;
-                var buffer = new byte[_options.ChunkBytes];
+                var index = offset / runtime.ChunkBytes;
+                var buffer = new byte[runtime.ChunkBytes];
 
                 while (stream.Position < stream.Length)
                 {

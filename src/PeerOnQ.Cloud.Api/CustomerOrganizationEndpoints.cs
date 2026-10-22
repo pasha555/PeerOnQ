@@ -22,6 +22,8 @@ public static class CustomerOrganizationEndpoints
         organizations.MapGet("/{organizationId:guid}/teams", async (Guid organizationId, HttpContext context, CustomerOrganizationService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.ListTeamsAsync(context.User.RequireCustomerAccountId(), organizationId, cancellationToken)));
         organizations.MapPost("/{organizationId:guid}/teams", CreateTeamAsync).RequireRateLimiting("customer-sensitive");
+        organizations.MapGet("/{organizationId:guid}/teams/{teamId:guid}/members", async (Guid organizationId, Guid teamId, HttpContext context, CustomerOrganizationService service, CancellationToken cancellationToken) =>
+            Results.Ok(await service.ListTeamMembersAsync(context.User.RequireCustomerAccountId(), organizationId, teamId, cancellationToken)));
         organizations.MapPost("/{organizationId:guid}/teams/{teamId:guid}/members", AddTeamMemberAsync).RequireRateLimiting("customer-sensitive");
         organizations.MapDelete("/{organizationId:guid}/teams/{teamId:guid}/members/{memberAccountId:guid}", RemoveTeamMemberAsync).RequireRateLimiting("customer-sensitive");
         organizations.MapGet("/{organizationId:guid}/policy", async (Guid organizationId, HttpContext context, CustomerOrganizationService service, CancellationToken cancellationToken) =>
@@ -31,6 +33,10 @@ public static class CustomerOrganizationEndpoints
         organizations.MapGet("/{organizationId:guid}/devices", async (Guid organizationId, HttpContext context, CustomerOrganizationService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.ListDevicesAsync(context.User.RequireCustomerAccountId(), organizationId, cancellationToken)));
         organizations.MapPost("/{organizationId:guid}/devices/{deviceId:guid}/claim", ClaimDeviceAsync).RequireRateLimiting("customer-sensitive");
+        organizations.MapPost("/{organizationId:guid}/devices/ownership-links/preview", PreviewOwnershipLinkAsync)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(1024)).RequireRateLimiting("customer-sensitive");
+        organizations.MapPost("/{organizationId:guid}/devices/ownership-links/claim", ClaimOwnershipLinkAsync)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(1024)).RequireRateLimiting("customer-sensitive");
         organizations.MapGet("/{organizationId:guid}/sessions", async (Guid organizationId, HttpContext context, CustomerOrganizationService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.ListSessionsAsync(context.User.RequireCustomerAccountId(), organizationId, cancellationToken)));
         organizations.MapGet("/{organizationId:guid}/audit", async (Guid organizationId, HttpContext context, CustomerOrganizationService service, CancellationToken cancellationToken) =>
@@ -139,4 +145,18 @@ public static class CustomerOrganizationEndpoints
     }
 
     private static void Mutating(HttpContext context) => CustomerPortalAuthentication.ValidateCsrf(context);
+
+    private static async Task<IResult> PreviewOwnershipLinkAsync(Guid organizationId, PreviewDeviceOwnershipLinkRequest request, HttpContext context, DeviceOwnershipLinkService service, CancellationToken cancellationToken)
+    {
+        Mutating(context);
+        context.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(await service.PreviewAsync(context.User.RequireCustomerAccountId(), context.User.RequireCustomerSessionId(), organizationId, request.Code, cancellationToken));
+    }
+
+    private static async Task<IResult> ClaimOwnershipLinkAsync(Guid organizationId, ClaimDeviceOwnershipLinkRequest request, HttpContext context, DeviceOwnershipLinkService service, CancellationToken cancellationToken)
+    {
+        Mutating(context);
+        await service.ClaimAsync(context.User.RequireCustomerAccountId(), context.User.RequireCustomerSessionId(), organizationId, request.Code, request.PreviewToken, cancellationToken);
+        return Results.NoContent();
+    }
 }

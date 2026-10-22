@@ -75,7 +75,28 @@ grep -Fqx '  "linuxHost": false,' "$manifest_path"
 grep -Fqx '  "unattendedAccess": false' "$manifest_path"
 
 [[ -f "$payload_root/README.md" ]] || { echo "Linux viewer README is missing." >&2; exit 1; }
+[[ -s "$payload_root/LICENSE.txt" && -s "$payload_root/THIRD_PARTY_NOTICES.md" ]] || {
+  echo "Linux viewer license notices are missing." >&2; exit 1;
+}
+dependency_notices="$payload_root/ThirdParty/SIPSorcery"
+for notice in LICENSE.md _PeerOnQ/upstream.json _PeerOnQ/provenance.json _PeerOnQ/dtls-receive-wakeup.patch; do
+  [[ -s "$dependency_notices/$notice" ]] || { echo "Maintained dependency notice is missing: $notice" >&2; exit 1; }
+done
+while IFS= read -r patch; do
+  [[ "$patch" =~ ^[a-z0-9-]+\.patch$ && -s "$dependency_notices/_PeerOnQ/$patch" ]] || {
+    echo "Maintained dependency patch notice is missing or invalid." >&2; exit 1;
+  }
+done < <(sed -n 's/^[[:space:]]*"file": "\([^"]*\)",*$/\1/p' "$dependency_notices/_PeerOnQ/upstream.json")
 [[ -s "$payload_root/PeerOnQ" ]] || { echo "Linux viewer entrypoint is missing or empty." >&2; exit 1; }
+[[ "$(od -An -t x1 -N 4 "$payload_root/PeerOnQ" | tr -d '[:space:]')" == 7f454c46 ]] || {
+  echo "Linux viewer entrypoint is not ELF." >&2; exit 1;
+}
+[[ ! -e "$payload_root/vpxmd.dll" ]] || { echo "Windows VP8 library must not be shipped on Linux." >&2; exit 1; }
+machine="$(od -An -t u2 -j 18 -N 2 "$payload_root/PeerOnQ" | tr -d '[:space:]')"
+case "$runtime_id:$machine" in
+  linux-x64:62|linux-arm64:183) ;;
+  *) echo "Linux viewer entrypoint architecture does not match $runtime_id." >&2; exit 1 ;;
+esac
 if [[ ! -x "$payload_root/PeerOnQ" ]]; then
   grep -Fq 'chmod +x PeerOnQ' "$payload_root/README.md" || {
     echo "A non-executable cross-published entrypoint must include the exact chmod instruction." >&2

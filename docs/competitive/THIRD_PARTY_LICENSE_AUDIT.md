@@ -1,8 +1,43 @@
 # Third-party license audit: media/security scope
 
-Initial audit: 2026-08-18. Package/source revalidation: 2026-09-27, against the current
-`Directory.Packages.props`, exact restored NuGet archives and official upstream sources.
-The release SBOM remains authoritative for a concrete artifact. No dependency was changed.
+Initial audit: 2026-08-18. Archive/source revalidation: 2026-09-27; source remediation: 2026-10-18.
+The release SBOM remains authoritative for a concrete artifact. Historical archive hashes below
+describe the reviewed versions and must not be reused as evidence for a new release.
+
+## 2026-10-18 remediation and remaining decisions
+
+`Directory.Packages.props` now pins maintained PeerOnQ.SIPSorcery 10.0.17.6 (upstream 10.0.17),
+Abstractions 10.0.17 and BouncyCastle 2.7.0.
+The [official 10.0.17 source](https://github.com/sipsorcery-org/sipsorcery/tree/08c2ed0ad72c423ca06950dee2e842488a219884)
+catches each TURN/TLS packet callback failure inside `StartTlsReadLoop`. PeerOnQ's regression invokes
+that actual loop with three framed packets and a first-packet exception and verifies all three
+dispatches. This source/test evidence is separate from an advisory page's patched-version field.
+The embedded additional license restrictions remain, as do the WiX decision and native libvpx
+source/build/security/notice gates. A dependency upgrade does not approve redistribution.
+
+The official release retains the 25 ms empty-queue DTLS poll. A TEMP-only controlled comparison
+used identical common test files and changed only the original-source versus patched SIPSorcery
+DLL/PDB. The unchanged 35 ms gate passed 1/6 original cases and 6/6 patched cases; the ranges of
+twelve scenario p95 values were 34.073–38.931 ms and 17.018–18.485 ms respectively, not pooled
+percentiles. Every patched case also completed and verified its 1 MiB transfer and returned from
+disposal. These are synthetic same-host input sinks, not physical Windows injection/WAN evidence.
+
+The user explicitly approved maintenance of the derivative on 2026-10-18. Source now selects
+`PeerOnQ.SIPSorcery` 10.0.17.6, built by the pinned SDK-only builder/local-feed flow documented in
+[DEPENDENCIES](../../DEPENDENCIES.md). This decision satisfies the maintenance-decision requirement
+below; it does not waive license, security, physical acceptance or release gates. Final SDK402
+package-consumer evidence must identify its new binary hash rather than claim the SDK303 TEMP
+comparison DLL was shipped. The second pinned patch clears reported duplicate history per SACK,
+following [RFC 9260 section 3.3.4](https://www.rfc-editor.org/rfc/rfc9260.html#section-3.3.4).
+The third patch widens the gap-loop counter to prevent ushort wraparound. The fourth/fifth patches
+correct bounded sender/receiver flow control; the sixth serializes UDP receive-buffer admission
+and close/re-arm ownership. The seventh initializes RTCP transit from the first packet, avoiding
+arbitrary clock phase in jitter. All seven raw patches and five final changed source files retain exact
+hash provenance. Normal SCTP/UDP recovery is tested; no hostile-boundary runtime probe was executed.
+These changes retain close/cancellation semantics, public API, cryptography and wire framing. Original upstream advisory identity
+is audited separately because the derivative package ID cannot inherit advisory matching.
+
+## Historical package/license evidence — 2026-09-27
 
 The production pnpm license inventory, repository vulnerability scan and secret scan passed in
 the historical 2026-08-18 audit. Those results are not rerun results or current security clearance.

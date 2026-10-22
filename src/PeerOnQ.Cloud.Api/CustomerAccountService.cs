@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +23,7 @@ public sealed class CustomerAccountService(
 {
     private readonly IDataProtector _mfaProtector = dataProtection.CreateProtector("PeerOnQ.CustomerPortal.Mfa.v1");
     private readonly ITimeLimitedDataProtector _mfaSetupProtector = dataProtection
-        .CreateProtector("PeerOnQ.CustomerPortal.MfaSetup.v1")
+        .CreateProtector("PeerOnQ.CustomerPortal.MfaSetup.v2")
         .ToTimeLimitedDataProtector();
 
     public CustomerAuthCapabilities GetCapabilities() => new(
@@ -278,25 +279,43 @@ public sealed class CustomerAccountService(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<MfaSetupResult> BeginMfaSetupAsync(Guid accountId, CancellationToken cancellationToken)
+    public async Task<MfaSetupResult> BeginMfaSetupAsync(Guid accountId, Guid sessionId, MfaSetupRequest? request, CancellationToken cancellationToken)
     {
         RequireMfaAvailable();
         var account = await RequireActiveAccountAsync(accountId, cancellationToken);
+        await RequireActiveSessionAsync(accountId, sessionId, cancellationToken);
+        if (account.MfaEnabled && (request is null ||
+            passwords.Verify(account, request.CurrentPassword) == PasswordVerificationResult.Failed ||
+            !await VerifyMfaOrRecoveryAsync(account, request.CurrentMfaCode, DateTimeOffset.UtcNow, cancellationToken)))
+            throw InvalidCredentials();
+        // Invalidate previous drafts and atomically consume a recovery code used for step-up.
+        account.RecordSecurityTokenActivity();
+        AddEvent(accountId, null, "account.mfa_setup_started", AuditResult.Succeeded);
+        await db.SaveChangesAsync(cancellationToken);
         var secret = RandomNumberGenerator.GetBytes(20);
         var base32 = CustomerTotp.ToBase32(secret);
-        var protectedSetup = _mfaSetupProtector.Protect(Convert.ToBase64String(secret), TimeSpan.FromMinutes(10));
+        var binding = new MfaSetupBinding(accountId, sessionId, account.ConcurrencyVersion, Convert.ToBase64String(secret));
+        var protectedSetup = _mfaSetupProtector.Protect(JsonSerializer.Serialize(binding), TimeSpan.FromMinutes(10));
         var issuer = Uri.EscapeDataString("PeerOnQ");
         var label = Uri.EscapeDataString($"PeerOnQ:{account.Email}");
         return new MfaSetupResult(base32, protectedSetup, $"otpauth://totp/{label}?secret={base32}&issuer={issuer}&digits=6&period=30");
     }
 
-    public async Task<IReadOnlyList<string>> ConfirmMfaAsync(Guid accountId, string protectedSetup, string code, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<string>> ConfirmMfaAsync(Guid accountId, Guid sessionId, string protectedSetup, string code, CancellationToken cancellationToken)
     {
         RequireMfaAvailable();
         var account = await RequireActiveAccountAsync(accountId, cancellationToken);
+        await RequireActiveSessionAsync(accountId, sessionId, cancellationToken);
         byte[] secret;
-        try { secret = Convert.FromBase64String(_mfaSetupProtector.Unprotect(protectedSetup, out _)); }
-        catch (Exception exception) when (exception is CryptographicException or FormatException)
+        try
+        {
+            var binding = JsonSerializer.Deserialize<MfaSetupBinding>(_mfaSetupProtector.Unprotect(protectedSetup, out _));
+            if (binding is null || binding.AccountId != accountId || binding.SessionId != sessionId ||
+                binding.ConcurrencyVersion != account.ConcurrencyVersion)
+                throw new CryptographicException("The MFA setup binding is no longer valid.");
+            secret = Convert.FromBase64String(binding.Secret);
+        }
+        catch (Exception exception) when (exception is CryptographicException or FormatException or JsonException or ArgumentException)
         { throw Problem(StatusCodes.Status400BadRequest, "mfa_setup_invalid", "The MFA setup challenge is invalid or expired."); }
         if (!CustomerTotp.Verify(secret, code, DateTimeOffset.UtcNow)) throw Problem(StatusCodes.Status400BadRequest, "mfa_code_invalid", "The MFA code is invalid.");
         account.EnableMfa(_mfaProtector.Protect(secret));
@@ -407,6 +426,16 @@ public sealed class CustomerAccountService(
         return account;
     }
 
+    private async Task RequireActiveSessionAsync(Guid accountId, Guid sessionId, CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (!await db.CustomerSessions.AsNoTracking().AnyAsync(value => value.Id == sessionId && value.AccountId == accountId &&
+            value.RevokedAtUtc == null && value.ExpiresAtUtc > now, cancellationToken))
+            throw InvalidCredentials();
+    }
+
+    private sealed record MfaSetupBinding(Guid AccountId, Guid SessionId, long ConcurrencyVersion, string Secret);
+
     private async Task<bool> VerifyMfaOrRecoveryAsync(CustomerAccount account, string? code, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(code)) return false;
@@ -458,6 +487,7 @@ public sealed record LoginSessionResult(Guid AccountId, Guid SessionId, string A
 public sealed record CustomerProfileResult(Guid Id, string Email, string DisplayName, bool EmailVerified, bool MfaEnabled, DateTimeOffset CreatedAtUtc);
 public sealed record UpdateCustomerProfileRequest(string DisplayName);
 public sealed record MfaSetupResult(string Secret, string SetupToken, string OtpAuthUri);
+public sealed record MfaSetupRequest(string CurrentPassword, string CurrentMfaCode);
 public sealed record MfaConfirmRequest(string SetupToken, string Code);
 public sealed record MfaConfirmResult(IReadOnlyList<string> RecoveryCodes);
 public sealed record MfaDisableRequest(string Password, string Code);
