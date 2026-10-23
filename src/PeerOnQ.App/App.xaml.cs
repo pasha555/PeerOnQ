@@ -47,6 +47,13 @@ public partial class App : Microsoft.UI.Xaml.Application
 
     protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
+        // Local viewer acceptance harness: no services, no network, no single-instance redirect.
+        if (ViewerSelfTest.RequestedResultPath() is { } selfTestResult)
+        {
+            ViewerSelfTest.Run(selfTestResult);
+            return;
+        }
+
         var currentInstance = AppInstance.GetCurrent();
         var instanceKey = IsPortableSupportRequested()
             ? PortableSupportInstanceKey

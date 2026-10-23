@@ -98,6 +98,11 @@ Assert-NotContains $viewerCode 'ControlInputButton' 'The viewer still contains a
 Assert-Contains $viewerCode 'EnableAuthorizedInput();' 'Approved Full Control does not automatically restore after viewer activation.'
 Assert-Contains $viewerCode 'public void AttachRemoteInput(RemoteInputSession? remoteInput)' 'Viewer cannot bind remote input after secure collaboration becomes ready.'
 Assert-Contains $viewerXaml 'PointerEntered="OnRemoteImagePointerEntered"' 'The remote image does not restore approved control on pointer entry.'
+# SwapChainPanel rejects Background only at runtime (0.9.79 viewer crash); the XAML compiler accepts it.
+$swapChainPanels = [regex]::Matches($viewerXaml, '<SwapChainPanel\b[^>]*>')
+if ($swapChainPanels.Count -ne 1 -or $swapChainPanels[0].Value -match '\bBackground\s*=') {
+    throw 'The viewer swap chain panel must exist once and must not set Background (runtime XAML failure).'
+}
 Assert-Contains $viewerXaml 'AllowDrop="True" DragOver="OnRemoteFilesDragOver" Drop="OnRemoteFilesDropped"' 'Full Control has no drop target for direct file transfer.'
 Assert-Contains $viewerCode 'OfferClipboardFilesAsync' 'Full Control does not offer copied files through the existing file-transfer channel.'
 Assert-Contains $viewerCode 'StandardDataFormats.StorageItems' 'File drop and paste must ignore non-file clipboard content.'

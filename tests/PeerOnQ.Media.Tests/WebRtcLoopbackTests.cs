@@ -1348,6 +1348,53 @@ public partial class WebRtcLoopbackTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// While the session negotiates, capture keeps replacing the one queued frame. Those
+    /// replacements are not encoder backpressure and must not lower quality at connection.
+    /// </summary>
+    [Fact]
+    public async Task Frames_replaced_before_connection_do_not_degrade_quality_as_backpressure()
+    {
+        await using var capture = new SyntheticCaptureSource(640, 360);
+        await capture.StartAsync(new CaptureRequest
+        {
+            Target = new CaptureTargetInfo(CaptureTargetKind.Display, "synthetic", "Synthetic Display", 640, 360),
+            MaxFramesPerSecond = 30,
+        });
+
+        var sessionId = SessionId.New();
+        await using var sharer = WebRtcMediaSession.CreateSharer(
+            sessionId, capture, MediaProfile.For(QualityProfile.Quality));
+        await using var viewer = WebRtcMediaSession.CreateViewer(sessionId);
+        await using var identities = await TestHybridIdentityPair.CreateAsync();
+        await using var viewerTransport = new MediaCollaborationTransport(
+            viewer, SessionPermission.ViewScreen, identities.Viewer, identities.SharerLegacyFingerprint);
+        await using var sharerTransport = new MediaCollaborationTransport(
+            sharer, SessionPermission.ViewScreen, identities.Sharer, identities.ViewerLegacyFingerprint);
+        sharer.LocalIceCandidate += async (_, c) =>
+            await viewer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+        viewer.LocalIceCandidate += async (_, c) =>
+            await sharer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+        var backpressureChanges = 0;
+        sharer.Adaptive!.LevelChanged += (_, _) =>
+        {
+            if (sharer.Adaptive.LastDecision.ReasonCode == "encoder_backpressure")
+                Interlocked.Increment(ref backpressureChanges);
+        };
+        var framesReceived = 0;
+        viewer.RemoteFrameReceived += (_, _) => Interlocked.Increment(ref framesReceived);
+
+        // Let capture replace queued frames for a while, as it does during real signaling.
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        var answer = await viewer.CreateAnswerAsync(await sharer.CreateOfferAsync());
+        await sharer.ApplyRemoteAnswerAsync(answer);
+        await WaitUntilAsync(() => viewerTransport.IsReady && sharerTransport.IsReady);
+        Assert.True(await UntilAsync(() => Volatile.Read(ref framesReceived) > 0, TimeSpan.FromSeconds(20)));
+        await Task.Delay(TimeSpan.FromSeconds(2.5));
+
+        Assert.Equal(0, Volatile.Read(ref backpressureChanges));
+    }
+
+    /// <summary>
     /// Real RTCP NACKs repair lost video packets: the sharer drops every 40th media packet before
     /// it reaches the socket, and the viewer must recover them without waiting for key frames.
     /// </summary>

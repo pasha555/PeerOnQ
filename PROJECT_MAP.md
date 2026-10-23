@@ -462,6 +462,11 @@ Never hand-edit files under `src/generated/`.
 - `src/PeerOnQ.Platform.Windows/Rendering/D3D11CompositionVideoPresenter.cs`,
   `src/PeerOnQ.App/ViewerWindow.GpuPresentation.cs` and `SwapChainPanelInterop.cs` - GPU viewer
   presentation through a SwapChainPanel composition swap chain; WriteableBitmap is the fallback
+  (SwapChainPanel rejects `Background` at runtime only)
+- `src/PeerOnQ.App/ViewerSelfTest.cs` and `scripts/windows/test-viewer-window-runtime.ps1` -
+  `PeerOnQ.exe --viewer-self-test <result.json>` opens the real viewer and sharing indicator with
+  synthetic frames (no network); the script captures the composed window and requires visible
+  frames for both renderers. Run it against the packaged app for every client release
 - `src/PeerOnQ.Platform.Windows/Capture/BgraI420Avx2Converter.cs` - guarded single-core native
   BGRA-to-I420 conversion with exact integer 2x2 chroma averaging, packed/tail bounds and the
   original FrameScaler scalar fallback on unsupported processors

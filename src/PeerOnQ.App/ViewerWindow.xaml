@@ -102,12 +102,15 @@
                     <!-- GPU presentation surface. It replaces the Image only after a Direct3D
                          swap chain is attached; any failure returns to the bitmap path. -->
                     <SwapChainPanel x:Name="RemoteSwapChainPanel" Visibility="Collapsed"
-                                    Background="Transparent"
                                     HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                     AutomationProperties.Name="Remote desktop image"
                                     SizeChanged="OnRemoteSwapChainPanelSizeChanged"
-                                    CompositionScaleChanged="OnRemoteSwapChainPanelCompositionScaleChanged"
-                                    PointerEntered="OnRemoteImagePointerEntered" />
+                                    CompositionScaleChanged="OnRemoteSwapChainPanelCompositionScaleChanged">
+                        <!-- SwapChainPanel rejects Background at runtime (the XAML compiler accepts
+                             it). A transparent child above the swap chain keeps pointer entry
+                             hit-testable over the whole surface. -->
+                        <Border Background="Transparent" PointerEntered="OnRemoteImagePointerEntered" />
+                    </SwapChainPanel>
                 </Grid>
             </ScrollViewer>
 

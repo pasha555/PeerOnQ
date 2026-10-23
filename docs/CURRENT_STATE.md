@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.79`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9079`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.80`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9080`. A source
   version does not establish that a matching signed package has been built or published.
 - 0.9.79 media: 4K tier on 4K-class sources, an earned 1080p@60 hardware rung, RTP pacing,
   negotiated NACK repair (`a=x-peeronq-video-rtx:1`), GPU SwapChainPanel viewer presentation,
@@ -31,7 +31,11 @@ production approval or a fresh execution of the historical tests farther down th
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
 
-## Full 0.9.79 patch candidate — 2026-10-24
+## Full 0.9.79 patch candidate — 2026-10-24 (clients withdrawn)
+
+The 0.9.79 viewer window crashes at runtime (SwapChainPanel `Background`, WER 0xc000027b /
+0x802B000A) as soon as a session opens it; the operator saw this after deploying the bundle.
+Do not install 0.9.79 clients; 0.9.80 supersedes them. The record below is kept as history.
 
 One synchronized server/client release with canonical version 0.9.79 and derived mobile bundle
 codes 9079. Client behavior changed (not a version-only rebuild): 4K tier on 4K-class sources,

@@ -76,6 +76,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private Task? _bulkInboundDispatchLoop;
     private int _disposed;
     private long _lastDrops;
+    private bool _adaptWindowPrimed;
     private long _lastEncoded;
     private long _remoteVideoSsrc;
     private int _targetBitrateKbps;
@@ -1101,7 +1102,19 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             {
                 await Task.Delay(interval, cancellationToken);
 
-                if (State != MediaConnectionState.Connected || Adaptive is null) continue;
+                var ready = State == MediaConnectionState.Connected
+                            && Adaptive is not null
+                            && Volatile.Read(ref _trafficProtector) is { IsEstablished: true };
+                if (!ready || !_adaptWindowPrimed)
+                {
+                    // Until ICE and the hybrid-PQ session are both ready, capture keeps replacing
+                    // the single queued frame on purpose. Those replacements are not encoder
+                    // backpressure: the first ready tick only opens a clean measurement window.
+                    _lastDrops = _queue.Dropped;
+                    _lastEncoded = _statistics.Snapshot().FramesEncoded;
+                    _adaptWindowPrimed = ready;
+                    continue;
+                }
 
                 var drops = _queue.Dropped;
                 var snapshot = _statistics.Snapshot();

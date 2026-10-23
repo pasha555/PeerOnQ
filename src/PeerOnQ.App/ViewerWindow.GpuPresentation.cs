@@ -23,6 +23,24 @@ public sealed partial class ViewerWindow
 
     private string RendererName => _gpuSurfaceVisible ? "GPU swap chain" : "bitmap";
 
+    internal string RendererNameForSelfTest => RendererName;
+
+    internal string? RenderFailureForSelfTest => _renderFailure;
+
+    /// <summary>Self-test: 0 Fit, 1 Fill, 2 Stretch, 3 Actual size.</summary>
+    internal void ApplyScaleModeForSelfTest(int mode)
+    {
+        switch (mode)
+        {
+            case 1: OnFillWindow(this, new RoutedEventArgs()); break;
+            case 2: OnStretchWindow(this, new RoutedEventArgs()); break;
+            case 3: OnActualSize(this, new RoutedEventArgs()); break;
+            default: OnFit(this, new RoutedEventArgs()); break;
+        }
+    }
+
+    internal void StepMonitorForSelfTest(int step) => SwitchRemoteMonitor(step);
+
     private void InitializeGpuPresentation()
     {
         if (string.Equals(Environment.GetEnvironmentVariable("PEERONQ_VIEWER_RENDERER"), "bitmap",

@@ -30,6 +30,32 @@ Rollback:
 
 ## Entries
 
+## 2026-10-24 — Fix the 0.9.79 viewer crash; runtime viewer gate; 0.9.80 patch
+
+Task: Owner report after the 0.9.79 server upgrade: the remote PC shows the session connected but
+the viewer laptop shows nothing. Fix it, test it and deliver a working patch.
+Files changed: ViewerWindow.xaml (no Background on SwapChainPanel; transparent child keeps pointer
+entry), ViewerSelfTest.cs + App.xaml.cs (`--viewer-self-test` local harness), ViewerWindow /
+SharingIndicatorWindow self-test hooks, scripts/windows/test-viewer-window-runtime.ps1 (new),
+test-phase5-native-ui.ps1 (static SwapChainPanel guard), WebRtcMediaSession (adapt window primed
+only after ICE + hybrid-PQ readiness), WebRtcLoopbackTests; canonical version 0.9.80 / 9080.
+Reason: Both machines' 0.9.79 viewers crashed ~1-4.5 s after media connected: WER APPCRASH
+0xc000027b (stowed 0x802B000A) in CoreMessagingXP. The harness reproduced the exact error,
+"Setting 'Background' property is not supported on SwapChainPanel [Line 105 Position 37]" — the
+XAML compiler accepts it, only runtime rejects it, and no prior gate opened a real viewer window.
+The sharer log also showed a spurious `encoder_backpressure` downgrade at connection, caused by
+frames intentionally replaced while ICE/PQ negotiated; a new loopback test reproduced it (red)
+and passes 3/3 after the fix.
+Validation: Real viewer window (GPU swap chain and bitmap fallback) opens, renders ~88 visible
+frames (9,370+ distinct captured colours via PrintWindow), cycles all scale modes, resizes,
+steps monitors, opens the expanded sharing indicator and exits 0. Full suite with the hardware
+video gate: 1,412 total / 1,383 passed / 1 failed / 28 skips; the failure is the QUIC goodput
+threshold under full parallel load (14.3 < 17.07 MiB/s), unrelated code that passes 7/7 three
+times in isolation (19.2-20.1 MiB/s); the threshold was not weakened. Native UI gate passed.
+Risk: The self-test is a local diagnostic switch; it opens no network path. Other runtime-only XAML
+failures are now covered only for the viewer and sharing indicator windows.
+Rollback: Revert this entry; reinstalling 0.9.78 clients also avoids the crash.
+
 ## 2026-10-24 — 1080p60, RTP pacing, NACK repair, GPU viewer and the 0.9.79 patch
 
 Task: Owner request: add the recommended 1080p@60, RTP pacing, NACK/RTX and SwapChainPanel GPU

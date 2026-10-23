@@ -105,6 +105,13 @@ public sealed partial class SharingIndicatorWindow : Window
         }
     }
 
+    /// <summary>Viewer self-test: shows the expanded panel, including the voice toggle.</summary>
+    internal void ExpandForSelfTest()
+    {
+        SetExpanded(true);
+        UpdateVoice();
+    }
+
     private void SetExpanded(bool expanded)
     {
         CompactPanel.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
