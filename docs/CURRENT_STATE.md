@@ -5,8 +5,8 @@
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.80`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9080`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.81`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9081`. A source
   version does not establish that a matching signed package has been built or published.
 - 0.9.79 media: 4K tier on 4K-class sources, an earned 1080p@60 hardware rung, RTP pacing,
   negotiated NACK repair (`a=x-peeronq-video-rtx:1`), GPU SwapChainPanel viewer presentation,
@@ -30,6 +30,24 @@ production approval or a fresh execution of the historical tests farther down th
 - Runtime, release-license, physical-device and performance gates remain evidence-bound. See
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
+
+## Full 0.9.81 patch candidate — 2026-10-24
+
+Field fixes after 0.9.80: retained remote display lists (multi-monitor picker), first picture on
+static desktops (viewer PLI at handshake completion and window open, capture refresh), bitmap
+viewer by default, half-scale quality floor, 10 s media summaries with quality reasons. Windows
+pair from commit 5019875 (517 frozen inputs, zero drift, zero warnings, full payload/ICE03/size
+gate): x64 MSI 85,499,904 bytes
+`0a9931501b2a48c5a12c4af0af47a4ad9dfc399a6e965793e576724741605971`, ARM64 MSI 77,983,744 bytes
+`cb008c5b2a50614732a7a3b024ca3ce3a8cc1e4fe77f81573076e1e823fee981`. Packaged viewer runtime gate
+passed for both renderers. Server bundle
+`dist/private-candidate/0.9.81/server/peeronq-server-0.9.81.run`, 163,808,447 bytes,
+`fffd9799a900402d48c331b8a69bcb6bced691d34459a7aea4b020b7941f79cf`; Docker acceptance passed
+(6,087 assertions, zero cleanup errors); local website publication passed. Full suite 1,416 /
+1,388 passed / 0 failed / 28 skips. Final verifier `VALIDATION.json` SHA256
+`9807e709df6ebd7cb55e51e6598d4c9a1109b8783d8875134b8121850099672f`. 0.9.79 and 0.9.80 clients
+are superseded. Unsigned; physical two-machine, hybrid-GPU laptop, multi-monitor and WAN behaviour
+remain unverified; production gates remain open.
 
 ## Full 0.9.80 patch candidate — 2026-10-24
 

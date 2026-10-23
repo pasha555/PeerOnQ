@@ -1,10 +1,28 @@
-# PeerOnQ 0.9.80 - private unsigned candidate
+# PeerOnQ 0.9.81 - private unsigned candidate
 
-This synchronized full-server/client candidate replaces 0.9.79. Directory.Build.props is the sole
-product-version source. Windows, Portable Support, Linux, Android and Apple derive 0.9.80;
-Android/Apple bundle codes advance to 9080. Older artifacts retain their original bytes/version.
+This synchronized full-server/client candidate replaces 0.9.80. Directory.Build.props is the sole
+product-version source. Windows, Portable Support, Linux, Android and Apple derive 0.9.81;
+Android/Apple bundle codes advance to 9081. Older artifacts retain their original bytes/version.
 
-## Fixed in 0.9.80 (install on every client)
+## Fixed in 0.9.81 (install on every client)
+
+- Multiple monitors: the sharer publishes its display list right after the offer, before the
+  viewer window exists, and that list was dropped. The viewer now keeps it, so the monitor
+  picker, the arrows and "All displays" appear on every multi-monitor host.
+- First picture: the host can finish its half of the post-quantum handshake first and send the
+  first frame before the viewer can authenticate it; that frame was dropped, and a static remote
+  desktop then sent nothing new until something changed. The viewer now asks for a key frame as
+  soon as it can decrypt and again when its window opens; the host re-emits its unchanged screen
+  for it. Frames decoded before the window opened are kept and shown.
+- Viewer rendering: the WriteableBitmap presenter is the default again. The Direct3D swap chain
+  was verified only on single-GPU desktops; it is opt-in with `PEERONQ_VIEWER_RENDERER=gpu`.
+- Quality: the adaptive ladder no longer drops to a quarter-scale (480x270) desktop; half scale
+  is the floor. Late frames whose viewer renders promptly lower the frame rate, not resolution.
+  Field logs showed 0.9.80 falling from 1080p to quarter scale within 15 s.
+- Diagnostics: both sides log a media summary every 10 s (codec, size, frame rates, bitrate,
+  RTT/loss/jitter, path, repairs) and every quality change with its policy reason.
+
+## Fixed in 0.9.80
 
 - 0.9.79 viewers crashed as soon as a session opened the viewer window (WER APPCRASH
   0xc000027b, stowed 0x802B000A): the host showed "connected" while the viewer showed nothing.
@@ -13,12 +31,12 @@ Android/Apple bundle codes advance to 9080. Older artifacts retain their origina
   fallback; a real-window runtime gate now runs against the packaged client.
 - Frames replaced while ICE and the hybrid post-quantum session negotiate no longer cause a
   quality downgrade (30 to 20 fps) at connection.
-- Do not install 0.9.79 clients. Replace them with 0.9.80 on both the viewing and the shared
+- Do not install 0.9.79 or 0.9.80 clients. Replace them with 0.9.81 on both the viewing and the shared
   computer; the server upgrade alone does not update installed clients.
 
 ## Client changes since 0.9.78 (first built as 0.9.79)
 
-These are client behavior changes, not a version-only rebuild. Both peers must run 0.9.80 for
+These are client behavior changes, not a version-only rebuild. Both peers must run 0.9.81 for
 the negotiated features; an older peer keeps its previous behavior with this release.
 
 - 4K on 4K displays: a 4K-class source streams native 4K when the viewer has a monitor with a
@@ -57,7 +75,7 @@ the negotiated features; an older peer keeps its previous behavior with this rel
 
 No server, Cloud, Signaling, Presence, Portal or Admin behavior change. Media stays peer-to-peer
 after setup; servers handle presence, signaling and the existing TURN relay fallback. Images are
-rebuilt with this synchronized release so offered downloads select 0.9.80. Server installation
+rebuilt with this synchronized release so offered downloads select 0.9.81. Server installation
 updates offered downloads; it does not automatically replace already-installed clients.
 
 New dependency: Concentus 2.2.2 (Opus BSD-3-Clause notice ships with release artifacts; its
@@ -70,30 +88,28 @@ x64/ARM64 use unsigned-development and do not install the optional service broke
 a private unsigned attended viewer/controller preview. Android/Apple receive derived source
 versions only; no physical-device or distribution approval is implied.
 
-Fresh validation for this patch: the exact packaged x64 client opened the real viewer window and
-the sharing indicator with the GPU swap chain and with the bitmap fallback, rendered visible
-frames (about 92 each; 9,370+ distinct captured colours), cycled all four scale modes, a frame-size
-change and monitor stepping, and exited cleanly. Full .NET suite with the hardware video gate:
-1,412 total / 1,383 passed / 1 failed / 28 environment skips; the failure is a QUIC goodput
-threshold under full parallel load (14.3 < 17.07 MiB/s) in unchanged transport code that passes
-7/7 three times in isolation (19.2-20.1 MiB/s). One input-latency loopback test failed once in a
-loaded full Media run and passed 18/18 isolated and 2/2 full-project reruns (p95 about 16 ms of a
-35 ms budget). Thresholds were not relaxed. Public web tests 118/118, typecheck and lint, the
-native UI gate and five source release contracts passed. All endpoints shared one machine: this is
-not physical two-device, multi-monitor, physical-audio or WAN evidence.
+Fresh validation for this patch: full .NET suite with the hardware video gate 1,416 total / 1,388
+passed / 0 failed / 28 environment skips. A new production-configuration end-to-end test (real
+Windows.Graphics.Capture, the app's media engine, real signaling) delivered 1080p frames with
+hardware H.264 and with VP8 and retained the host's four display entries for the viewer; a
+static-desktop test proved that a viewer key-frame request produces a fresh picture. The exact
+packaged x64 client opened the real viewer window and sharing indicator with the bitmap default
+and the opt-in GPU swap chain, rendered visible frames, cycled all scale modes and exited cleanly.
+Public web tests 118/118, typecheck and lint, the native UI gate and five source release contracts
+passed. All endpoints shared one machine: this is not physical two-device, hybrid-GPU laptop,
+physical multi-monitor, physical-audio or WAN evidence.
 
-The Windows pair was built from commit 6cb3c98 with 516 frozen client/installer inputs and zero
+The Windows pair was built from commit 5019875 with 517 frozen client/installer inputs and zero
 drift. It passed full extracted-payload, ICE03 and the unchanged 96 MiB size gate with zero
 warnings/errors and carries `ThirdParty/Concentus/LICENSE` plus the ten maintained SIPSorcery
-notices. A first 0.9.80 pair (d278615) failed the zero-warning gate and was never published.
-Exact embedded inputs and the Portable Support pair:
+notices. Exact embedded inputs and the Portable Support pair:
 
 | Artifact | Bytes | SHA256 |
 | --- | ---: | --- |
-| x64 MSI | 85,499,904 | 255a47bb8054f31f32c9e3cdd150c9d92fe0d96a868c92d8d063f0c1d2f63bfb |
-| ARM64 MSI | 77,983,744 | 8df5f6b8a82b2b074a05b52880f8e228fe433d6416165573bbd6a713e37da82c |
-| x64 Portable Support ZIP | 101,594,866 | 9098a38ec4f0fa905dc17675b1170113183658e7b95c14086249aab21e3bc8ca |
-| ARM64 Portable Support ZIP | 97,547,698 | fae1a3a31f059d5cad367a8861cbbb222b3fc00de767bbd238d59150dee0a2af |
+| x64 MSI | 85,499,904 | 0a9931501b2a48c5a12c4af0af47a4ad9dfc399a6e965793e576724741605971 |
+| ARM64 MSI | 77,983,744 | cb008c5b2a50614732a7a3b024ca3ce3a8cc1e4fe77f81573076e1e823fee981 |
+| x64 Portable Support ZIP | 101,597,274 | 94f6b9f9998121ed7afb9f4e389be8833522318d4e117912b3aa89cf8e1db50c |
+| ARM64 Portable Support ZIP | 97,550,119 | 23a08b59743cb267de240c052c4f37a484d192a975edd83f1dfc229ab02801de |
 
 The Linux preview is not embedded in this bundle; its status is recorded in the accompanying
 VALIDATION.json. Post-build acceptance and the whole-bundle hash are external to this immutable
@@ -124,11 +140,11 @@ Copy the exact .run and trusted matching checksum sidecar to /home/peeronq. In B
 (
 set -eu
 cd /home/peeronq
-sha256sum --check peeronq-server-0.9.80.run.sha256
-chmod 700 peeronq-server-0.9.80.run
-sudo ./peeronq-server-0.9.80.run --env-file /etc/peeronq/peeronq.env --dry-run
-sudo ./peeronq-server-0.9.80.run --env-file /etc/peeronq/peeronq.env
-sudo ./peeronq-server-0.9.80.run --status --env-file /etc/peeronq/peeronq.env
+sha256sum --check peeronq-server-0.9.81.run.sha256
+chmod 700 peeronq-server-0.9.81.run
+sudo ./peeronq-server-0.9.81.run --env-file /etc/peeronq/peeronq.env --dry-run
+sudo ./peeronq-server-0.9.81.run --env-file /etc/peeronq/peeronq.env
+sudo ./peeronq-server-0.9.81.run --status --env-file /etc/peeronq/peeronq.env
 )
 ~~~
 
@@ -144,9 +160,9 @@ For an already installed candidate, after the applicable compatibility precondit
 restore the retained previously verified release through the existing installer rollback:
 
 ~~~bash
-sudo ./peeronq-server-0.9.80.run --rollback --env-file /etc/peeronq/peeronq.env
-sudo ./peeronq-server-0.9.80.run --status --env-file /etc/peeronq/peeronq.env
+sudo ./peeronq-server-0.9.81.run --rollback --env-file /etc/peeronq/peeronq.env
+sudo ./peeronq-server-0.9.81.run --status --env-file /etc/peeronq/peeronq.env
 ~~~
 
 Rollback does not downgrade installed clients. Retain the earlier release files, data and protected
-configuration; preserve immutable 0.9.78 and 0.9.79 artifacts/evidence for comparison and recovery.
+configuration; preserve immutable 0.9.78-0.9.80 artifacts/evidence for comparison and recovery.
