@@ -1102,10 +1102,11 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             {
                 await Task.Delay(interval, cancellationToken);
 
+                var adaptive = Adaptive;
                 var ready = State == MediaConnectionState.Connected
-                            && Adaptive is not null
+                            && adaptive is not null
                             && Volatile.Read(ref _trafficProtector) is { IsEstablished: true };
-                if (!ready || !_adaptWindowPrimed)
+                if (!ready || adaptive is null || !_adaptWindowPrimed)
                 {
                     // Until ICE and the hybrid-PQ session are both ready, capture keeps replacing
                     // the single queued frame on purpose. Those replacements are not encoder
@@ -1161,8 +1162,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 _lastDrops = drops;
                 _lastEncoded = encoded;
 
-                Adaptive.Evaluate(sample);
-                if (Adaptive.IsReceiverPresentationStalled)
+                adaptive.Evaluate(sample);
+                if (adaptive.IsReceiverPresentationStalled)
                     _lossRecovery.RequestKeyFrame();
             }
         }
