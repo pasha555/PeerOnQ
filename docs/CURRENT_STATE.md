@@ -31,6 +31,21 @@ production approval or a fresh execution of the historical tests farther down th
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
 
+## Full 0.9.80 patch candidate — 2026-10-24
+
+Fixes the 0.9.79 viewer crash and the connection-time quality downgrade; carries all 0.9.79
+features. Windows pair from commit 6cb3c98 (516 frozen inputs, zero drift, zero warnings, full
+payload/ICE03/size gate): x64 MSI 85,499,904 bytes
+`255a47bb8054f31f32c9e3cdd150c9d92fe0d96a868c92d8d063f0c1d2f63bfb`, ARM64 MSI 77,983,744 bytes
+`8df5f6b8a82b2b074a05b52880f8e228fe433d6416165573bbd6a713e37da82c`. The exact packaged x64 app
+passed the real viewer-window runtime gate for GPU and bitmap renderers. Server bundle
+`dist/private-candidate/0.9.80/server/peeronq-server-0.9.80.run`, 163,800,827 bytes,
+`3557b8f1240a54b9655cdf02e18295b779eb1f6f3a7968ee110f6001276d05f9`; extracted-bundle Docker
+acceptance passed (6,080 assertions, zero cleanup errors); local website publication passed.
+Final verifier `VALIDATION.json` SHA256
+`3f16b2c782950440a46b0dc9b52881ab670dcdacb8c7523380f02683c841a917`. The Linux preview was not
+rebuilt for 0.9.80. Unsigned; production gates remain open.
+
 ## Full 0.9.79 patch candidate — 2026-10-24 (clients withdrawn)
 
 The 0.9.79 viewer window crashes at runtime (SwapChainPanel `Background`, WER 0xc000027b /
