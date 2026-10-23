@@ -117,6 +117,12 @@ public interface IAdaptiveCaptureSource
 
     /// <summary>Switches the captured display mid-session; the peer keeps the same connection.</summary>
     Task SwitchTargetAsync(CaptureTargetInfo target, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Re-emits the current screen even if nothing changed. Change-driven capture sends nothing on
+    /// a static desktop, so a key frame requested by the viewer would otherwise never be encoded.
+    /// </summary>
+    void RequestRefresh() { }
 }
 
 public enum CaptureTargetKind

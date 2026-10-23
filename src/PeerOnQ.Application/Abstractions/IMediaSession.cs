@@ -277,6 +277,12 @@ public interface IMediaSession : IAsyncDisposable
     /// </summary>
     bool SetVoiceEnabled(bool enabled) => !enabled;
 
+    /// <summary>
+    /// Requests a fresh key frame: a viewer asks its sharer (PLI); a sharer encodes one and
+    /// refreshes a change-driven capture so a static desktop still produces it.
+    /// </summary>
+    void RequestKeyFrame() { }
+
     bool IsBulkDataLaneNegotiated => false;
 
     bool IsBulkDataLaneReady => false;

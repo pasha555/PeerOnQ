@@ -46,6 +46,15 @@ public sealed partial class WebRtcMediaSession
         }
     }
 
+    private long VideoFramesSkipped
+    {
+        get
+        {
+            if (_videoAssembler is not { } assembler) return 0;
+            lock (_videoAssemblyGate) return assembler.SkippedFrames;
+        }
+    }
+
     private void InitializeVideoTransport()
     {
         if (!_permissions.HasFlag(SessionPermission.ViewScreen)) return;

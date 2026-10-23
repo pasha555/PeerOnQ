@@ -143,6 +143,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         _encodedVideoSink = encodedVideoSink;
         InitializeVideoCodecs(hardwareH264EncoderFactory, h264Decoder);
         InitializeVideoTransport();
+        InitializeMediaSummary();
         InitializeSystemAudio(peer.getConfiguration());
         if (_bulkPeer is not null)
             _bulkInboundDispatchLoop = Task.Run(() => DispatchBulkRecordsAsync(_lifetime.Token));
@@ -261,8 +262,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     [LoggerMessage(1007, LogLevel.Information, "Collaboration data channel closed")]
     private static partial void LogDataChannelClosed(ILogger logger);
 
-    [LoggerMessage(1008, LogLevel.Information, "Session {SessionId} quality {Level}")]
-    private static partial void LogQualityChanged(ILogger logger, SessionId sessionId, QualityLevel level);
+    [LoggerMessage(1008, LogLevel.Information, "Session {SessionId} quality {Level} ({Reason})")]
+    private static partial void LogQualityChanged(ILogger logger, SessionId sessionId, QualityLevel level, string reason);
 
     [LoggerMessage(1009, LogLevel.Warning, "Adaptive quality loop stopped")]
     private static partial void LogAdaptiveLoopStopped(ILogger logger, Exception exception);
@@ -544,7 +545,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             _networkFeedback.SetConnected(mapped == MediaConnectionState.Connected);
             State = mapped;
             if (mapped == MediaConnectionState.Connected && Role == SessionRole.Sharer)
-                _lossRecovery.RequestKeyFrame();
+                RequestEncoderKeyFrame();
             LogMediaStateChanged(_log, SessionId, mapped);
             StateChanged?.Invoke(this, mapped);
         };
@@ -561,7 +562,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                     {
                         // RTCP arrives on the transport callback. Keep the native encoder on
                         // its single encode loop and only publish a coalescing atomic request.
-                        _lossRecovery.RequestKeyFrame();
+                        RequestEncoderKeyFrame();
                     }
                     else if (IsGenericNack(report))
                     {
@@ -824,12 +825,29 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         report?.Feedback?.Header.PacketType == RTCPReportTypesEnum.RTPFB
         && report.Feedback.Header.FeedbackMessageType == RTCPFeedbackTypesEnum.NACK;
 
-    private void RequestPictureLossIndication()
+    public void RequestKeyFrame()
+    {
+        if (Role == SessionRole.Viewer)
+            RequestPictureLossIndication(explicitRequest: true);
+        else
+            RequestEncoderKeyFrame();
+    }
+
+    /// <summary>Sharer: the next frame is a key frame, and a static capture re-emits one now.</summary>
+    private void RequestEncoderKeyFrame()
+    {
+        _lossRecovery.RequestKeyFrame();
+        (_capture as IAdaptiveCaptureSource)?.RequestRefresh();
+    }
+
+    private void RequestPictureLossIndication(bool explicitRequest = false)
     {
         if (State != MediaConnectionState.Connected) return;
 
-        if (!TryGetVideoFeedbackSsrcs(out var senderSsrc, out var mediaSsrc)
-            || !_lossRecovery.TryAcquirePictureLossIndication(Stopwatch.GetTimestamp()))
+        // The loss path is throttled against storms; a single explicit request (viewer opened)
+        // is always sent so a fresh picture follows.
+        var acquired = _lossRecovery.TryAcquirePictureLossIndication(Stopwatch.GetTimestamp());
+        if (!TryGetVideoFeedbackSsrcs(out var senderSsrc, out var mediaSsrc) || (!acquired && !explicitRequest))
         {
             return;
         }
@@ -1034,7 +1052,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             }
         }
 
-        LogQualityChanged(_log, SessionId, level);
+        LogQualityChanged(_log, SessionId, level, Adaptive?.LastDecision.ReasonCode ?? "initial");
     }
 
     /// <summary>
@@ -1164,7 +1182,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
                 adaptive.Evaluate(sample);
                 if (adaptive.IsReceiverPresentationStalled)
-                    _lossRecovery.RequestKeyFrame();
+                    RequestEncoderKeyFrame();
             }
         }
         catch (OperationCanceledException)
@@ -2107,8 +2125,15 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private static long GetUnixMicroseconds(DateTimeOffset timestamp) =>
         (timestamp.UtcTicks - DateTimeOffset.UnixEpoch.UtcTicks) / 10;
 
-    public void SetTrafficProtector(ISessionTrafficProtector? protector) =>
+    public void SetTrafficProtector(ISessionTrafficProtector? protector)
+    {
         Volatile.Write(ref _trafficProtector, protector);
+        // The sharer can finish its half of the handshake first and send the first (possibly
+        // only, on a static desktop) frame before this viewer can authenticate it. Ask for a
+        // fresh key frame as soon as this viewer can decrypt.
+        if (protector is not null && Role == SessionRole.Viewer)
+            RequestPictureLossIndication(explicitRequest: true);
+    }
 
     public void SetTransferPriorityMode(TransferPriorityMode mode)
     {
@@ -2336,6 +2361,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
         _queue.Clear();
         CloseVideoTransport();
+        CloseMediaSummary();
         _videoPresentation?.Close();
         _presentationBuffers.Close();
         SetVoiceEnabled(false);

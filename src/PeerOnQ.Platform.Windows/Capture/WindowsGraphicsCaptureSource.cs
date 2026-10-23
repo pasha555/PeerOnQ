@@ -502,6 +502,21 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
         Volatile.Write(ref _consecutiveFrameFailures, 0);
     }
 
+    /// <summary>
+    /// Re-sends the persistent canvas through the rate-limited trailing path, so a key frame the
+    /// viewer requested is produced even when the desktop is static.
+    /// </summary>
+    public void RequestRefresh()
+    {
+        if (_disposed == 1) return;
+        lock (_gate)
+        {
+            if (!IsCapturing || _canvas is null) return;
+            _canvasDirty = true;
+        }
+        ScheduleTrailingEmit();
+    }
+
     private void ScheduleTrailingEmit()
     {
         if (Interlocked.Exchange(ref _trailingScheduled, 1) == 1) return;

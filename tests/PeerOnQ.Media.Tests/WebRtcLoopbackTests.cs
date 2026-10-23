@@ -1347,6 +1347,107 @@ public partial class WebRtcLoopbackTests(ITestOutputHelper output)
         Assert.Equal(0, sharer.GetStatistics().VideoPacketsRetransmitted);
     }
 
+    /// <summary>A change-driven screen that never changes: one frame, then only on refresh.</summary>
+    private sealed class StaticCaptureSource : IScreenCaptureSource, IAdaptiveCaptureSource
+    {
+        private long _sequence;
+        public int Refreshes;
+        public bool IsCapturing { get; private set; }
+        public CaptureTargetInfo? Target { get; private set; }
+        public IReadOnlyList<CaptureTargetInfo> AvailableTargets => Target is null ? [] : [Target];
+        public int DownscaleFactor { get; private set; } = 1;
+        public int TargetFps { get; private set; } = 30;
+        public event EventHandler<CapturedFrame>? FrameArrived;
+        public event EventHandler<CaptureStoppedReason>? CaptureStopped;
+
+        public Task StartAsync(CaptureRequest request, CancellationToken cancellationToken = default)
+        {
+            Target = request.Target;
+            IsCapturing = true;
+            Emit();
+            return Task.CompletedTask;
+        }
+
+        public void RequestRefresh()
+        {
+            Interlocked.Increment(ref Refreshes);
+            if (IsCapturing) Emit();
+        }
+
+        private void Emit()
+        {
+            var buffer = new byte[320 * 240 * 3 / 2];
+            Array.Fill(buffer, (byte)90, 0, 320 * 240);
+            Array.Fill(buffer, (byte)128, 320 * 240, buffer.Length - 320 * 240);
+            FrameArrived?.Invoke(this, new CapturedFrame
+            {
+                Width = 320,
+                Height = 240,
+                I420 = buffer,
+                Timestamp = TimeSpan.FromSeconds(Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency),
+                SequenceNumber = Interlocked.Increment(ref _sequence),
+                BufferOwnershipCanTransfer = true,
+            });
+        }
+
+        public void SetDownscaleFactor(int factor) => DownscaleFactor = factor;
+        public void SetTargetFps(int fps) => TargetFps = fps;
+        public Task SwitchTargetAsync(CaptureTargetInfo target, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken = default)
+        {
+            IsCapturing = false;
+            CaptureStopped?.Invoke(this, CaptureStoppedReason.StoppedByUser);
+            return Task.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// A viewer that opens after the first frame of a static desktop asks for a key frame; the
+    /// sharer must re-emit its unchanged screen so a picture still arrives.
+    /// </summary>
+    [Fact]
+    public async Task A_viewer_key_frame_request_refreshes_a_static_desktop()
+    {
+        var capture = new StaticCaptureSource();
+        await capture.StartAsync(new CaptureRequest
+        {
+            Target = new CaptureTargetInfo(CaptureTargetKind.Display, "static", "Static Display", 320, 240),
+            MaxFramesPerSecond = 30,
+        });
+
+        var sessionId = SessionId.New();
+        await using var sharer = WebRtcMediaSession.CreateSharer(
+            sessionId, capture, MediaProfile.For(QualityProfile.Quality));
+        await using var viewer = WebRtcMediaSession.CreateViewer(sessionId);
+        await using var identities = await TestHybridIdentityPair.CreateAsync();
+        await using var viewerTransport = new MediaCollaborationTransport(
+            viewer, SessionPermission.ViewScreen, identities.Viewer, identities.SharerLegacyFingerprint);
+        await using var sharerTransport = new MediaCollaborationTransport(
+            sharer, SessionPermission.ViewScreen, identities.Sharer, identities.ViewerLegacyFingerprint);
+        sharer.LocalIceCandidate += async (_, c) =>
+            await viewer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+        viewer.LocalIceCandidate += async (_, c) =>
+            await sharer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+        var framesReceived = 0;
+        viewer.RemoteFrameReceived += (_, _) => Interlocked.Increment(ref framesReceived);
+
+        await sharer.ApplyRemoteAnswerAsync(await viewer.CreateAnswerAsync(await sharer.CreateOfferAsync()));
+        await WaitUntilAsync(() => viewerTransport.IsReady && sharerTransport.IsReady);
+        Assert.True(await UntilAsync(() => Volatile.Read(ref framesReceived) > 0, TimeSpan.FromSeconds(20)));
+        await Task.Delay(1500);
+        var before = Volatile.Read(ref framesReceived);
+
+        viewer.RequestKeyFrame();
+
+        Assert.True(
+            await UntilAsync(() => Volatile.Read(ref framesReceived) > before, TimeSpan.FromSeconds(5)),
+            $"no fresh frame after the viewer asked; refreshes={Volatile.Read(ref capture.Refreshes)}");
+        Assert.True(Volatile.Read(ref capture.Refreshes) >= 1);
+    }
+
     /// <summary>
     /// While the session negotiates, capture keeps replacing the one queued frame. Those
     /// replacements are not encoder backpressure and must not lower quality at connection.

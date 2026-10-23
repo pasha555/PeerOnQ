@@ -427,6 +427,81 @@ public class TwoDeviceAcceptanceTests(ITestOutputHelper output) : IAsyncLifetime
     }
 
     /// <summary>
+    /// The production Windows media configuration end to end: real Windows.Graphics.Capture on the
+    /// sharer, the app's hardware H.264 encoder, Media Foundation decoder and BGRA32 viewer
+    /// output, the Automatic/P1080 profile the dashboard applies, real signaling and WebRTC.
+    /// The default-engine test above never exercises real capture with hardware H.264.
+    /// </summary>
+    [HardwareVideoTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Production_media_configuration_delivers_real_screen_frames(bool sharerHardware)
+    {
+        WebRtcMediaEngine AppEngine(bool hardware = true) => new(
+            hardwareH264Available: () => hardware && HardwareEncoderProbe.Supports(HardwareVideoCodec.H264),
+            hardwareH264EncoderFactory: () => new MediaFoundationH264Encoder(),
+            h264DecoderFactory: MediaFoundationH264Decoder.TryCreate,
+            viewerPixelFormat: RemotePixelFormat.Bgra32);
+        await using var viewer = await PeerOnQDevice.CreateAsync("App viewer", _signalingUri,
+            useRealCapture: false, mediaEngine: AppEngine());
+        await using var sharer = await PeerOnQDevice.CreateAsync("App sharer", _signalingUri,
+            useRealCapture: true, mediaEngine: AppEngine(sharerHardware));
+        var profile = MediaProfile.For(QualityProfile.Automatic) with { Resolution = CaptureResolution.P1080 };
+        viewer.Coordinator.Profile = profile;
+        sharer.Coordinator.Profile = profile;
+        await viewer.ConnectAsync();
+        await sharer.ConnectAsync();
+        sharer.Coordinator.PreferredCaptureTarget = DisplayEnumerator.ListCaptureTargets()[0];
+        sharer.Prompt.Answer = PermissionDecision.Accept;
+
+        var frames = 0;
+        var invalid = 0;
+        var firstFrame = new TaskCompletionSource<RemoteVideoFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        viewer.Coordinator.SessionRemoteFrameReceived += (_, received) =>
+        {
+            var frame = received.Frame;
+            if (frame.Format != RemotePixelFormat.Bgra32 || frame.Pixels.Length != frame.ExpectedLength)
+            {
+                Interlocked.Increment(ref invalid);
+                return;
+            }
+            Interlocked.Increment(ref frames);
+            viewer.Coordinator.ReportFrameRendered(received.SessionId, new PresentedVideoFrame(
+                frame.PipelineDecodedTimestamp, frame.Width, frame.Height,
+                frame.CaptureTimestampUnixMicroseconds, frame.CaptureSequenceNumber, frame.PeerClockEstimate));
+            if (System.Runtime.InteropServices.MemoryMarshal.TryGetArray(frame.Pixels, out var segment) && segment.Array is { } owned)
+                frame.ReturnBuffer?.Invoke(owned);
+            firstFrame.TrySetResult(frame);
+        };
+
+        var sessionId = await viewer.Coordinator.RequestViewOnlySessionAsync(sharer.Identity.PublicId);
+        var first = await firstFrame.Task.WaitAsync(TimeSpan.FromSeconds(60));
+        await Task.Delay(TimeSpan.FromSeconds(6));
+
+        var sharerStats = sharer.Coordinator.StatisticsOf(sessionId);
+        var viewerStats = viewer.Coordinator.StatisticsOf(sessionId);
+        output.WriteLine($"first {first.Width}x{first.Height}; frames={frames} invalid={invalid}");
+        output.WriteLine($"sharer: encoder={sharerStats.EncoderName} hw={sharerStats.EncoderHardwareAccelerated} " +
+                         $"captured={sharerStats.FramesCaptured} encoded={sharerStats.FramesEncoded} " +
+                         $"dropped={sharerStats.FramesDropped} {sharerStats.EncodedWidth}x{sharerStats.EncodedHeight} " +
+                         $"reason={sharerStats.QualityChangeReason} profile={sharerStats.ActiveQualityProfile}");
+        output.WriteLine($"viewer: decoder={viewerStats.DecoderName} rendered={viewerStats.FramesRendered} " +
+                         $"{viewerStats.RenderedWidth}x{viewerStats.RenderedHeight} path={viewerStats.ConnectionPath}");
+
+        Assert.Equal(0, invalid);
+        // The display list arrives before any viewer window exists; it must be retained for it.
+        var displays = viewer.Coordinator.RemoteDisplaysOf(sessionId);
+        Assert.NotNull(displays);
+        Assert.Equal(DisplayEnumerator.ListCaptureTargets().Count, displays!.Displays.Count);
+        output.WriteLine($"remote displays retained for the viewer: {displays.Displays.Count}");
+        // A peer without hardware H.264 (or without a decoder) falls back to VP8; it must still render.
+        Assert.Equal(sharerHardware, sharerStats.EncoderHardwareAccelerated);
+        Assert.True(frames > 0 && viewerStats.FramesRendered > 0, "the viewer received no real screen frame");
+        Assert.True(first.Width >= 640 && first.Height >= 360);
+        await sharer.Coordinator.EndSessionAsync(sessionId, SessionEndReason.EndedBySharer);
+    }
+
+    /// <summary>
     /// The attended remote-view acceptance flow, executed against real components: two provisioned
     /// identities, a real signaling server, an explicit permission prompt, real
     /// Windows.Graphics.Capture on the sharer, and a real WebRTC video connection.

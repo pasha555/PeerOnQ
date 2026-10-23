@@ -115,8 +115,10 @@ public sealed class AdaptiveQualityController
 
         // Reduce frame rate first (cheapest quality loss), then resolution. A user-selected
         // high-quality session keeps its requested pixels and trades frame rate for clarity.
+        // Half scale is the floor: a quarter-scale desktop (480x270 from 1080p) makes text
+        // unreadable, which looks broken rather than degraded; the last rung lowers rate instead.
         var firstResolutionDownscale = allowResolutionDownscale ? 2 : 1;
-        var finalResolutionDownscale = allowResolutionDownscale ? 4 : 1;
+        var finalResolutionDownscale = firstResolutionDownscale;
         QualityLevel[] standard =
         [
             new QualityLevel(h, top, 1, Math.Max(250, maxBitrateKbps)),
@@ -297,7 +299,14 @@ public sealed class AdaptiveQualityController
 
                 if (_current.Index < _ladder.Length - 1)
                 {
-                    changed = TryMoveTo(_ladder[_current.Index + 1]);
+                    var next = _ladder[_current.Index + 1];
+                    // Late frames whose viewer renders promptly are a transit/queue problem, not
+                    // a pixel problem: lower the rate, but never halve a readable desktop for it.
+                    var frameAgeOnly = LastDecision.ReasonCode == "viewer_frame_age"
+                                       && sample.ReceiverDecodeToRenderLatencyP95Ms
+                                       <= ConnectionPolicyProvider.DegradeDecodeToRenderLatencyP95Ms;
+                    if (!(frameAgeOnly && next.DownscaleFactor != _current.DownscaleFactor))
+                        changed = TryMoveTo(next);
                 }
             }
             else if (LastDecision.Action == ConnectionPolicyAction.Recover)

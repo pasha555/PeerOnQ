@@ -35,7 +35,8 @@ foreach ($renderer in @('gpu', 'bitmap')) {
     $start = [Diagnostics.ProcessStartInfo]::new($exe)
     $start.UseShellExecute = $false
     $start.ArgumentList.Add('--viewer-self-test'); $start.ArgumentList.Add($resultPath)
-    if ($renderer -eq 'bitmap') { $start.Environment['PEERONQ_VIEWER_RENDERER'] = 'bitmap' } else { [void]$start.Environment.Remove('PEERONQ_VIEWER_RENDERER') }
+    # Bitmap is the default renderer; the GPU swap chain is opt-in.
+    if ($renderer -eq 'gpu') { $start.Environment['PEERONQ_VIEWER_RENDERER'] = 'gpu' } else { [void]$start.Environment.Remove('PEERONQ_VIEWER_RENDERER') }
     $process = [Diagnostics.Process]::Start($start)
     $varied = 0; $captured = $false
     try {

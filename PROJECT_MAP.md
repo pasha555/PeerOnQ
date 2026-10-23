@@ -703,8 +703,11 @@ dedicated thread and keeps a 4,096-packet/1 s history. A negotiated viewer NACKs
 retransmissions on the same SSRC with fresh sequence numbers (SRTP replay-safe) within a 35%
 bitrate budget; an unrepaired frame is skipped with a PLI. Older peers keep SIPSorcery's framer,
 whose reassembly limit is raised from 1 MiB to 8 MiB for 4K key frames. The Windows viewer presents
-through a Direct3D 11 SwapChainPanel swap chain off the UI thread, mirroring the four scale modes
-with a swap chain transform; `PEERONQ_VIEWER_RENDERER=bitmap` or any device failure uses the bitmap.
+with the WriteableBitmap by default; `PEERONQ_VIEWER_RENDERER=gpu` opts in to a Direct3D 11
+SwapChainPanel swap chain (off the UI thread, same four scale modes; any failure returns to the
+bitmap). Opening a viewer applies the cached remote display list and newest early frame and asks
+the sharer for a key frame, which also refreshes a static capture. Both roles log a media summary
+every 10 s and every quality change with its policy reason.
 Every selected
 profile supplies a maximum to the measured latency-QoS ladder: it holds the selected target while
 healthy and drops frame rate before resolution when loss, jitter, RTT, or encoder queue pressure
@@ -1303,7 +1306,7 @@ append-only audit triggers or legal-hold policy.
 | `PEERONQ_TURN_ALLOW_PRIVATE_PEERS` | Development-only override for private relay peers | `false`; development Compose sets `true` | high |
 | `PEERONQ_TURN_RELAY_ONLY` | Forces relay policy for diagnostics/acceptance testing | `false` | medium |
 | `PEERONQ_HARDWARE_VIDEO_TEST` | Opt-in actual Windows MF encoder/decoder, encrypted 1080p/UHD and portrait UHD VP8 fallback acceptance | unset; `1` enables | medium |
-| `PEERONQ_VIEWER_RENDERER` | Windows viewer diagnostic override; `bitmap` forces the WriteableBitmap presenter instead of the GPU swap chain | unset (GPU when available) | low |
+| `PEERONQ_VIEWER_RENDERER` | Windows viewer renderer; `gpu` opts in to the Direct3D 11 SwapChainPanel presenter, otherwise the WriteableBitmap presenter is used | unset (bitmap) | low |
 | `PEERONQ_HARDWARE_VIDEO_SOAK_SECONDS` | Extend that same local encrypted hardware session; sample progress/state/dimensions and process memory | unset/`0`; otherwise `30`–`1800` seconds; requires hardware test opt-in | medium |
 | `PEERONQ_SYSTEM_AUDIO_TEST` | Opt-in actual Windows default-render WASAPI lifecycle acceptance; silent test output | unset; `1` enables | medium |
 | `PEERONQ_LINUX_NATIVE_TEST` | Opt-in actual Linux distro VP8, encrypted WebRTC and unlocked Secret Service tests; requires the native Linux prerequisites | unset; `1` enables only on Linux | medium |

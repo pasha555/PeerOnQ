@@ -41,6 +41,8 @@ public sealed partial class MainWindow : Window
     private SharingIndicatorWindow? _indicator;
     private ViewerWindow? _viewer;
     private readonly Dictionary<SessionId, ViewerWindow> _viewers = [];
+    private readonly Lock _earlyFrameGate = new();
+    private readonly Dictionary<SessionId, RemoteVideoFrame> _earlyFrames = [];
     private readonly Dictionary<SessionId, SessionCollaborationContext> _collaborations = [];
     private TrayIcon? _tray;
     private SessionId? _currentSession;
@@ -857,7 +859,16 @@ public sealed partial class MainWindow : Window
                     created = true;
                 }
                 _viewer = viewer;
-                if (created) viewer.Activate();
+                if (created)
+                {
+                    viewer.Activate();
+                    // The sharer publishes its displays and first frames before this window exists.
+                    if (_services?.Coordinator.RemoteDisplaysOf(info.SessionId) is { } displays)
+                        viewer.SetRemoteDisplays(displays.Displays, displays.ActiveDisplayId);
+                    if (TakeEarlyFrame(info.SessionId) is { } early) viewer.Present(early);
+                    // A static remote desktop sends nothing new: ask for a fresh picture now.
+                    _services?.Coordinator.RequestKeyFrame(info.SessionId);
+                }
                 HideForViewer();
                 if (_services?.Coordinator.CollaborationFor(info.SessionId)?.IsReady == true)
                 {
@@ -872,6 +883,7 @@ public sealed partial class MainWindow : Window
         _dispatcher.TryEnqueue(() =>
         {
             _autoSavedSessions.Remove(e.Id);
+            ReleaseFrame(TakeEarlyFrame(e.Id));
             if (_viewers.Remove(e.Id, out var closedViewer))
                 closedViewer.CloseAfterSessionEnded();
             _collaborations.Remove(e.Id);
@@ -938,7 +950,33 @@ public sealed partial class MainWindow : Window
     private void OnRemoteFrame(object? sender, SessionRemoteFrame notification)
     {
         if (_viewers.TryGetValue(notification.SessionId, out var viewer))
+        {
             viewer.Present(notification.Frame);
+            return;
+        }
+
+        // The viewer window opens on the UI thread just after media connects. Keep only the newest
+        // early frame for it instead of dropping the first picture of a static desktop.
+        RemoteVideoFrame? replaced;
+        lock (_earlyFrameGate)
+        {
+            _earlyFrames.TryGetValue(notification.SessionId, out replaced);
+            _earlyFrames[notification.SessionId] = notification.Frame;
+        }
+        ReleaseFrame(replaced);
+    }
+
+    private RemoteVideoFrame? TakeEarlyFrame(SessionId sessionId)
+    {
+        lock (_earlyFrameGate) return _earlyFrames.Remove(sessionId, out var frame) ? frame : null;
+    }
+
+    private static void ReleaseFrame(RemoteVideoFrame? frame)
+    {
+        if (frame?.ReturnBuffer is { } returnBuffer
+            && System.Runtime.InteropServices.MemoryMarshal.TryGetArray(frame.Pixels, out var segment)
+            && segment.Array is { } buffer)
+            returnBuffer(buffer);
     }
 
     private void OnRemoteDisplays(object? sender, RemoteDisplaysNotification notification) =>

@@ -43,10 +43,16 @@ public sealed partial class ViewerWindow
 
     private void InitializeGpuPresentation()
     {
-        if (string.Equals(Environment.GetEnvironmentVariable("PEERONQ_VIEWER_RENDERER"), "bitmap",
+        // The bitmap path is the default: the swap chain path was verified on single-GPU desktops
+        // only, and a hybrid-GPU laptop must never show a blank viewer. PEERONQ_VIEWER_RENDERER=gpu
+        // opts in to the swap chain.
+        if (!string.Equals(Environment.GetEnvironmentVariable("PEERONQ_VIEWER_RENDERER"), "gpu",
                 StringComparison.OrdinalIgnoreCase)
             || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            _log.LogInformation("Viewer {SessionId} presents with a bitmap", _sessionId);
             return;
+        }
 
         var presenter = D3D11CompositionVideoPresenter.TryCreate();
         if (presenter is null)

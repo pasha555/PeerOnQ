@@ -238,7 +238,9 @@ public class AdaptiveQualityControllerTests
 
         // Resolution only degrades once frame rate alone was not enough.
         Assert.True(ladder[3].DownscaleFactor > 1);
-        Assert.True(ladder[4].DownscaleFactor > ladder[3].DownscaleFactor);
+        // Half scale is the floor: the last rung lowers rate, never to an unreadable quarter.
+        Assert.Equal(2, ladder[4].DownscaleFactor);
+        Assert.True(ladder[4].TargetFps < ladder[3].TargetFps);
     }
 
     [Fact]
@@ -415,17 +417,17 @@ public class AdaptiveQualityControllerTests
         var changes = new List<QualityLevel>();
         controller.LevelChanged += (_, level) => changes.Add(level);
 
+        // One resolution step (to the half-scale floor) means no dwell can hold the descent.
         for (var i = 0; i < 4; i++)
             controller.Evaluate(Lossy(0.20));
-
-        Assert.Equal(3, controller.Current.Index);
+        Assert.Equal(controller.Ladder.Count - 1, controller.Current.Index);
         time.Advance(AdaptiveQualityController.MinimumResolutionDwell);
 
         for (var i = 0; i < 6; i++)
             controller.Evaluate(Lossy(0.20));
 
         Assert.Equal(controller.Ladder.Count - 1, controller.Current.Index);
-        Assert.Equal(4, controller.Current.DownscaleFactor);
+        Assert.Equal(2, controller.Current.DownscaleFactor);
 
         // It stops changing once the bottom rung is reached instead of thrashing.
         Assert.Equal(controller.Ladder.Count - 1, changes.Count);
@@ -442,20 +444,18 @@ public class AdaptiveQualityControllerTests
         controller.Evaluate(Lossy(0.20));
         Assert.Equal(2, controller.Current.DownscaleFactor);
 
+        // The bottom rung lowers rate at the same half scale.
         controller.Evaluate(Lossy(0.20));
-        Assert.Equal(2, controller.Current.DownscaleFactor);
+        Assert.Equal((4, 2), (controller.Current.Index, controller.Current.DownscaleFactor));
 
-        time.Advance(AdaptiveQualityController.MinimumResolutionDwell);
-        controller.Evaluate(Lossy(0.20));
-        Assert.Equal(4, controller.Current.DownscaleFactor);
-
-        for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover; i++)
+        // Recovery inside the dwell may raise rate but not resolution.
+        for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover * 2; i++)
             controller.Evaluate(Healthy);
-        Assert.Equal(4, controller.Current.DownscaleFactor);
+        Assert.Equal((3, 2), (controller.Current.Index, controller.Current.DownscaleFactor));
 
         time.Advance(AdaptiveQualityController.MinimumResolutionDwell);
         controller.Evaluate(Healthy);
-        Assert.Equal(2, controller.Current.DownscaleFactor);
+        Assert.Equal(1, controller.Current.DownscaleFactor);
     }
 
     [Fact]
@@ -583,6 +583,35 @@ public class AdaptiveQualityControllerTests
         Assert.Equal(0, controller.Current.Index);
     }
 
+    [Fact]
+    public void Late_frames_with_prompt_rendering_lower_rate_but_keep_full_resolution()
+    {
+        var time = new ManualTimeProvider();
+        var controller = new AdaptiveQualityController(timeProvider: time);
+        for (var second = 0; second < 30; second++)
+        {
+            controller.Evaluate(new QualitySample
+            {
+                NetworkFeedbackAvailable = true,
+                PacketLossFraction = 0,
+                RttMs = 40,
+                QueueDrops = 0,
+                FramesEncoded = 30,
+                ReceiverFeedbackAvailable = true,
+                ReceiverDecodeFps = 30,
+                ReceiverRenderFps = 30,
+                ReceiverDecodeToRenderLatencyP95Ms = 8,
+                ReceiverCaptureToPresentLatencyP95Ms = 220,
+                ReceiverFrameAgeClockUncertaintyMs = 2,
+            });
+            time.Advance(TimeSpan.FromSeconds(1));
+        }
+
+        Assert.Equal("viewer_frame_age", controller.LastDecision.ReasonCode);
+        Assert.Equal(1, controller.Current.DownscaleFactor);
+        Assert.True(controller.Current.TargetFps < 30);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -617,7 +646,7 @@ public class AdaptiveQualityControllerTests
         }
 
         Assert.Equal(sustainedDelay ? 4 : 0, controller.Current.Index);
-        Assert.Equal(sustainedDelay ? 4 : 1, controller.Current.DownscaleFactor);
+        Assert.Equal(sustainedDelay ? 2 : 1, controller.Current.DownscaleFactor);
         if (!sustainedDelay) Assert.Equal(30, controller.Current.TargetFps);
     }
 

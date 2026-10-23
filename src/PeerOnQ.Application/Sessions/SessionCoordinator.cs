@@ -968,9 +968,31 @@ public sealed class SessionCoordinator : IAsyncDisposable
 
     private void OnRemoteDisplays(object? sender, RemoteDisplaysNotification notification)
     {
-        if (Find(notification.SessionId) is null) return;
+        var runtime = Find(notification.SessionId);
+        if (runtime is null) return;
 
+        // The sharer publishes its displays right after the offer, before the viewer UI exists.
+        // Keep the newest list so a viewer opened later still shows every remote monitor.
+        lock (_gate) runtime.RemoteDisplays = notification;
         RemoteDisplaysChanged?.Invoke(this, notification);
+    }
+
+    /// <summary>Viewer: the newest display list the sharer published for this session.</summary>
+    public RemoteDisplaysNotification? RemoteDisplaysOf(SessionId id)
+    {
+        lock (_gate)
+            return _sessions.TryGetValue(id, out var runtime) ? runtime.RemoteDisplays : null;
+    }
+
+    /// <summary>
+    /// Viewer: asks the sharer for a fresh key frame, e.g. when the viewer window opens after the
+    /// first frames were decoded; a static remote desktop would otherwise send nothing new.
+    /// </summary>
+    public void RequestKeyFrame(SessionId id)
+    {
+        IMediaSession? media;
+        lock (_gate) media = _sessions.TryGetValue(id, out var runtime) ? runtime.Media : null;
+        media?.RequestKeyFrame();
     }
 
     private async void OnDisplaySelectionRequested(object? sender, SelectDisplayNotification notification)
@@ -2628,6 +2650,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
         public bool SignalingInterrupted { get; set; }
         public bool RequiresIceRestart { get; set; }
         public SessionQualityNotification? RemoteQuality { get; set; }
+        public RemoteDisplaysNotification? RemoteDisplays { get; set; }
         public bool PermissionAccepted { get; set; }
         public bool FileRelayEnabled { get; set; }
         public bool UnicodeInputEnabled { get; set; }

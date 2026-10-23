@@ -30,6 +30,36 @@ Rollback:
 
 ## Entries
 
+## 2026-10-24 — Field fixes after 0.9.80: monitors, first picture, quality floor, logs; 0.9.81
+
+Task: Owner report on 0.9.80: the viewer shows nothing / the image freezes (a right-click appears
+only on the remote PC), other monitors are not visible; test everything and deliver a working,
+high-quality patch.
+Files changed: SessionCoordinator (`RemoteDisplaysOf`, `RequestKeyFrame`), IMediaSession
+(`RequestKeyFrame`, viewer PLI when its protector is set), Ports (`IAdaptiveCaptureSource.RequestRefresh`), WindowsGraphicsCaptureSource
+(canvas re-emit), WebRtcMediaSession (+Diagnostics partial; key frame + refresh helper, explicit
+PLI, reasons in quality logs), AdaptiveQualityController (half-scale floor, frame-age keeps
+resolution), MainWindow (cached displays, early frame, key frame on open), ViewerWindow (bitmap
+default), runtime script, tests, version 0.9.81 / 9081.
+Reason: The host log of the field sessions showed SoftwareVp8, TURN relay after a 30 s direct-LAN
+drop, and a fall from 1080p to quarter scale within 15 s with no reason logged. The sharer
+publishes its display list right after the offer, before the viewer window exists, and MainWindow
+dropped it (multi-monitor picker never shown); frames decoded before the window opened were also
+dropped and a change-driven static desktop then sent nothing. A new static-desktop loopback test
+exposed a race: the sharer can finish its half of the PQ handshake first, and the viewer dropped
+the only frame it could not yet authenticate; the viewer now sends an explicit PLI when its
+protector is set. The laptop's own logs were not available, so its renderer, codec and network
+cannot be proven from here.
+Validation: Full suite with the hardware video gate 1,416 total / 1,388 passed / 0 failed / 28 skips;
+new production-configuration E2E (real WGC capture, app engine, real signaling): hardware H.264
+70-73 and VP8 82-89 frames at 1080p in ~7 s, 4 display entries retained for the viewer; static
+desktop key-frame refresh loopback 3/3 and two full Media runs 368/369. Package results are in
+CURRENT_STATE.
+Risk: The GPU swap chain is now opt-in; the bitmap path costs UI-thread copies at 4K. The quality
+floor keeps more pixels under congestion (lower rate instead). Physical two-machine, hybrid-GPU,
+multi-monitor and WAN behaviour remains unverified here.
+Rollback: Revert this entry; `PEERONQ_VIEWER_RENDERER=gpu` restores the 0.9.80 renderer choice.
+
 ## 2026-10-24 — Fix the 0.9.79 viewer crash; runtime viewer gate; 0.9.80 patch
 
 Task: Owner report after the 0.9.79 server upgrade: the remote PC shows the session connected but

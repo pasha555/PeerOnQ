@@ -11,15 +11,15 @@
     <Product>PeerOnQ</Product>
     <Company>PeerOnQ</Company>
     <!-- Single source of truth for server bundles and every distributable client surface. -->
-    <PeerOnQWindowsClientVersion>0.9.80</PeerOnQWindowsClientVersion>
+    <PeerOnQWindowsClientVersion>0.9.81</PeerOnQWindowsClientVersion>
     <!-- Linux preview builds share the product source version but retain an independent release gate. -->
     <PeerOnQLinuxClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQLinuxClientVersion>
     <!-- Android preview builds share the source version and use a monotonic Play-compatible code. -->
     <PeerOnQAndroidClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQAndroidClientVersion>
-    <PeerOnQAndroidClientVersionCode>9080</PeerOnQAndroidClientVersionCode>
+    <PeerOnQAndroidClientVersionCode>9081</PeerOnQAndroidClientVersionCode>
     <!-- Apple source previews share the source version and use one monotonic App Store bundle code. -->
     <PeerOnQAppleClientVersion>$(PeerOnQWindowsClientVersion)</PeerOnQAppleClientVersion>
-    <PeerOnQAppleClientVersionCode>9080</PeerOnQAppleClientVersionCode>
+    <PeerOnQAppleClientVersionCode>9081</PeerOnQAppleClientVersionCode>
   </PropertyGroup>
 
 </Project>
