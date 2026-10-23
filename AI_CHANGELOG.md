@@ -52,7 +52,12 @@ environment skips; EndToEnd 190/191 (hardware H.264 sessions through the pacer a
 Media 365/366. One timing-sensitive pacer test failed once under full-suite load and was made
 deterministic with an injected clock before this run. Real loopback NACK repair 5/5, 7/7, 8/8;
 an older viewer without the attribute decodes paced video; GPU presenter upload byte-identical,
-steady 4K present 7.87 ms. Native UI gate passed. Package/server results are in CURRENT_STATE.
+steady 4K present 7.87 ms. Native UI gate passed. Packaging (commit 9dd6c37, after a first pair
+missing the Concentus notice was superseded): x64/ARM64 MSI pair full payload/ICE03/size gate,
+514 frozen inputs zero drift; Portable pair; `peeronq-server-0.9.79.run` SHA256
+`49c14af08e928a0c6f51db22caa0e558dac936344223c6dcd62ed48cbb6cc03e`; extracted-bundle Docker
+acceptance PASS (6,073 assertions, zero cleanup errors); local website publication PASS (both
+MSIs HTTP 200, hashes match). Hashes and evidence in CURRENT_STATE; production untouched.
 Risk: Pacing adds at most the 20 ms frame deadline to large frames; NACK holding can delay newer
 frames by up to the RTT-derived hold window (60-300 ms) before a skip; 60 fps raises the ceiling
 to 9 Mbps; the GPU viewer was exercised by hardware tests and the WinUI build, not by a physical

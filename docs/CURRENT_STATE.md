@@ -31,6 +31,55 @@ production approval or a fresh execution of the historical tests farther down th
   [known limitations](KNOWN_LIMITATIONS.md), [PHASE5](../PHASE5.md) and dated
   [AI_CHANGELOG](../AI_CHANGELOG.md) results; no production approval follows from this inventory.
 
+## Full 0.9.79 patch candidate — 2026-10-24
+
+One synchronized server/client release with canonical version 0.9.79 and derived mobile bundle
+codes 9079. Client behavior changed (not a version-only rebuild): 4K tier on 4K-class sources,
+earned 1080p@60 hardware rung, RTP pacing, negotiated NACK repair, GPU SwapChainPanel viewer,
+all-displays view, two-way Opus voice, P2P-first files and queueing-delay bulk QoS. Server, Cloud,
+Signaling, Presence, Portal and Admin behavior is unchanged; their images are rebuilt with this
+release. Source commits: f8f7a19 (features) and 9dd6c37 (Concentus/Opus notice in every payload).
+
+Fresh validation: Debug solution build 0 warnings/0 errors; full suite with the hardware video
+gate 1,411 total / 1,383 passed / 0 failed / 28 environment skips; public web 118/118, typecheck
+and lint; native UI gate; five source release contracts. The first MSI pair (from f8f7a19)
+lacked `ThirdParty/Concentus/LICENSE`; it is retained only under
+`dist/private-candidate/0.9.79-attempt-1-superseded/` and was never published.
+
+The attempt-2 Windows pair (commit 9dd6c37) passed full extracted-payload, ICE03 and the 96 MiB
+size gate with zero warnings/errors; 514 frozen client/installer inputs had zero drift. Portable
+Support passed payload validation (586/582 inner files, ten maintained notices, no broker).
+
+| Artifact | Bytes | SHA256 |
+| --- | --- | --- |
+| 0.9.79 x64 MSI | 85,483,520 | `e3c9fbef7200582d19aa3542898e3c1280d47e205287528bfa6a58da71c6d230` |
+| 0.9.79 ARM64 MSI | 77,975,552 | `84b65db00ee054042c2d620a309637c047a4dd643600ec5e33c47b3935eee5dc` |
+| 0.9.79 x64 Portable Support ZIP | 101,591,064 | `6bda779f1ca86f2a9eb356b91962a5d52a40e5414eb961a7c4f533ebc1e9888c` |
+| 0.9.79 ARM64 Portable Support ZIP | 97,543,917 | `91d2e14a13ced5e0f27718158734ec16237a90191ae649ab61304a152adbf7be` |
+| `dist/private-candidate/0.9.79/server/peeronq-server-0.9.79.run` | 163,772,206 | `49c14af08e928a0c6f51db22caa0e558dac936344223c6dcd62ed48cbb6cc03e` |
+
+The server bundle embeds that exact pair; release notes SHA256
+`9e62e1cc0bc796213e301915160c151d1851d4bce59896c68ed5566276cc13b2`. Actual extracted-bundle
+acceptance passed with `runtimeExecuted=true`: 286.1 s, 106 commands, 6,073 harness assertions
+(not test cases), 759 extracted files / 168,890,208 bytes, zero cleanup errors, no named volume
+and no production environment. Controlled local website publication passed: the pair and
+SHA256SUMS were copied, the managed preview restarted, the actual Vite metadata selected 0.9.79 /
+`unsigned-public-pilot`, and both MSI URLs returned HTTP 200 with matching bytes and hashes.
+The private Linux preview was rebuilt on Ubuntu 24.04 / SDK 10.0.402 from 204 source inputs with
+zero drift; App 22, Platform 14 and Infrastructure 12 tests passed (48/48, zero skips), normal
+close and startup cancellation exited 0 as UID 10001, and the archive carries ten SIPSorcery
+notices plus `ThirdParty/Concentus/LICENSE`:
+`app-updates/linux/release-0.9.79-preview/peeronq-0.9.79-linux-x64-unsigned-preview.tar.gz`,
+54,130,344 bytes, SHA256 `30290e252f2f4ef2008597b96fb0f7d209b00948864535dc7d57346167c7abcf`.
+It remains unpublished pending its physical-Linux gate.
+The final exact-artifact verifier passed: `VALIDATION.json` (identical in the evidence directory
+and `dist/private-candidate/0.9.79/server/`) has SHA256
+`8436e68639b27f8d997125e285b677962794bb545cb724a9dd9dd71e9f91573c` and decides
+`PRIVATE_UNSIGNED_CANDIDATE_VALIDATED_RELEASE_GATES_OPEN` (`productionReady=false`).
+Evidence: `app-updates/validation/2026-10-24-patch-0.9.79/`. Remote production is untouched;
+signing, distribution/native provenance, physical two-device/multi-monitor/voice/WAN,
+SCM/LocalService and production approval gates remain open.
+
 ## Full 0.9.78 patch candidate — 2026-10-18
 
 This is one synchronized server/client release, using canonical version 0.9.78 and derived mobile
