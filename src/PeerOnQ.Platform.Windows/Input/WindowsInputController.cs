@@ -202,15 +202,26 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
         var virtualY = GetSystemMetrics(SmYVirtualScreen);
         var virtualWidth = Math.Max(1, GetSystemMetrics(SmCxVirtualScreen));
         var virtualHeight = Math.Max(1, GetSystemMetrics(SmCyVirtualScreen));
-        var pixelX = target.X + (normalizedX * Math.Max(0, target.Width - 1));
-        var pixelY = target.Y + (normalizedY * Math.Max(0, target.Height - 1));
-        var absoluteX = (int)Math.Round((pixelX - virtualX) * 65_535d / Math.Max(1, virtualWidth - 1));
-        var absoluteY = (int)Math.Round((pixelY - virtualY) * 65_535d / Math.Max(1, virtualHeight - 1));
+        var pixelX = (int)Math.Round(target.X + (normalizedX * Math.Max(0, target.Width - 1)));
+        var pixelY = (int)Math.Round(target.Y + (normalizedY * Math.Max(0, target.Height - 1)));
         return CreateMouse(
-            Math.Clamp(absoluteX, 0, 65_535),
-            Math.Clamp(absoluteY, 0, 65_535),
+            ToAbsoluteCoordinate(pixelX - virtualX, virtualWidth),
+            ToAbsoluteCoordinate(pixelY - virtualY, virtualHeight),
             0,
             MouseMove | MouseAbsolute | MouseVirtualDesk);
+    }
+
+    /// <summary>
+    /// Windows maps a normalized absolute coordinate back to a pixel as
+    /// floor(value * extent / 65536). Rounding value = offset * 65535 / (extent - 1) instead can
+    /// land one pixel left/up of the target near the virtual-desktop origin; the ceiling of
+    /// offset * 65536 / extent always maps back to exactly the requested pixel.
+    /// </summary>
+    internal static int ToAbsoluteCoordinate(int pixelOffset, int virtualExtent)
+    {
+        var extent = Math.Max(1, virtualExtent);
+        var offset = Math.Clamp(pixelOffset, 0, extent - 1);
+        return (int)Math.Min(65_535, ((long)offset * 65_536 + extent - 1) / extent);
     }
 
     private static NativeInput CreatePointerButton(RemotePointerButton button, bool isPressed)

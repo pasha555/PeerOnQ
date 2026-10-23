@@ -7,8 +7,19 @@ internal sealed class RtcpNetworkFeedback(TimeProvider? timeProvider = null)
     // but never reuse one old loss/jitter observation indefinitely after reports stop arriving.
     internal static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// The path minimum is kept per bucket (LEDBAT-style base-delay history), so a lasting
+    /// route change without an ICE restart is learned within the window while a short queue
+    /// never raises the baseline.
+    /// </summary>
+    internal static readonly TimeSpan BaselineBucketDuration = TimeSpan.FromSeconds(30);
+    internal const int BaselineBuckets = 10;
+
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
     private readonly Lock _gate = new();
+    private readonly double[] _bucketMinimumRttMs = new double[BaselineBuckets];
+    private int _bucketIndex;
+    private long _bucketStartedAt;
     private Reception? _latest;
     private double _baselineRttMs;
     private long _lastRttObservation;
@@ -24,6 +35,7 @@ internal sealed class RtcpNetworkFeedback(TimeProvider? timeProvider = null)
             _connected = connected;
             _latest = null;
             _baselineRttMs = 0;
+            Array.Clear(_bucketMinimumRttMs);
         }
     }
 
@@ -55,10 +67,28 @@ internal sealed class RtcpNetworkFeedback(TimeProvider? timeProvider = null)
             var now = _time.GetTimestamp();
             // Increasing queue delay must not raise the transit allowance for the same path.
             // An absent/in-flight check cannot erase or renew a still-fresh minimum.
-            _baselineRttMs = _baselineRttMs <= 0
-                             || _time.GetElapsedTime(_lastRttObservation, now) >= Lifetime
-                ? rttMs
-                : Math.Min(_baselineRttMs, rttMs);
+            if (_baselineRttMs <= 0 || _time.GetElapsedTime(_lastRttObservation, now) >= Lifetime)
+            {
+                Array.Clear(_bucketMinimumRttMs);
+                _bucketIndex = 0;
+                _bucketStartedAt = now;
+                _bucketMinimumRttMs[0] = rttMs;
+            }
+            else if (_time.GetElapsedTime(_bucketStartedAt, now) >= BaselineBucketDuration)
+            {
+                _bucketIndex = (_bucketIndex + 1) % BaselineBuckets;
+                _bucketStartedAt = now;
+                _bucketMinimumRttMs[_bucketIndex] = rttMs;
+            }
+            else
+            {
+                _bucketMinimumRttMs[_bucketIndex] = Math.Min(_bucketMinimumRttMs[_bucketIndex], rttMs);
+            }
+
+            var baseline = double.MaxValue;
+            foreach (var minimum in _bucketMinimumRttMs)
+                if (minimum > 0 && minimum < baseline) baseline = minimum;
+            _baselineRttMs = baseline;
             _lastRttObservation = now;
         }
     }
@@ -79,6 +109,7 @@ internal sealed class RtcpNetworkFeedback(TimeProvider? timeProvider = null)
         {
             _latest = null;
             _baselineRttMs = 0;
+            Array.Clear(_bucketMinimumRttMs);
         }
     }
 }

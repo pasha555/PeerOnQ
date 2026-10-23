@@ -12,6 +12,7 @@
     <PackageReference Include="PeerOnQ.SIPSorcery" />
     <PackageReference Include="SIPSorceryMedia.Abstractions" />
     <PackageReference Include="SIPSorceryMedia.Encoders" />
+    <PackageReference Include="Concentus" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
   <Target Name="RequireMaintainedSipsorceryPackage" BeforeTargets="CollectPackageReferences;ResolvePackageAssets">

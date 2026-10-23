@@ -129,6 +129,55 @@ public class RtcpNetworkFeedbackTests
     }
 
     [Fact]
+    public void A_lasting_route_change_is_learned_after_the_base_delay_window()
+    {
+        var time = new MonotonicTimeProvider();
+        var feedback = new RtcpNetworkFeedback(time);
+        feedback.SetConnected(true);
+        feedback.ObserveRtt(20);
+
+        // A new 90 ms route keeps the old 20 ms minimum while it is inside the history window...
+        var window = RtcpNetworkFeedback.BaselineBucketDuration * RtcpNetworkFeedback.BaselineBuckets;
+        for (var elapsed = TimeSpan.Zero; elapsed < window - TimeSpan.FromSeconds(30); elapsed += TimeSpan.FromSeconds(5))
+        {
+            time.Advance(TimeSpan.FromSeconds(5));
+            feedback.ObserveRtt(90);
+            Assert.Equal(20, feedback.GetBaselineRttMs());
+        }
+
+        // ...and becomes the baseline once every bucket holding the old path has rolled over.
+        for (var step = 0; step < 12; step++)
+        {
+            time.Advance(TimeSpan.FromSeconds(5));
+            feedback.ObserveRtt(90);
+        }
+        Assert.Equal(90, feedback.GetBaselineRttMs());
+    }
+
+    [Fact]
+    public void Rtp_sequence_gaps_report_loss_but_reorder_duplicates_and_ssrc_changes_do_not()
+    {
+        var detector = new RtpSequenceGapDetector();
+        Assert.False(detector.Observe(7, 100));
+        Assert.False(detector.Observe(7, 101));
+        Assert.False(detector.Observe(7, 101));
+        Assert.True(detector.Observe(7, 104));
+        Assert.False(detector.Observe(7, 102));
+        Assert.False(detector.Observe(7, 105));
+        Assert.False(detector.Observe(7, 106));
+        Assert.False(detector.Observe(9, 40_000));
+        Assert.False(detector.Observe(9, 40_001));
+        Assert.False(detector.Observe(9, 50_000));
+        Assert.False(detector.Observe(9, 50_001));
+
+        var wrap = new RtpSequenceGapDetector();
+        Assert.False(wrap.Observe(1, 65_534));
+        Assert.False(wrap.Observe(1, 65_535));
+        Assert.False(wrap.Observe(1, 0));
+        Assert.True(wrap.Observe(1, 3));
+    }
+
+    [Fact]
     public void In_flight_or_invalid_rtt_samples_preserve_but_do_not_renew_a_fresh_baseline()
     {
         var time = new MonotonicTimeProvider();

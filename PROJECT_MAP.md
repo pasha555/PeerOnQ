@@ -4,7 +4,7 @@
 Read this instead of running a full repo scan. If something here is wrong, fix this file
 in the same change.
 
-**Last updated:** 2026-10-18
+**Last updated:** 2026-10-23
 
 ## Product Summary
 
@@ -109,11 +109,14 @@ SDK 10.0.402 remains mandatory. This supports CLI and IDE resolution without cha
   directly into `Downloads\\PeerOnQ`, while lesser scopes retain the explicit receive flow.
   The sharer arms the capture-to-input display mapping before its SDP offer can reach the viewer;
   input injection remains disabled until the authenticated viewer focus request is acknowledged.
-  Streaming is temporarily capped at a 1080-pixel short edge, without upscaling smaller sources.
-  The native dashboard has no quality/resolution selectors; all environments start adaptive
-  Automatic quality with an explicit P1080 target.
-  Shared CaptureResolutionPolicy normalizes Automatic/legacy Native/1440p/2160p to 1080p at
-  outgoing/incoming session setup; Windows FrameScaler independently enforces the same cap.
+  Streaming tiers (2026-10-23): a 4K-class host display (short edge >= 2160 whose 2160-line
+  size fits 4096x2304) streams native 4K when the request allows it; every other display streams
+  a 1080-pixel short edge, without upscaling smaller sources. CaptureResolutionPolicy normalizes
+  Automatic/legacy Native/2160p to Automatic (4K-capable) and 1440p to 1080p; old hosts still
+  normalize every request to 1080p. The native dashboard has no selectors: it requests Automatic
+  only when a local monitor has a short edge >= 1440, otherwise explicit P1080. A 4K source uses a
+  resolution-first ladder (4K@30 -> 1080p@30 -> lower fps) with immediate fallback and a doubling
+  4K retry dwell (10 s -> 5 min); without usable hardware H.264 a 4K source is captured at 1080p.
   Aspect ratio and portrait orientation are preserved; ultrawide long edges can exceed 1920.
   Authorized file-transfer sessions start in File Transfer Priority. Live sessions reserve the
   adaptive video target plus authenticated mouse/keyboard/security capacity. Direct, relay, and
@@ -440,10 +443,25 @@ Never hand-edit files under `src/generated/`.
 - Input sink changes/cleanup are scoped to the focus owner; capture-stop events fail the affected
   runtime closed without disabling another session. Optional `input.unicode.v1` negotiates bounded
   authenticated text on the existing input lane; Windows uses supported Unicode SendInput.
-- `src/PeerOnQ.Application/Abstractions/Ports.cs` - capture ports plus shared CaptureResolutionPolicy;
-  the temporary 1080 short-edge streaming limit normalizes legacy high-resolution preferences
-- `src/PeerOnQ.Platform.Windows/Capture/FrameScaler.cs` - enforces the 1080-pixel short-edge floor/cap
-  for all preferences and adaptive requests; smaller physical sources remain native without upscaling
+- `src/PeerOnQ.Application/Abstractions/Ports.cs` - capture ports plus shared CaptureResolutionPolicy
+  (4K tier for 4K-class sources, 1080 short-edge standard tier) and CapturedFrame I420/NV12 format
+- `src/PeerOnQ.Platform.Windows/Capture/FrameScaler.cs` - resolves 4K/1080 tier sizes; adaptive factors
+  move 4K to 1080p, never below the 1080 floor; smaller physical sources remain native without upscaling
+- `src/PeerOnQ.Platform.Windows/Capture/D3D11Nv12Converter.cs` - GPU video-processor scaling and BT.601
+  studio-swing BGRA->NV12 before readback (1.5-4 ms vs 38-51 ms CPU box scaling); CPU path is the fallback
+- `src/PeerOnQ.Platform.Windows/Capture/WindowsGraphicsCaptureSource.cs` also tolerates transient frame
+  failures (3 consecutive over >= 2 s end capture) and restarts capture after device loss (max 3)
+- `src/PeerOnQ.Media/Codecs/YuvBgraConverter.cs` and `Pipeline/FrameBufferPool.cs` - fixed-point
+  Vector128 I420/NV12->BGRA32 for the Windows viewer plus bounded reusable presentation buffers
+  (`RemoteVideoFrame.ReturnBuffer`); other viewers keep BGR24
+- `src/PeerOnQ.Media/WebRtcMediaSession.VideoTransport.cs` with `Pipeline/VideoRtpPacketization.cs`,
+  `PacedVideoRtpSender.cs`, `VideoRtpFrameAssembler.cs` and `HighResolutionWaiter.cs` - sharer RTP
+  pacing (SIPSorcery-identical VP8 packets) with a send history answering negotiated NACKs by
+  in-band retransmission (`a=x-peeronq-video-rtx:1`); negotiated viewers reorder, NACK and
+  reassemble frames themselves and decode on an ordered worker
+- `src/PeerOnQ.Platform.Windows/Rendering/D3D11CompositionVideoPresenter.cs`,
+  `src/PeerOnQ.App/ViewerWindow.GpuPresentation.cs` and `SwapChainPanelInterop.cs` - GPU viewer
+  presentation through a SwapChainPanel composition swap chain; WriteableBitmap is the fallback
 - `src/PeerOnQ.Platform.Windows/Capture/BgraI420Avx2Converter.cs` - guarded single-core native
   BGRA-to-I420 conversion with exact integer 2x2 chroma averaging, packed/tail bounds and the
   original FrameScaler scalar fallback on unsupported processors
@@ -579,10 +597,10 @@ does not depend on optional Windows Insider CNG algorithms.
 The viewer's selected profile crosses session setup as `automatic`, `office`, `balanced`,
 `performance`, `quality`, or `low-bandwidth`; an omitted legacy field is Automatic. The optional
 resolution wire preference still accepts Automatic, 720p, 1080p, 1440p, 2160p or legacy Native.
-CaptureResolutionPolicy normalizes Automatic/Native/1440p/2160p to 1080p before session signaling/capture;
-Automatic remains a quality mode but explicitly requests 1080p even from an older host;
-the scaler enforces the same maximum and existing 1080 short-edge floor without upscaling smaller
-sources. The native dashboard fixes Automatic quality/P1080 without selectors. The sharer snapshots both validated values
+CaptureResolutionPolicy normalizes Native/2160p to Automatic (4K-capable) and 1440p to 1080p before
+session signaling/capture; an older host still normalizes Automatic to 1080p. The scaler keeps the
+1080 short-edge floor without upscaling smaller sources. The native dashboard selects Automatic or
+P1080 from its own monitors without selectors. The sharer snapshots both validated values
 for capture and encoding. Additive telemetry relays source/requested/encoded dimensions and actual
 encoder/hardware state without carrying candidate addresses.
 Saved Devices reuses the DPAPI-protected address book: Add Device applies the same twelve-digit
@@ -644,9 +662,44 @@ The sharer creates and wires the media session before starting Windows capture, 
 latest-frame queue retains the initial captured frame until both WebRTC and the authenticated media
 protector are ready. This prevents a static desktop's one initial WGC frame from being lost during
 negotiation.
-The WinUI client starts Automatic quality with an explicit P1080 target in all environments;
-the dashboard exposes no quality/resolution dropdowns. The shared High Quality profile requests
-1080p/30 FPS with a 12 Mbps ceiling. Capture never upscales the source display.
+The WinUI client starts Automatic quality (6 Mbps standard-tier ceiling, 2.5x = 15 Mbps for 4K)
+and derives Automatic/P1080 from its monitors; the dashboard exposes no quality/resolution
+dropdowns. The shared High Quality profile requests 1080p/30 FPS with a 12 Mbps ceiling. Capture
+never upscales the source display. Hardware H.264 failures are retried at most three times (2 s,
+10 s delays) before VP8 is final; frame sizes outside the hardware window use VP8 without spending
+a retry. The MF encoder takes GPU NV12 directly, interleaves I420 with Vector128, and uses a 5 s
+safety-net GOP; recovery is PLI-driven, and viewers also request PLI on RTP sequence gaps
+(`RtpSequenceGapDetector`) so a lost one-packet P-frame cannot hide until the next IDR. Bulk file
+traffic additionally yields to measured queueing delay (RTT above the 10x30 s windowed path
+minimum in `RtcpNetworkFeedback`: >= 50 ms Fair, >= 150 ms Poor). The WinUI app runs with
+GCLatencyMode.SustainedLowLatency.
+Capture copies every WGC frame into a persistent GPU canvas and converts from it; a trailing
+conversion sends the newest canvas after a rate-limited skip, so the final state of a burst is
+never left unsent. "All displays" (`DisplayEnumerator.AllDisplaysId`, offered with more than one
+display) composes every monitor at its virtual-desktop offset, fits the H.264 window, and maps
+remote pointer input across the union bounds; layout changes recompose. Viewers step through the
+host's displays with toolbar arrows or a local Ctrl+Alt+Shift+Left/Right shortcut that is never
+forwarded. Capture restarts (display switch, device loss, persistent failure, layout change) are
+serialized with owner Stop/Dispose, cancellable, bounded, and keep fps/downscale state.
+Two-way voice (`WebRtcMediaSession.Voice.cs`) uses an unordered `peeronq.voice.v1` channel on
+the primary association (older peers reject the unknown label), Opus 48 kHz mono 32 kbps with
+FEC/PLC via managed Concentus (native probing disabled), and the lossy per-direction
+`SecureChannelKind.Voice` record context. Consent is local: a device opens its communications
+microphone (`WindowsVoiceCapture`, Windows AEC/NS/AGC mode) and plays the peer only after its own
+user enables Voice in the viewer toolbar or host sharing indicator; send backlog drops speech.
+File records prefer a ready direct P2P bulk lane over the signaling relay; the route is pinned per
+transfer, and the encrypted relay is used only when no direct lane exists.
+Automatic quality may climb to a 1080p-class 60 fps high-motion rung (9 Mbps) only on a healthy
+link while hardware H.264 encodes a standard-tier source; it starts at 30 fps, and 4K sources,
+VP8 fallback or a lost hardware encoder stay at the profile rate. The sharer paces video RTP
+(burst of 16 packets, then 2.5x the target bitrate, never beyond a 20 ms per-frame deadline) on a
+dedicated thread and keeps a 4,096-packet/1 s history. A negotiated viewer NACKs missing packets
+(RTCP generic NACK, RTT-derived retry and hold window, tail probes) and receives in-band
+retransmissions on the same SSRC with fresh sequence numbers (SRTP replay-safe) within a 35%
+bitrate budget; an unrepaired frame is skipped with a PLI. Older peers keep SIPSorcery's framer,
+whose reassembly limit is raised from 1 MiB to 8 MiB for 4K key frames. The Windows viewer presents
+through a Direct3D 11 SwapChainPanel swap chain off the UI thread, mirroring the four scale modes
+with a swap chain transform; `PEERONQ_VIEWER_RENDERER=bitmap` or any device failure uses the bitmap.
 Every selected
 profile supplies a maximum to the measured latency-QoS ladder: it holds the selected target while
 healthy and drops frame rate before resolution when loss, jitter, RTT, or encoder queue pressure
@@ -1245,6 +1298,7 @@ append-only audit triggers or legal-hold policy.
 | `PEERONQ_TURN_ALLOW_PRIVATE_PEERS` | Development-only override for private relay peers | `false`; development Compose sets `true` | high |
 | `PEERONQ_TURN_RELAY_ONLY` | Forces relay policy for diagnostics/acceptance testing | `false` | medium |
 | `PEERONQ_HARDWARE_VIDEO_TEST` | Opt-in actual Windows MF encoder/decoder, encrypted 1080p/UHD and portrait UHD VP8 fallback acceptance | unset; `1` enables | medium |
+| `PEERONQ_VIEWER_RENDERER` | Windows viewer diagnostic override; `bitmap` forces the WriteableBitmap presenter instead of the GPU swap chain | unset (GPU when available) | low |
 | `PEERONQ_HARDWARE_VIDEO_SOAK_SECONDS` | Extend that same local encrypted hardware session; sample progress/state/dimensions and process memory | unset/`0`; otherwise `30`–`1800` seconds; requires hardware test opt-in | medium |
 | `PEERONQ_SYSTEM_AUDIO_TEST` | Opt-in actual Windows default-render WASAPI lifecycle acceptance; silent test output | unset; `1` enables | medium |
 | `PEERONQ_LINUX_NATIVE_TEST` | Opt-in actual Linux distro VP8, encrypted WebRTC and unlocked Secret Service tests; requires the native Linux prerequisites | unset; `1` enables only on Linux | medium |

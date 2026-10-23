@@ -141,6 +141,62 @@ public sealed class HardwareVideoCodecTests
     }
 
     [Fact]
+    public void A_transient_hardware_failure_is_retried_after_a_bounded_delay_with_a_key_frame()
+    {
+        var time = new ManualTimeProvider();
+        var encoders = new List<FailingEncoder>();
+        using var software = new Vp8ScreenEncoder(2_000, 30);
+        using var controller = new HardwareVideoEncodingController(() =>
+        {
+            var created = new FailingEncoder();
+            encoders.Add(created);
+            return created;
+        }, time);
+        var frame = new byte[64 * 64 * 3 / 2];
+        Array.Fill(frame, (byte)128);
+
+        Assert.Equal(VideoPayloadCodec.H264, controller.Encode(software, true, 64, 64, frame, 2_000, 30, false).Codec);
+        Assert.Equal(VideoPayloadCodec.Vp8, controller.Encode(software, true, 64, 64, frame, 2_000, 30, false).Codec);
+        Assert.True(controller.IsHardwareAvailable);
+
+        // Inside the retry delay the session stays on VP8 without touching the driver again.
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(VideoPayloadCodec.Vp8, controller.Encode(software, true, 64, 64, frame, 2_000, 30, false).Codec);
+        Assert.Single(encoders);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        var recovered = controller.Encode(software, true, 64, 64, frame, 2_000, 30, false);
+        Assert.Equal(VideoPayloadCodec.H264, recovered.Codec);
+        Assert.True(controller.Selection.IsHardware);
+        Assert.Equal(2, encoders.Count);
+        Assert.True(encoders[1].LastForcedKeyFrame);
+        Assert.Equal(1, encoders[0].Disposals);
+    }
+
+    [Fact]
+    public void Repeated_hardware_failures_end_in_a_final_VP8_fallback()
+    {
+        var time = new ManualTimeProvider();
+        var factoryCalls = 0;
+        using var software = new Vp8ScreenEncoder(2_000, 30);
+        using var controller = new HardwareVideoEncodingController(() => { factoryCalls++; return new FailingEncoder(); }, time);
+        var frame = new byte[64 * 64 * 3 / 2];
+        Array.Fill(frame, (byte)128);
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            _ = controller.Encode(software, true, 64, 64, frame, 2_000, 30, false);
+            _ = controller.Encode(software, true, 64, 64, frame, 2_000, 30, false);
+            time.Advance(TimeSpan.FromSeconds(30));
+        }
+
+        Assert.Equal(HardwareVideoEncodingController.MaximumHardwareAttempts, factoryCalls);
+        Assert.Equal(HardwareVideoEncodingController.MaximumHardwareAttempts, controller.HardwareFailures);
+        Assert.False(controller.IsHardwareAvailable);
+        Assert.False(controller.Selection.IsHardware);
+    }
+
+    [Fact]
     public void Legacy_encoding_keeps_the_original_VP8_bytes_and_never_opens_hardware()
     {
         var factoryCalls = 0;
@@ -190,8 +246,12 @@ public sealed class HardwareVideoCodecTests
     {
         public string Name => "test hardware";
         public int Calls, Disposals;
-        public byte[] EncodeI420(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame) =>
-            ++Calls == 1 ? H264KeyFrame : throw new COMException("device removed", unchecked((int)0x887a0005));
+        public bool LastForcedKeyFrame;
+        public byte[] EncodeI420(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame)
+        {
+            LastForcedKeyFrame = forceKeyFrame;
+            return ++Calls == 1 ? H264KeyFrame : throw new COMException("device removed", unchecked((int)0x887a0005));
+        }
         public void Dispose() => Disposals++;
     }
 

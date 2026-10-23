@@ -27,12 +27,13 @@ public static class FrameScaler
         if (sourceWidth <= 0 || sourceHeight <= 0) return (0, 0);
 
         var sourceShortEdge = Math.Min(sourceWidth, sourceHeight);
-        _ = CaptureResolutionPolicy.Normalize(resolution);
 
-        // Preserve at least 1080 lines on landscape displays, or a 1080-pixel short edge
-        // on portrait displays. Smaller sources stay native: upscaling creates no detail.
-        // The same bound is now the maximum, including old Native/1440p/2160p requests.
-        var scale = Math.Min(1d, (double)CaptureResolutionPolicy.MaximumShortEdge / sourceShortEdge);
+        // A 4K-class display keeps native 4K (5K/8K are reduced to it) unless the request or an
+        // adaptive downscale selects the standard tier. Every other display keeps at least a
+        // 1080-pixel short edge, and smaller sources stay native: upscaling creates no detail.
+        var targetShortEdge = CaptureResolutionPolicy.ResolveTargetShortEdge(
+            sourceWidth, sourceHeight, resolution, downscaleFactor);
+        var scale = Math.Min(1d, (double)targetShortEdge / sourceShortEdge);
         var targetWidth = (int)Math.Round(sourceWidth * scale);
         var targetHeight = (int)Math.Round(sourceHeight * scale);
 
@@ -40,6 +41,21 @@ public static class FrameScaler
         targetHeight = Math.Max(2, targetHeight - (targetHeight % 2));
 
         return (targetWidth, targetHeight);
+    }
+
+    /// <summary>
+    /// Reduces an even-sized output so it fits the hardware H.264 window (4096x2304), keeping
+    /// aspect ratio. Used for the composed all-displays view, whose width can exceed any encoder.
+    /// </summary>
+    public static (int Width, int Height) FitWithinHardwareWindow(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return (0, 0);
+        var scale = Math.Min(1d, Math.Min(
+            (double)CaptureResolutionPolicy.MaximumUltraHdWidth / width,
+            (double)CaptureResolutionPolicy.MaximumUltraHdHeight / height));
+        var fittedWidth = (int)Math.Floor(width * scale);
+        var fittedHeight = (int)Math.Floor(height * scale);
+        return (Math.Max(2, fittedWidth - (fittedWidth % 2)), Math.Max(2, fittedHeight - (fittedHeight % 2)));
     }
 
     /// <summary>

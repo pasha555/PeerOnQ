@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using System.Collections;
 using PeerOnQ.Media.Codecs;
 using Vortice.MediaFoundation;
@@ -223,11 +224,34 @@ internal static class MediaFoundationVideoUtilities
         if (output.Length != source.Length || source.AsSpan().Overlaps(output))
             throw new ArgumentException("An independent complete NV12 destination is required.", nameof(output));
         var luma = width * height;
+        var quarter = luma / 4;
         source.AsSpan(0, luma).CopyTo(output);
-        for (var i = 0; i < luma / 4; i++)
+        var u = source.AsSpan(luma, quarter);
+        var v = source.AsSpan(luma + quarter, quarter);
+        var uv = output.Slice(luma, quarter * 2);
+        var index = 0;
+        if (Vector128.IsHardwareAccelerated && quarter >= Vector128<byte>.Count)
         {
-            output[luma + 2 * i] = source[luma + i];
-            output[luma + 2 * i + 1] = source[luma + luma / 4 + i];
+            // Widening U and V to 16-bit lanes and OR-ing V into the high byte produces the
+            // little-endian UVUV... byte order exactly, sixteen chroma pairs per iteration. A 4K
+            // frame previously spent most of its ~18 ms format stage in the scalar loop below.
+            ref var uStart = ref MemoryMarshal.GetReference(u);
+            ref var vStart = ref MemoryMarshal.GetReference(v);
+            ref var uvStart = ref MemoryMarshal.GetReference(uv);
+            for (; index <= quarter - Vector128<byte>.Count; index += Vector128<byte>.Count)
+            {
+                var uBytes = Vector128.LoadUnsafe(ref uStart, (nuint)index);
+                var vBytes = Vector128.LoadUnsafe(ref vStart, (nuint)index);
+                var low = Vector128.WidenLower(uBytes) | (Vector128.WidenLower(vBytes) << 8);
+                var high = Vector128.WidenUpper(uBytes) | (Vector128.WidenUpper(vBytes) << 8);
+                low.AsByte().StoreUnsafe(ref uvStart, (nuint)(index * 2));
+                high.AsByte().StoreUnsafe(ref uvStart, (nuint)(index * 2 + Vector128<byte>.Count));
+            }
+        }
+        for (; index < quarter; index++)
+        {
+            uv[2 * index] = u[index];
+            uv[2 * index + 1] = v[index];
         }
     }
 }

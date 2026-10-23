@@ -96,17 +96,37 @@ public sealed class ConnectionPolicyProvider : IConnectionPolicyProvider
     public const double TargetCaptureToPresentP95Ms = 75;
     public const double TargetFourKCaptureToPresentP95Ms = 100;
 
+    /// <summary>Queueing delay that limits bulk data to the Fair tier.</summary>
+    public const double BulkQueueingDelayMs = 50;
+
+    /// <summary>Queueing delay that limits bulk data to the Poor tier.</summary>
+    public const double SevereBulkQueueingDelayMs = 150;
+
+    /// <summary>RTT minus the fresh path minimum; zero unless both measurements are usable.</summary>
+    public static double QueueingDelayMs(double rttMs, double baselineRttMs) =>
+        IsFiniteNonNegative(rttMs) && IsFiniteNonNegative(baselineRttMs) && rttMs > 0 && baselineRttMs > 0
+            ? Math.Max(0, rttMs - baselineRttMs)
+            : 0;
+
     public static double GetTargetCaptureToPresentP95Ms(CaptureResolution resolution) =>
         resolution is CaptureResolution.P2160 or CaptureResolution.Native
             ? TargetFourKCaptureToPresentP95Ms
             : TargetCaptureToPresentP95Ms;
 
+    /// <summary>
+    /// A 4K-capable request is judged by the pixels actually encoded: after an adaptive fallback
+    /// to the standard tier it must meet the 1080p target instead of the looser 4K one.
+    /// </summary>
     public static double GetTargetCaptureToPresentP95Ms(
-        CaptureResolution resolution, int encodedWidth, int encodedHeight) =>
-        resolution == CaptureResolution.Automatic && encodedWidth > 0 && encodedHeight > 0
-            && (long)encodedWidth * encodedHeight >= 3840L * 2160
-                ? TargetFourKCaptureToPresentP95Ms
-                : GetTargetCaptureToPresentP95Ms(resolution);
+        CaptureResolution resolution, int encodedWidth, int encodedHeight)
+    {
+        if (!CaptureResolutionPolicy.AllowsUltraHd(resolution) || encodedWidth <= 0 || encodedHeight <= 0)
+            return GetTargetCaptureToPresentP95Ms(resolution);
+        return Math.Min(encodedWidth, encodedHeight) >= CaptureResolutionPolicy.MaximumShortEdge
+               || (long)encodedWidth * encodedHeight >= 3840L * 2160
+            ? TargetFourKCaptureToPresentP95Ms
+            : TargetCaptureToPresentP95Ms;
+    }
 
     public static bool HasReliableInputPressure(double latencyP95Ms, double clockUncertaintyMs) =>
         IsFiniteNonNegative(latencyP95Ms)
@@ -228,6 +248,15 @@ public sealed class ConnectionPolicyProvider : IConnectionPolicyProvider
         // the conservative tier until fresh feedback permits media recovery.
         if (statistics.QualityChangeReason == "awaiting_network_feedback")
             health = ConnectionHealth.Poor;
+        // RTT above the fresh path minimum is queueing delay. Bulk data is the only lane that
+        // can grow a bottleneck queue on its own, so yield it before video or input see the
+        // delay as loss, frame age or late injection (LEDBAT-style scavenger behaviour).
+        var queueingDelay = QueueingDelayMs(statistics.RttMs, statistics.BaselineRttMs);
+        if (queueingDelay >= SevereBulkQueueingDelayMs)
+            health = ConnectionHealth.Poor;
+        else if (queueingDelay >= BulkQueueingDelayMs
+                 && health is ConnectionHealth.Excellent or ConnectionHealth.Good or ConnectionHealth.Unknown)
+            health = ConnectionHealth.Fair;
         if (available <= 0 && health is ConnectionHealth.Excellent or ConnectionHealth.Good or ConnectionHealth.Unknown)
         {
             // SIPSorcery does not expose a transport-wide bandwidth estimate. A quiet 4K desktop

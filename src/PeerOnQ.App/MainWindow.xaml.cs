@@ -122,10 +122,7 @@ public sealed partial class MainWindow : Window
 
             _services = services;
             App.Services = _services;
-            _services.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic) with
-            {
-                Resolution = CaptureResolution.P1080,
-            };
+            ApplyStreamProfile();
 
             RefreshRoutingEnrollmentUi();
             DeviceNameText.Text = $"Name: {_services.Identity.DisplayName}";
@@ -501,6 +498,7 @@ public sealed partial class MainWindow : Window
                 SessionText.Text = accessKind == SessionAccessKind.Unattended
                     ? $"Requesting password authorization from {target.MaskedDisplay}..."
                     : $"Sending connection request to {target.MaskedDisplay}...";
+                ApplyStreamProfile();
                 var sessionId = remoteScopeSelectionRequired
                     ? await _services.Coordinator.RequestRemoteSelectedSessionAsync(target, RequestSystemSoundCheckBox.IsChecked == true)
                     : await _services.Coordinator.RequestSessionAsync(
@@ -558,6 +556,7 @@ public sealed partial class MainWindow : Window
         {
             DashboardErrorBar.IsOpen = false;
             SessionText.Text = $"Verifying support invitation for {invitation.TargetDevice.MaskedDisplay}...";
+            ApplyStreamProfile();
             var sessionId = await _services.Coordinator.RequestSupportSessionAsync(
                 invitation.TargetDevice,
                 invitation.Mode,
@@ -814,7 +813,10 @@ public sealed partial class MainWindow : Window
                     {
                         await EndCurrentSessionAsync();
                     },
-                    onRevokeControl: RevokeCurrentControlAsync);
+                    onRevokeControl: RevokeCurrentControlAsync,
+                    isVoiceAvailable: () => _services?.Coordinator.IsVoiceAvailable(info.SessionId) == true,
+                    isVoiceEnabled: () => _services?.Coordinator.IsVoiceEnabled(info.SessionId) == true,
+                    onSetVoice: enabled => _services?.Coordinator.SetVoiceEnabled(info.SessionId, enabled) == true);
                 _indicator.Activate();
             }
             else if (info.Permissions.HasFlag(SessionPermission.ViewScreen))
@@ -846,7 +848,10 @@ public sealed partial class MainWindow : Window
                         timeline: () => _services?.Coordinator.TimelineOf(info.SessionId) ?? [],
                         logger: _services?.LoggerFactory.CreateLogger<ViewerWindow>(),
                         onActivated: SelectActiveSession,
-                        onClosed: OnViewerClosed);
+                        onClosed: OnViewerClosed,
+                        isVoiceAvailable: () => _services?.Coordinator.IsVoiceAvailable(info.SessionId) == true,
+                        isVoiceEnabled: () => _services?.Coordinator.IsVoiceEnabled(info.SessionId) == true,
+                        onSetVoice: enabled => _services?.Coordinator.SetVoiceEnabled(info.SessionId, enabled) == true);
                     _viewers.Add(info.SessionId, viewer);
                     viewer.AttachSystemAudio(_services?.Coordinator.CollaborationFor(info.SessionId)?.SystemAudio);
                     created = true;
@@ -1146,6 +1151,35 @@ public sealed partial class MainWindow : Window
             ? ElementTheme.Light
             : ElementTheme.Dark;
         ThemeIcon.Glyph = AppShell.RequestedTheme == ElementTheme.Dark ? "\uE708" : "\uE706";
+    }
+
+    /// <summary>
+    /// Applies the adaptive Automatic profile. A remote 4K display streams native 4K only when
+    /// this viewer has a monitor larger than the standard tier (short edge of at least 1440
+    /// pixels); a 1080p-class viewer explicitly requests 1080p because 4K would only add
+    /// bandwidth and latency there. Monitors are re-read before every request.
+    /// </summary>
+    private void ApplyStreamProfile()
+    {
+        if (_services is null) return;
+        _services.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic) with
+        {
+            Resolution = PreferredStreamResolution(),
+        };
+    }
+
+    private static CaptureResolution PreferredStreamResolution()
+    {
+        try
+        {
+            return DisplayEnumerator.ListDisplays().Any(display => Math.Min(display.Width, display.Height) >= 1440)
+                ? CaptureResolution.Automatic
+                : CaptureResolution.P1080;
+        }
+        catch (Exception)
+        {
+            return CaptureResolution.P1080;
+        }
     }
 
     private static string GreetingForCurrentTime() => DateTime.Now.Hour switch

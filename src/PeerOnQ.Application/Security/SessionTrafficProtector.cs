@@ -15,6 +15,9 @@ public enum SecureChannelKind : byte
     FileTransfer = 5,
     Telemetry = 6,
     Audio = 7,
+
+    /// <summary>Two-way Opus voice; lossy like video and system audio, keyed per direction.</summary>
+    Voice = 8,
 }
 
 public sealed record SecureSessionInfo
@@ -42,6 +45,13 @@ public interface ISessionTrafficProtector
     {
         plaintext = [];
         error = "audio_not_supported";
+        return false;
+    }
+    byte[] ProtectVoiceFrame(ReadOnlySpan<byte> frame) => throw new NotSupportedException();
+    bool TryUnprotectVoiceFrame(ReadOnlySpan<byte> frame, out byte[] plaintext, out string? error)
+    {
+        plaintext = [];
+        error = "voice_not_supported";
         return false;
     }
 }
@@ -98,6 +108,12 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
 
     public bool TryUnprotectAudioFrame(ReadOnlySpan<byte> frame, out byte[] plaintext, out string? error) =>
         TryUnprotect(SecureChannelKind.Audio, Guid.Empty, frame, out plaintext, out error);
+
+    public byte[] ProtectVoiceFrame(ReadOnlySpan<byte> frame) =>
+        Protect(SecureChannelKind.Voice, Guid.Empty, frame);
+
+    public bool TryUnprotectVoiceFrame(ReadOnlySpan<byte> frame, out byte[] plaintext, out string? error) =>
+        TryUnprotect(SecureChannelKind.Voice, Guid.Empty, frame, out plaintext, out error);
 
     public bool TryUnprotect(
         ReadOnlySpan<byte> frame,
@@ -300,10 +316,15 @@ public sealed class SessionTrafficProtector : ISessionTrafficProtector, IDisposa
     public void ForceRekey() => Interlocked.Increment(ref _forcedGeneration);
 
     private static bool IsLossyChannel(SecureChannelKind channel) =>
-        channel is SecureChannelKind.Video or SecureChannelKind.Audio;
+        channel is SecureChannelKind.Video or SecureChannelKind.Audio or SecureChannelKind.Voice;
 
     private static string StaleRecordError(SecureChannelKind channel) =>
-        channel == SecureChannelKind.Audio ? "stale_audio_record" : "stale_video_record";
+        channel switch
+        {
+            SecureChannelKind.Audio => "stale_audio_record",
+            SecureChannelKind.Voice => "stale_voice_record",
+            _ => "stale_video_record",
+        };
 
     public void ForgetTransfer(Guid transferId)
     {

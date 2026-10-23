@@ -70,6 +70,154 @@ public class AdaptiveQualityControllerTests
     }
 
     [Fact]
+    public void Ultra_hd_ladder_gives_up_4k_before_frame_rate()
+    {
+        var controller = new AdaptiveQualityController(30, maxBitrateKbps: 6_000);
+        var changes = new List<QualityLevel>();
+        controller.LevelChanged += (_, level) => changes.Add(level);
+
+        controller.SetUltraHdSource(true);
+
+        Assert.True(controller.IsUltraHdLadder);
+        var ladder = controller.Ladder;
+        Assert.Equal((30, 1, 15_000), (ladder[0].TargetFps, ladder[0].DownscaleFactor, ladder[0].MaxBitrateKbps));
+        Assert.Equal((30, 2, 6_000), (ladder[1].TargetFps, ladder[1].DownscaleFactor, ladder[1].MaxBitrateKbps));
+        Assert.All(ladder.Skip(1), level => Assert.Equal(2, level.DownscaleFactor));
+        Assert.True(ladder[^1].TargetFps < ladder[1].TargetFps);
+        Assert.Equal(15_000, Assert.Single(changes).MaxBitrateKbps);
+
+        // The first congested window leaves 4K immediately while keeping 30 fps.
+        var level = controller.Evaluate(Lossy(0.10));
+        Assert.Equal(1, level.Index);
+        Assert.Equal(30, level.TargetFps);
+        Assert.Equal(2, level.DownscaleFactor);
+    }
+
+    [Fact]
+    public void High_motion_rung_is_earned_only_while_allowed_and_left_when_withdrawn()
+    {
+        var controller = new AdaptiveQualityController(30, maxBitrateKbps: 6_000, highMotionFps: 60);
+
+        Assert.True(controller.HasHighMotionRung);
+        var top = controller.Ladder[0];
+        Assert.Equal((60, 1, 9_000), (top.TargetFps, top.DownscaleFactor, top.MaxBitrateKbps));
+        Assert.Equal((1, 30), (controller.Current.Index, controller.Current.TargetFps));
+
+        // Healthy windows alone do not unlock 60 fps: the encoder must be able to sustain it.
+        for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover * 2; i++)
+            controller.Evaluate(Healthy);
+        Assert.Equal(30, controller.Current.TargetFps);
+
+        controller.SetHighMotionAllowed(true);
+        for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover; i++)
+            controller.Evaluate(Healthy);
+        Assert.Equal(60, controller.Current.TargetFps);
+
+        var changes = new List<QualityLevel>();
+        controller.LevelChanged += (_, level) => changes.Add(level);
+        controller.SetHighMotionAllowed(false);
+        Assert.Equal(30, controller.Current.TargetFps);
+        Assert.Equal(30, Assert.Single(changes).TargetFps);
+    }
+
+    [Fact]
+    public void High_motion_steps_down_to_the_profile_rate_first_and_4k_sources_never_use_it()
+    {
+        var controller = new AdaptiveQualityController(30, maxBitrateKbps: 6_000, highMotionFps: 60);
+        controller.SetHighMotionAllowed(true);
+        for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover; i++)
+            controller.Evaluate(Healthy);
+        Assert.Equal(0, controller.Current.Index);
+
+        var level = controller.Evaluate(Lossy(0.10));
+        Assert.Equal((30, 1, 6_000), (level.TargetFps, level.DownscaleFactor, level.MaxBitrateKbps));
+
+        controller.SetUltraHdSource(true);
+        Assert.Equal((0, 30, 1), (controller.Current.Index, controller.Current.TargetFps, controller.Current.DownscaleFactor));
+        Assert.All(controller.Ladder, rung => Assert.True(rung.TargetFps <= 30));
+
+        controller.SetUltraHdSource(false);
+        Assert.Equal((1, 30), (controller.Current.Index, controller.Current.TargetFps));
+    }
+
+    [Fact]
+    public void Automatic_profile_offers_60_fps_only_as_an_earned_high_motion_rung()
+    {
+        var profile = MediaProfile.For(QualityProfile.Automatic);
+        Assert.Equal((30, 60), (profile.TargetFps, profile.HighMotionFps));
+        Assert.Equal(0, MediaProfile.For(QualityProfile.Performance).HighMotionFps);
+        Assert.False(new AdaptiveQualityController(60, highMotionFps: 60).HasHighMotionRung);
+    }
+
+    [Fact]
+    public void A_failed_4k_attempt_doubles_the_retry_dwell_and_stable_4k_resets_it()
+    {
+        var time = new ManualTimeProvider();
+        var controller = new AdaptiveQualityController(30, timeProvider: time);
+        controller.SetUltraHdSource(true);
+
+        controller.Evaluate(Lossy(0.10));
+        Assert.Equal(1, controller.Current.Index);
+        Assert.Equal(TimeSpan.FromSeconds(20), controller.UltraHdRetryDwell);
+
+        // Healthy windows before the dwell keep the standard tier.
+        time.Advance(TimeSpan.FromSeconds(10));
+        for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover; i++)
+            controller.Evaluate(Healthy);
+        Assert.Equal(1, controller.Current.Index);
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        controller.Evaluate(Healthy);
+        Assert.Equal(0, controller.Current.Index);
+
+        // This time 4K holds for a minute, so the next fallback restarts at the minimum dwell.
+        time.Advance(AdaptiveQualityController.UltraHdStableWindow);
+        controller.Evaluate(Lossy(0.10));
+        Assert.Equal(1, controller.Current.Index);
+        Assert.Equal(AdaptiveQualityController.MinimumResolutionDwell, controller.UltraHdRetryDwell);
+    }
+
+    [Fact]
+    public void Repeated_4k_failures_cap_the_retry_dwell()
+    {
+        var time = new ManualTimeProvider();
+        var controller = new AdaptiveQualityController(30, timeProvider: time);
+        controller.SetUltraHdSource(true);
+
+        for (var round = 0; round < 12; round++)
+        {
+            controller.Evaluate(Lossy(0.10));
+            Assert.Equal(1, controller.Current.Index);
+            time.Advance(controller.UltraHdRetryDwell);
+            for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover; i++)
+                controller.Evaluate(Healthy);
+            Assert.Equal(0, controller.Current.Index);
+        }
+
+        Assert.Equal(AdaptiveQualityController.MaximumUltraHdRetryDwell, controller.UltraHdRetryDwell);
+    }
+
+    [Fact]
+    public void Switching_between_4k_and_standard_sources_keeps_the_equivalent_quality()
+    {
+        var time = new ManualTimeProvider();
+        var controller = new AdaptiveQualityController(30, timeProvider: time);
+        controller.Evaluate(Lossy(0.10));
+        Assert.Equal(1, controller.Current.Index);
+
+        controller.SetUltraHdSource(true);
+        Assert.Equal(2, controller.Current.Index);
+        Assert.Equal(20, controller.Current.TargetFps);
+        Assert.Equal(2, controller.Current.DownscaleFactor);
+
+        controller.SetUltraHdSource(false);
+        Assert.False(controller.IsUltraHdLadder);
+        Assert.Equal(1, controller.Current.Index);
+        Assert.Equal(20, controller.Current.TargetFps);
+        Assert.Equal(1, controller.Current.DownscaleFactor);
+    }
+
+    [Fact]
     public void It_starts_at_the_requested_quality()
     {
         var controller = new AdaptiveQualityController(maxFps: 30);
@@ -759,6 +907,32 @@ public class ConnectionPolicyProviderTests
         Assert.Equal(211_944, allocation.MaximumBulkKbps);
         Assert.True(allocation.MaximumBulkKbps > 150_000);
         Assert.Equal(37_800, allocation.MediaReserveKbps);
+        Assert.Equal(256, allocation.InteractiveReserveKbps);
+    }
+
+    [Theory]
+    [InlineData(20, 20, 150_000)]
+    [InlineData(20, 60, 150_000)]
+    [InlineData(20, 75, 1_024)]
+    [InlineData(20, 180, 256)]
+    [InlineData(0, 400, 150_000)]
+    public void Measured_queueing_delay_yields_bulk_before_video_and_input(
+        double baselineRttMs, double rttMs, int expectedBulkKbps)
+    {
+        var allocation = ConnectionPolicyProvider.GetTransferAllocation(
+            TransferPriorityMode.FileTransferPriority,
+            new MediaStatistics
+            {
+                ConnectionHealth = ConnectionHealth.Excellent,
+                CurrentBitrateKbps = 14_000,
+                TargetBitrateKbps = 15_000,
+                RttMs = rttMs,
+                BaselineRttMs = baselineRttMs,
+            });
+
+        Assert.Equal(expectedBulkKbps, allocation.MaximumBulkKbps);
+        // Video and interactive reservations are never reduced to make room for bulk data.
+        Assert.Equal(15_750, allocation.MediaReserveKbps);
         Assert.Equal(256, allocation.InteractiveReserveKbps);
     }
 

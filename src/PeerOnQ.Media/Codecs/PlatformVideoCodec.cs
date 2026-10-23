@@ -19,11 +19,51 @@ public static class VideoCodecLimits
         && (width & 1) == 0 && (height & 1) == 0 && (long)width * height <= MaximumPixels;
 }
 
-/// <summary>A hardware-only implementation. Throwing permanently selects VP8 for this session.</summary>
+/// <summary>A hardware-only implementation. Throwing selects VP8 until a bounded hardware retry succeeds.</summary>
 public interface IHardwareH264Encoder : IDisposable
 {
     string Name { get; }
     byte[] EncodeI420(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame);
+
+    /// <summary>
+    /// Encodes a GPU-converted NV12 frame. Implementations without a native NV12 input convert
+    /// to I420 first; the Media Foundation encoder consumes NV12 directly.
+    /// </summary>
+    byte[] EncodeNv12(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame) =>
+        EncodeI420(width, height, Nv12Planes.ToI420(width, height, frame), bitrateKbps, frameRate, forceKeyFrame);
+
+    /// <summary>False for a frame size this hardware cannot encode; such frames use VP8.</summary>
+    bool SupportsDimensions(int width, int height) => true;
+}
+
+/// <summary>Bounded conversions between the two packed 4:2:0 layouts used by capture and codecs.</summary>
+public static class Nv12Planes
+{
+    public static void Validate(int width, int height, byte[] frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        if (!VideoCodecLimits.ValidDimensions(width, height) || frame.Length != (long)width * height * 3 / 2)
+            throw new ArgumentException("A bounded, complete 4:2:0 image is required.", nameof(frame));
+    }
+
+    /// <summary>De-interleaves the UV plane of a tightly packed NV12 image into a new I420 image.</summary>
+    public static byte[] ToI420(int width, int height, byte[] nv12)
+    {
+        Validate(width, height, nv12);
+        var luma = width * height;
+        var quarter = luma / 4;
+        var i420 = GC.AllocateUninitializedArray<byte>(nv12.Length);
+        nv12.AsSpan(0, luma).CopyTo(i420);
+        var uv = nv12.AsSpan(luma, quarter * 2);
+        var u = i420.AsSpan(luma, quarter);
+        var v = i420.AsSpan(luma + quarter, quarter);
+        for (var index = 0; index < quarter; index++)
+        {
+            u[index] = uv[2 * index];
+            v[index] = uv[2 * index + 1];
+        }
+        return i420;
+    }
 }
 
 /// <summary>Decodes authenticated, bounded Annex B access units to owned BGR24 frames.</summary>

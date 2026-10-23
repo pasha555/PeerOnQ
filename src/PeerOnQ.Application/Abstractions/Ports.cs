@@ -154,17 +154,74 @@ public enum CaptureResolution
     P2160 = 5,
 }
 
-/// <summary>Current streaming limit; legacy wire values remain readable for older peers.</summary>
+/// <summary>
+/// Streaming tiers: a 4K-class display (short edge of at least 2160 pixels) streams native 4K
+/// when the request allows it, every other display streams a 1080-pixel short edge. Legacy wire
+/// values remain readable; old hosts normalize every request to 1080p on their side.
+/// </summary>
 public static class CaptureResolutionPolicy
 {
-    public const int MaximumShortEdge = 1080;
+    /// <summary>Short edge of the standard tier; larger non-4K displays are reduced to it.</summary>
+    public const int StandardShortEdge = 1080;
+
+    /// <summary>Short edge of the 4K tier and the largest short edge ever streamed.</summary>
+    public const int MaximumShortEdge = 2160;
+
+    /// <summary>
+    /// 4K frames must fit the hardware H.264 window (level 5.1 class encoders); a 4K-class source
+    /// that would exceed it, such as a portrait or 5K2K display, uses the standard tier instead.
+    /// </summary>
+    public const int MaximumUltraHdWidth = 4096;
+    public const int MaximumUltraHdHeight = 2304;
 
     public static CaptureResolution Normalize(CaptureResolution resolution) => resolution switch
     {
         CaptureResolution.P720 or CaptureResolution.P1080 => resolution,
-        CaptureResolution.Automatic or CaptureResolution.Native or CaptureResolution.P1440 or CaptureResolution.P2160 => CaptureResolution.P1080,
+        CaptureResolution.P1440 => CaptureResolution.P1080,
+        CaptureResolution.Automatic or CaptureResolution.Native or CaptureResolution.P2160 => CaptureResolution.Automatic,
         _ => throw new ArgumentOutOfRangeException(nameof(resolution)),
     };
+
+    /// <summary>True when the request lets a 4K-class display stream at the 4K tier.</summary>
+    public static bool AllowsUltraHd(CaptureResolution resolution) =>
+        Normalize(resolution) == CaptureResolution.Automatic;
+
+    /// <summary>True when this physical source would stream at the 4K tier at full quality.</summary>
+    public static bool IsUltraHdSource(int sourceWidth, int sourceHeight)
+    {
+        if (sourceWidth <= 0 || sourceHeight <= 0) return false;
+        var shortEdge = Math.Min(sourceWidth, sourceHeight);
+        if (shortEdge < MaximumShortEdge) return false;
+        var scale = (double)MaximumShortEdge / shortEdge;
+        return Math.Round(sourceWidth * scale) <= MaximumUltraHdWidth
+               && Math.Round(sourceHeight * scale) <= MaximumUltraHdHeight;
+    }
+
+    /// <summary>
+    /// Target short edge before even-size rounding. Adaptive downscale factors move a 4K source
+    /// to the standard tier; they never reduce the standard tier itself or upscale a small source.
+    /// </summary>
+    public static int ResolveTargetShortEdge(
+        int sourceWidth,
+        int sourceHeight,
+        CaptureResolution resolution,
+        int downscaleFactor = 1)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(downscaleFactor);
+        var shortEdge = Math.Min(sourceWidth, sourceHeight);
+        if (AllowsUltraHd(resolution) && downscaleFactor == 1 && IsUltraHdSource(sourceWidth, sourceHeight))
+            return MaximumShortEdge;
+        return Math.Min(shortEdge, StandardShortEdge);
+    }
+}
+
+public enum CapturedPixelFormat
+{
+    /// <summary>Y plane, then U and V quarter planes.</summary>
+    I420 = 0,
+
+    /// <summary>Y plane, then one interleaved UV quarter plane.</summary>
+    Nv12 = 1,
 }
 
 /// <summary>
@@ -184,7 +241,14 @@ public sealed class CapturedFrame
     /// <summary>Actual dimensions handed to the encoder after adaptive downscaling.</summary>
     public required int Width { get; init; }
     public required int Height { get; init; }
+
+    /// <summary>
+    /// Tightly packed 4:2:0 pixels in the layout named by <see cref="Format"/>: planar I420 by
+    /// default, or NV12 when the producer converted on the GPU for a hardware H.264 encoder.
+    /// </summary>
     public required ReadOnlyMemory<byte> I420 { get; init; }
+
+    public CapturedPixelFormat Format { get; init; } = CapturedPixelFormat.I420;
     public required TimeSpan Timestamp { get; init; }
     public required long SequenceNumber { get; init; }
 

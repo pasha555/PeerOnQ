@@ -22,6 +22,9 @@ public sealed partial class SharingIndicatorWindow : Window
     private readonly DispatcherQueueTimer _timer;
     private readonly Func<Task> _onStop;
     private readonly Func<Task> _onRevokeControl;
+    private readonly Func<bool>? _isVoiceAvailable;
+    private readonly Func<bool>? _isVoiceEnabled;
+    private readonly Func<bool, bool>? _onSetVoice;
     private readonly DateTimeOffset _startedAt;
     private bool _allowClose;
     private int _stopRequested;
@@ -30,12 +33,18 @@ public sealed partial class SharingIndicatorWindow : Window
     public SharingIndicatorWindow(
         ActiveSessionInfo info,
         Func<Task> onStop,
-        Func<Task> onRevokeControl)
+        Func<Task> onRevokeControl,
+        Func<bool>? isVoiceAvailable = null,
+        Func<bool>? isVoiceEnabled = null,
+        Func<bool, bool>? onSetVoice = null)
     {
         InitializeComponent();
 
         _onStop = onStop;
         _onRevokeControl = onRevokeControl;
+        _isVoiceAvailable = isVoiceAvailable;
+        _isVoiceEnabled = isVoiceEnabled;
+        _onSetVoice = onSetVoice;
         _startedAt = info.StartedAt;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
 
@@ -70,10 +79,15 @@ public sealed partial class SharingIndicatorWindow : Window
 
         _timer = _dispatcher.CreateTimer();
         _timer.Interval = TimeSpan.FromSeconds(1);
-        _timer.Tick += (_, _) => UpdateDuration();
+        _timer.Tick += (_, _) =>
+        {
+            UpdateDuration();
+            UpdateVoice();
+        };
         _timer.Start();
 
         UpdateDuration();
+        UpdateVoice();
         Closed += (_, _) => _timer.Stop();
         AppWindow.Closing += OnAppWindowClosing;
     }
@@ -95,7 +109,7 @@ public sealed partial class SharingIndicatorWindow : Window
     {
         CompactPanel.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
         ExpandedPanel.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        MoveToTopCenter(expanded ? 720 : 320, expanded ? 64 : 48);
+        MoveToTopCenter(expanded ? 820 : 320, expanded ? 64 : 48);
     }
 
     private void MoveToTopCenter(int width, int height)
@@ -104,6 +118,22 @@ public sealed partial class SharingIndicatorWindow : Window
         var workArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var x = workArea.X + Math.Max(0, (workArea.Width - width) / 2);
         AppWindow.Move(new PointInt32(x, workArea.Y + 16));
+    }
+
+    /// <summary>The voice toggle is shown only while the viewer offers the encrypted voice lane.</summary>
+    private void UpdateVoice()
+    {
+        var enabled = _isVoiceEnabled?.Invoke() == true;
+        var available = enabled || _isVoiceAvailable?.Invoke() == true;
+        VoiceToggle.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        VoiceToggle.IsChecked = enabled;
+    }
+
+    private void OnVoiceToggled(object sender, RoutedEventArgs e)
+    {
+        var requested = VoiceToggle.IsChecked == true;
+        _onSetVoice?.Invoke(requested);
+        VoiceToggle.IsChecked = _isVoiceEnabled?.Invoke() == true;
     }
 
     private void SetViewerText(string value)

@@ -30,6 +30,102 @@ Rollback:
 
 ## Entries
 
+## 2026-10-24 — 1080p60, RTP pacing, NACK repair, GPU viewer and the 0.9.79 patch
+
+Task: Owner request: add the recommended 1080p@60, RTP pacing, NACK/RTX and SwapChainPanel GPU
+rendering, then commit and build a production-ready patch (full server bundle + client pair).
+Files changed: MediaProfile.HighMotionFps / MediaStatistics retransmission counters
+(IMediaSession), AdaptiveQualityController (earned 60 fps rung, 4K mapping offset),
+WebRtcMediaSession (+VideoTransport partial: pacer, NACK answer, `a=x-peeronq-video-rtx:1`,
+viewer assembly worker, 8 MiB legacy reassembly), new Pipeline VideoRtpPacketization,
+PacedVideoRtpSender, VideoRtpFrameAssembler, HighResolutionWaiter; Platform.Windows
+Rendering/D3D11CompositionVideoPresenter; App ViewerWindow (+GpuPresentation, xaml
+SwapChainPanel), SwapChainPanelInterop; canonical version 0.9.79 / codes 9079; RELEASE_NOTES,
+PROJECT_MAP, PERFORMANCE_REPORT, CURRENT_STATE; tests.
+Reason: SIPSorcery sends a whole frame in one line-rate burst and reassembles in arrival order,
+so one lost packet cost a key frame and 4K key-frame bursts could loop into freezes; its 1 MiB
+reassembly cap dropped large 4K key frames; Automatic stayed at 30 fps; WriteableBitmap copied
+every frame on the UI thread.
+Validation: Debug solution build 0 warnings/0 errors (WinUI x64 included). Full suite with
+PEERONQ_HARDWARE_VIDEO_TEST=1: 19 projects, 1,411 total / 1,383 passed / 0 failed / 28
+environment skips; EndToEnd 190/191 (hardware H.264 sessions through the pacer and assembler),
+Media 365/366. One timing-sensitive pacer test failed once under full-suite load and was made
+deterministic with an injected clock before this run. Real loopback NACK repair 5/5, 7/7, 8/8;
+an older viewer without the attribute decodes paced video; GPU presenter upload byte-identical,
+steady 4K present 7.87 ms. Native UI gate passed. Package/server results are in CURRENT_STATE.
+Risk: Pacing adds at most the 20 ms frame deadline to large frames; NACK holding can delay newer
+frames by up to the RTT-derived hold window (60-300 ms) before a skip; 60 fps raises the ceiling
+to 9 Mbps; the GPU viewer was exercised by hardware tests and the WinUI build, not by a physical
+two-device session; Windows timer resolution affects pacing precision without the high-resolution
+waitable timer. Older peers interoperate through the unchanged packet format.
+Rollback: Revert this entry's hunks (the previous entries stand alone); a viewer can force the
+bitmap path with `PEERONQ_VIEWER_RENDERER=bitmap`; removing the SDP attribute disables NACK.
+
+## 2026-10-23 — All-displays view, two-way Opus voice, P2P-first files and review fixes
+
+Task: Owner request: see all remote monitors and switch one by one; talk with good quality over
+microphone and speaker; P2P after connection with the server only for presence; post-quantum
+between both clients. Plus fixes from an independent review of the entry below.
+Files changed: DisplayEnumerator (All displays target/union), WindowsGraphicsCaptureSource
+(multi-slot canvas, trailing emit, serialized cancellable restarts), FrameScaler (hardware-window
+fit), ViewerWindow (+xaml: monitor arrows/shortcut, Voice toggle), SharingIndicatorWindow (+xaml:
+Voice toggle), MainWindow, AppServices; new IVoiceAudio, WebRtcMediaSession.Voice,
+WindowsVoiceAudio, RtpSequenceGapDetector; SessionTrafficProtector (Voice context),
+IMediaSession/SessionCoordinator voice API, MediaCollaborationTransport (P2P-first pinned route),
+YuvBgraConverter (studio-swing NV12), AdaptiveQualityController/WebRtcMediaSession (locked level
+reads, serialized 4K decisions, retry floor), RtcpNetworkFeedback (windowed baseline), MF encoder
+(5 s GOP), D3D11Nv12Converter (padded plane offset); Concentus 2.2.2 pin; notices; tests.
+Reason: Monitor switching existed but no combined view; voice was system-output only; files used the
+signaling relay whenever negotiated even with a direct lane. Review found wrong H.264 colours on the
+new BGRA path (VP8 matrix applied to studio-swing NV12), restart loss of the 1080p software floor,
+unserialized recovery, VP8 4K during hardware retry, ladder races, invisible single-packet loss
+with a long GOP and a never-ageing RTT baseline.
+Validation: Debug solution build 0 warnings/0 errors. Full suite 19 projects: 1,374 total / 1,333
+passed / 0 failed / 41 environment skips. Hardware gate 33/33 incl. GPU converter. Native UI gate
+passed. New: NV12->BGRA byte-identical to the MF decoder formula for all 16.7M samples; real
+WebRTC loopback voice 440/880 Hz both ways with no playback where voice was not enabled; Voice
+record context lossy/replay/direction tests; P2P-first pinned file route; composed-layout and
+hardware-window fit tests; RTP gap and windowed-baseline tests; real WGC capture tests pass on the
+canvas/GPU NV12 path. Coordinated 4K landscape whole p95 across four runs 97.82-120.34 ms
+(baseline 185.49 ms); 100 ms is not consistently met on one shared machine.
+Risk: All displays and Windows AEC were not exercised on multi-monitor/physical audio hardware here;
+voice uses reliable SCTP underneath (unordered, drop-on-backlog), not RTP; Concentus licence notice
+must ship with releases. TURN relay remains the encrypted fallback when no direct path exists.
+Rollback: Revert this entry's hunks and the Concentus pin; the previous entry stands alone.
+
+## 2026-10-23 — 4K-on-4K tiers, freeze recovery, GPU capture conversion and bulk QoS
+
+Task: Owner request: no freezing, fast real-time video, 4K on 4K displays and 1080p elsewhere,
+and mouse/keyboard/video unaffected by file transfer. Reverses the 2026-10-18 temporary 1080p scope.
+Files changed: Ports (CaptureResolutionPolicy tiers, CapturedFrame.Format), ConnectionPolicy
+(encoded-size frame-age target, queueing-delay bulk yield), IMediaSession (Automatic 6 Mbps,
+RemotePixelFormat.Bgra32, ReturnBuffer, BaselineRttMs), AdaptiveQualityController (UltraHd
+ladder), HardwareVideoEncodingController (bounded retries, NV12, size window), WebRtcMediaSession
+(+VideoCodec: 4K state, VP8 1080p floor, BGRA presentation pool), new YuvBgraConverter,
+FrameBufferPool, D3D11Nv12Converter; WindowsGraphicsCaptureSource (failure tolerance, device-loss
+recovery, device leak, GPU path), FrameScaler, MF encoder (EncodeNv12, 10 s GOP), MF utilities
+(Vector128 interleave); App (SustainedLowLatency), AppServices (BGRA viewer), MainWindow
+(monitor-derived Automatic/P1080), ViewerWindow (BGRA copy, buffer return); native UI gate; tests.
+Reason: Baseline 4K coordinated p95 185 ms at 11.9 fps on this RX 5600 XT/Ryzen 3700X; one
+transient capture exception or WGC device loss ended the session; one encoder timeout pinned the
+session to VP8 for life; Automatic 4K never reduced resolution (sat at 10 fps/800 kbps); CPU box
+scaling cost 38 ms (1440p->1080p) / 46-51 ms (4K->1080p) per Release frame; 2 s GOP produced
+periodic 4K IDR bursts; bulk only yielded at RTT >= 350 ms or 5% loss.
+Validation: Debug solution build zero warnings/errors. Full suite 19 projects: 1,352 total /
+1,311 passed / 0 failed / 41 environment skips. Hardware gate (PEERONQ_HARDWARE_VIDEO_TEST=1)
+29/29 + GPU converter 4/4. Coordinated 4K landscape on the production BGRA viewer path: whole p95
+185.49 -> 97.82 ms (MET), last-5 s 209.92 -> 94.11 ms (MET), 11.91 -> 16.36 fps; MF format stage
+18.64 -> 3.18-3.43 ms, total encode 63.40 -> 26.74-27.78 ms. GPU conversion 4K->1080p 1.65-1.79 ms,
+1440p->1080p 1.44-1.52 ms, native 4K 4.07 ms, native 1080p 1.41 ms; native luma max difference 1.
+New BGRA converter: vector==scalar exactly, all 65,536 chroma pairs within 1 level of legacy.
+Native UI gate passed. Both endpoints shared one GPU/CPU: not a physical two-device/WAN result.
+Risk: GPU colour path differs from the CPU box filter only at hard edges (bounded outliers);
+SustainedLowLatency may raise steady memory; 4K needs a viewer monitor >= 1440 short edge; DSCP/
+WMM marking, RTP pacing, NACK/RTX and SwapChainPanel rendering remain recommendations. No commit,
+version bump, package or deployment.
+Rollback: Revert this entry's hunks; restoring `CaptureResolutionPolicy.Normalize` to map
+Automatic/Native/P2160 to P1080 and MainWindow to explicit P1080 alone re-applies the 1080p scope.
+
 ## 2026-10-18 — Full 0.9.78 server/client patch candidate
 
 Task: Prepare the requested full synchronized patch with the latest native UI and website fixes.

@@ -222,10 +222,12 @@ public class TwoDeviceAcceptanceTests(ITestOutputHelper output) : IAsyncLifetime
         // SessionCoordinator owns and disposes the capture returned by its factory.
         var capture = new HardwareVideoIntegrationTests.SyntheticVideoCapture(width, height);
         var diagnostics = new CoordinatedFourKDiagnostics();
+        // The Windows viewer presents BGRA32 straight from the presentation worker; measure that path.
         var engine = new WebRtcMediaEngine(
             hardwareH264Available: () => HardwareEncoderProbe.Supports(HardwareVideoCodec.H264),
             hardwareH264EncoderFactory: () => diagnostics.Observe(hardware = new MediaFoundationH264Encoder()),
-            h264DecoderFactory: () => diagnostics.Observe(new MediaFoundationH264Decoder()));
+            h264DecoderFactory: () => diagnostics.Observe(new MediaFoundationH264Decoder()),
+            viewerPixelFormat: RemotePixelFormat.Bgra32);
         await using var viewer = await PeerOnQDevice.CreateAsync("Coordinated4K viewer", _signalingUri,
             useRealCapture: false, mediaEngine: engine);
         await using var sharer = await PeerOnQDevice.CreateAsync("Coordinated4K sharer", _signalingUri,

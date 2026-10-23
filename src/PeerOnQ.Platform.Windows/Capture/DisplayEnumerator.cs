@@ -43,14 +43,50 @@ public static class DisplayEnumerator
         return displays;
     }
 
-    public static IReadOnlyList<CaptureTargetInfo> ListCaptureTargets() =>
-        ListDisplays()
+    /// <summary>Explicit target that composes every connected display into one view.</summary>
+    public const string AllDisplaysId = "peeronq:all-displays";
+    public const string AllDisplaysName = "All displays";
+
+    public static bool IsAllDisplays(string? id) => string.Equals(id, AllDisplaysId, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Individual displays, primary first, then an explicit "All displays" choice when more than
+    /// one display exists. Capture still requires that explicit choice.
+    /// </summary>
+    public static IReadOnlyList<CaptureTargetInfo> ListCaptureTargets()
+    {
+        var displays = ListDisplays();
+        var targets = displays
             .OrderByDescending(d => d.IsPrimary)
             .Select(d => new CaptureTargetInfo(CaptureTargetKind.Display, d.DeviceName, d.DisplayName, d.Width, d.Height))
-            .ToArray();
+            .ToList();
+        if (displays.Count > 1 && VirtualDesktop(displays) is { } all)
+            targets.Add(new CaptureTargetInfo(CaptureTargetKind.Display, AllDisplaysId, AllDisplaysName, all.Width, all.Height));
+        return targets;
+    }
 
-    public static DisplayTarget? FindByDeviceName(string deviceName) =>
-        ListDisplays().FirstOrDefault(d => d.DeviceName == deviceName);
+    /// <summary>
+    /// Finds a display, or the virtual-desktop bounds for <see cref="AllDisplaysId"/>, so remote
+    /// pointer coordinates map across the composed view exactly like a single display.
+    /// </summary>
+    public static DisplayTarget? FindByDeviceName(string deviceName)
+    {
+        var displays = ListDisplays();
+        return IsAllDisplays(deviceName)
+            ? displays.Count > 1 ? VirtualDesktop(displays) : null
+            : displays.FirstOrDefault(d => d.DeviceName == deviceName);
+    }
+
+    /// <summary>Bounding rectangle of the given displays in virtual-desktop pixels.</summary>
+    public static DisplayTarget? VirtualDesktop(IReadOnlyList<DisplayTarget> displays)
+    {
+        if (displays.Count == 0) return null;
+        var left = displays.Min(d => d.X);
+        var top = displays.Min(d => d.Y);
+        var right = displays.Max(d => d.X + d.Width);
+        var bottom = displays.Max(d => d.Y + d.Height);
+        return new DisplayTarget(0, AllDisplaysId, AllDisplaysName, left, top, right - left, bottom - top, false);
+    }
 
     private const int MonitorinfoPrimary = 0x00000001;
 

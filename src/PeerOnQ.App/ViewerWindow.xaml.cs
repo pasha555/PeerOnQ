@@ -83,6 +83,9 @@ public sealed partial class ViewerWindow : Window
     private int _pointerEventLogged;
     private int _pointerNormalizedLogged;
     private int _pointerSentLogged;
+    private readonly Func<bool>? _isVoiceAvailable;
+    private readonly Func<bool>? _isVoiceEnabled;
+    private readonly Func<bool, bool>? _onSetVoice;
 
     public ViewerWindow(
         ActiveSessionInfo info,
@@ -95,11 +98,17 @@ public sealed partial class ViewerWindow : Window
         Func<IReadOnlyList<SessionTimelineEntry>>? timeline = null,
         ILogger<ViewerWindow>? logger = null,
         Action<SessionId>? onActivated = null,
-        Action<SessionId>? onClosed = null)
+        Action<SessionId>? onClosed = null,
+        Func<bool>? isVoiceAvailable = null,
+        Func<bool>? isVoiceEnabled = null,
+        Func<bool, bool>? onSetVoice = null)
     {
         InitializeComponent();
         ApplyFitLayout();
 
+        _isVoiceAvailable = isVoiceAvailable;
+        _isVoiceEnabled = isVoiceEnabled;
+        _onSetVoice = onSetVoice;
         _statistics = statistics;
         _sessionId = info.SessionId;
         _onActivated = onActivated;
@@ -112,6 +121,7 @@ public sealed partial class ViewerWindow : Window
         _onRendered = onRendered;
         _log = logger ?? NullLogger<ViewerWindow>.Instance;
         _dispatcher = DispatcherQueue.GetForCurrentThread();
+        InitializeGpuPresentation();
 
         _transferDismissTimer = _dispatcher.CreateTimer();
         _transferDismissTimer.Interval = TimeSpan.FromSeconds(2);
@@ -160,6 +170,7 @@ public sealed partial class ViewerWindow : Window
                 _fileTransfers.TransferChanged -= OnFileTransferChanged;
             _freezeFrames = true;
             ClearPendingFrame();
+            ShutdownGpuPresentation();
             _statsTimer.Stop();
             _fullScreenRevealTimer.Stop();
             _transferDismissTimer.Stop();
@@ -239,28 +250,47 @@ public sealed partial class ViewerWindow : Window
     /// <summary>Called from the media thread for every decoded frame.</summary>
     public void Present(RemoteVideoFrame frame)
     {
-        if (_freezeFrames || frame.Format != RemotePixelFormat.Bgr24) return;
+        if (_freezeFrames || frame.Format is not (RemotePixelFormat.Bgr24 or RemotePixelFormat.Bgra32)
+            || frame.Pixels.Length != frame.ExpectedLength)
+        {
+            return;
+        }
 
+        if (TryPresentOnGpu(frame)) return;
+
+        var pixels = TakeFramePixels(frame, out var transferred);
         var pending = new PendingVideoFrame(
             frame.Width,
             frame.Height,
-            TakeFramePixels(frame),
+            pixels,
             frame.PipelineDecodedTimestamp,
             frame.CaptureTimestampUnixMicroseconds,
             frame.CaptureSequenceNumber,
-            frame.PeerClockEstimate);
+            frame.PeerClockEstimate,
+            frame.Format,
+            transferred ? frame.ReturnBuffer : null);
+        PendingVideoFrame? replaced;
         var enqueue = false;
         lock (_frameGate)
         {
-            if (_freezeFrames) return;
-            _pendingFrame = pending;
-            if (!_renderQueued)
+            if (_freezeFrames)
             {
-                _renderQueued = true;
-                enqueue = true;
+                replaced = pending;
+            }
+            else
+            {
+                // Only the newest frame is drawn; a replaced frame's buffer can be reused at once.
+                replaced = _pendingFrame;
+                _pendingFrame = pending;
+                if (!_renderQueued)
+                {
+                    _renderQueued = true;
+                    enqueue = true;
+                }
             }
         }
 
+        replaced?.Release();
         if (enqueue && !_dispatcher.TryEnqueue(RenderPendingFrame))
         {
             ClearPendingFrame();
@@ -290,7 +320,10 @@ public sealed partial class ViewerWindow : Window
                         ApplyActualSizeDimensions();
                 }
 
-                WriteBgr24AsBgra32(_bitmap, frame.Pixels);
+                if (frame.Format == RemotePixelFormat.Bgra32)
+                    CopyBgra32(_bitmap, frame.Pixels);
+                else
+                    WriteBgr24AsBgra32(_bitmap, frame.Pixels);
                 _bitmap.Invalidate();
                 _renderFailure = null;
                 _onRendered?.Invoke(new PresentedVideoFrame(
@@ -309,11 +342,16 @@ public sealed partial class ViewerWindow : Window
             }
         }
 
+        // The pixels now live in the bitmap's own back buffer (or the frame was skipped).
+        frame?.Release();
+
         var enqueue = false;
+        PendingVideoFrame? discarded = null;
         lock (_frameGate)
         {
             if (_freezeFrames)
             {
+                discarded = _pendingFrame;
                 _pendingFrame = null;
                 _renderQueued = false;
             }
@@ -327,6 +365,7 @@ public sealed partial class ViewerWindow : Window
             }
         }
 
+        discarded?.Release();
         if (enqueue && !_dispatcher.TryEnqueue(RenderPendingFrame))
         {
             ClearPendingFrame();
@@ -335,11 +374,27 @@ public sealed partial class ViewerWindow : Window
 
     private void ClearPendingFrame()
     {
+        PendingVideoFrame? cleared;
         lock (_frameGate)
         {
+            cleared = _pendingFrame;
             _pendingFrame = null;
             _renderQueued = false;
         }
+        cleared?.Release();
+    }
+
+    /// <summary>
+    /// Copies an already packed BGRA32 frame into the bitmap back buffer. This is a straight
+    /// memory copy, so the UI thread no longer spends a full-frame expansion pass per 4K frame.
+    /// </summary>
+    private static unsafe void CopyBgra32(WriteableBitmap bitmap, byte[] bgra32)
+    {
+        var access = bitmap.PixelBuffer.As<IBufferByteAccess>();
+        access.Buffer(out var destination);
+        var length = Math.Min(bgra32.Length, (int)bitmap.PixelBuffer.Capacity);
+        if (length <= 0) return;
+        bgra32.AsSpan(0, length).CopyTo(new Span<byte>(destination, length));
     }
 
     /// <summary>
@@ -414,6 +469,8 @@ public sealed partial class ViewerWindow : Window
                 }
 
                 MonitorPicker.IsEnabled = _onSelectDisplay is not null && displays.Count > 1;
+                PreviousMonitorButton.IsEnabled = MonitorPicker.IsEnabled;
+                NextMonitorButton.IsEnabled = MonitorPicker.IsEnabled;
                 MonitorContainer.Visibility = displays.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
             }
             finally
@@ -422,6 +479,29 @@ public sealed partial class ViewerWindow : Window
             }
         });
     }
+
+    private void OnPreviousMonitor(object sender, RoutedEventArgs e) => SwitchRemoteMonitor(-1);
+
+    private void OnNextMonitor(object sender, RoutedEventArgs e) => SwitchRemoteMonitor(1);
+
+    /// <summary>
+    /// Steps through the sharer's displays, including its "All displays" view, in list order.
+    /// Selecting an entry still only sends the existing display request to the sharer.
+    /// </summary>
+    private void SwitchRemoteMonitor(int step)
+    {
+        var count = MonitorPicker.Items.Count;
+        if (!MonitorPicker.IsEnabled || count < 2) return;
+        var current = Math.Max(0, MonitorPicker.SelectedIndex);
+        MonitorPicker.SelectedIndex = ((current + step) % count + count) % count;
+    }
+
+    private static bool IsLocalMonitorShortcutModifierDown() =>
+        IsKeyDown(VirtualKey.Control) && IsKeyDown(VirtualKey.Menu) && IsKeyDown(VirtualKey.Shift);
+
+    private static bool IsKeyDown(VirtualKey key) =>
+        Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
     private async void OnMonitorSelected(object sender, SelectionChangedEventArgs e)
     {
@@ -446,9 +526,28 @@ public sealed partial class ViewerWindow : Window
         }
     }
 
+    /// <summary>Shown only while the host offers the encrypted voice lane; state is local.</summary>
+    private void UpdateVoice()
+    {
+        var enabled = _isVoiceEnabled?.Invoke() == true;
+        VoiceButton.Visibility = enabled || _isVoiceAvailable?.Invoke() == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        VoiceButton.IsChecked = enabled;
+    }
+
+    private void OnVoiceToggled(object sender, RoutedEventArgs e)
+    {
+        var requested = VoiceButton.IsChecked == true;
+        if (_onSetVoice?.Invoke(requested) != true && requested)
+            ConnectionText.Text = "Voice could not start: check the microphone and speaker.";
+        VoiceButton.IsChecked = _isVoiceEnabled?.Invoke() == true;
+    }
+
     private void UpdateStatistics()
     {
         var stats = _statistics();
+        UpdateVoice();
 
         var dimensions = stats.RenderedWidth > 0
             ? $"{stats.RenderedWidth}×{stats.RenderedHeight}"
@@ -460,7 +559,7 @@ public sealed partial class ViewerWindow : Window
         QualityText.Text = _renderFailure is null
             ? $"{dimensions} · {measuredFps:0} FPS · {measuredBitrate}"
             : $"render error: {_renderFailure}";
-        AutomationProperties.SetItemStatus(RemoteImage, QualityText.Text);
+        AutomationProperties.SetItemStatus(ActiveRemoteSurface, QualityText.Text);
         AutomationProperties.SetItemStatus(RemoteInputSurface, QualityText.Text);
         var path = stats.ConnectionPath switch
         {
@@ -484,8 +583,9 @@ public sealed partial class ViewerWindow : Window
 
         var codec = stats.EncoderName ?? stats.DecoderName ?? "codec pending";
         var qualityReason = stats.QualityChangeReason ?? "awaiting_measurements";
-        var technicalStatus = $"{ConnectionText.Text}. {QualityText.Text}. Codec {codec}. Quality reason {qualityReason}.";
-        AutomationProperties.SetHelpText(RemoteImage, technicalStatus);
+        var technicalStatus = $"{ConnectionText.Text}. {QualityText.Text}. Codec {codec}. Quality reason {qualityReason}."
+                              + $" Renderer {RendererName}. Repaired video packets {stats.VideoPacketsRecovered}.";
+        AutomationProperties.SetHelpText(ActiveRemoteSurface, technicalStatus);
         AutomationProperties.SetHelpText(RemoteInputSurface, technicalStatus);
         var reconnecting = stats.ReconnectState is not (ReconnectState.Connected or ReconnectState.Ended);
         ReconnectOverlay.Visibility = reconnecting ? Visibility.Visible : Visibility.Collapsed;
@@ -647,6 +747,7 @@ public sealed partial class ViewerWindow : Window
         ApplyWindowScaleDimensions(Scroller.ActualWidth, Scroller.ActualHeight);
         Scroller.ChangeView(0, 0, null, disableAnimation: true);
         UpdateScaleSelection(label);
+        UpdateGpuLayout();
     }
 
     private void OnScrollerSizeChanged(object sender, SizeChangedEventArgs e)
@@ -690,6 +791,7 @@ public sealed partial class ViewerWindow : Window
         RemoteImage.Height = double.NaN;
         ApplyActualSizeDimensions();
         UpdateScaleSelection("Actual size");
+        UpdateGpuLayout();
     }
 
     private void ApplyActualSizeDimensions()
@@ -1095,6 +1197,15 @@ public sealed partial class ViewerWindow : Window
             return;
         }
 
+        // Ctrl+Alt+Shift+Left/Right steps through the remote displays locally; the arrow is not
+        // forwarded, so the remote desktop never receives the shortcut itself.
+        if (virtualKey is 0x25 or 0x27 && IsLocalMonitorShortcutModifierDown())
+        {
+            e.Handled = true;
+            if (isPressed) SwitchRemoteMonitor(virtualKey == 0x27 ? 1 : -1);
+            return;
+        }
+
         if (_remoteInput is null) return;
         e.Handled = true;
 
@@ -1112,13 +1223,16 @@ public sealed partial class ViewerWindow : Window
     {
         x = 0;
         y = 0;
-        if (RemoteImage.ActualWidth <= 0 || RemoteImage.ActualHeight <= 0
+        // The swap chain panel fills the same viewport the Image would, and its transform uses
+        // the same uniform-fit/fill rules, so one mapping serves both surfaces.
+        var surface = ActiveRemoteSurface;
+        if (surface.ActualWidth <= 0 || surface.ActualHeight <= 0
             || _bitmapWidth <= 0 || _bitmapHeight <= 0)
             return false;
 
         var position = e.GetCurrentPoint(RemotePointerSurface).Position;
-        var transformed = RemoteImage.TransformToVisual(RemotePointerSurface).TransformBounds(
-            new Windows.Foundation.Rect(0, 0, RemoteImage.ActualWidth, RemoteImage.ActualHeight));
+        var transformed = surface.TransformToVisual(RemotePointerSurface).TransformBounds(
+            new Windows.Foundation.Rect(0, 0, surface.ActualWidth, surface.ActualHeight));
         var content = new RemoteContentBounds(
             transformed.X,
             transformed.Y,
@@ -1247,9 +1361,15 @@ public sealed partial class ViewerWindow : Window
         long DecodedTimestamp,
         long CaptureTimestampUnixMicroseconds,
         long CaptureSequenceNumber,
-        PeerClockEstimate? PeerClockEstimate);
+        PeerClockEstimate? PeerClockEstimate,
+        RemotePixelFormat Format = RemotePixelFormat.Bgr24,
+        Action<byte[]>? ReturnBuffer = null)
+    {
+        /// <summary>Hands a transferred buffer back for reuse once nothing here reads it.</summary>
+        public void Release() => ReturnBuffer?.Invoke(Pixels);
+    }
 
-    private static byte[] TakeFramePixels(RemoteVideoFrame frame)
+    private static byte[] TakeFramePixels(RemoteVideoFrame frame, out bool transferred)
     {
         if (frame.BufferOwnershipCanTransfer
             && MemoryMarshal.TryGetArray(frame.Pixels, out var segment)
@@ -1257,9 +1377,11 @@ public sealed partial class ViewerWindow : Window
             && segment.Offset == 0
             && segment.Count == array.Length)
         {
+            transferred = true;
             return array;
         }
 
+        transferred = false;
         return frame.Pixels.ToArray();
     }
 }

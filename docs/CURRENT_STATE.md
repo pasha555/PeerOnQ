@@ -1,13 +1,17 @@
 # PeerOnQ current state
 
-## Current source contract — 2026-10-18
+## Current source contract — 2026-10-24
 
 Source facts below were checked against the current checkout. They describe implementation, not
 production approval or a fresh execution of the historical tests farther down this page.
 
-- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.78`. Linux, Android
-  and Apple client versions derive from it; Android and Apple bundle codes are `9078`. A source
+- `Directory.Build.props` defines the canonical server/Windows client version as `0.9.79`. Linux, Android
+  and Apple client versions derive from it; Android and Apple bundle codes are `9079`. A source
   version does not establish that a matching signed package has been built or published.
+- 0.9.79 media: 4K tier on 4K-class sources, an earned 1080p@60 hardware rung, RTP pacing,
+  negotiated NACK repair (`a=x-peeronq-video-rtx:1`), GPU SwapChainPanel viewer presentation,
+  all-displays view, two-way Opus voice and P2P-first files. See the 2026-10-23/24 AI_CHANGELOG
+  entries and [the performance report](PERFORMANCE_REPORT.md) for scope and limits.
 - `SignalingProtocol` in `src/PeerOnQ.Transport/Protocol/SignalingMessages.cs` accepts exactly v3:
   minimum, current and maximum are all `3`. Missing/pre-v3/newer versions fail compatibility checks.
 - Windows supports permission-gated attended `ViewOnly`, `FullControl`, `FileTransferOnly` and

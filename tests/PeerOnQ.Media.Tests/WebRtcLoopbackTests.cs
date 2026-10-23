@@ -1182,6 +1182,9 @@ public partial class WebRtcLoopbackTests(ITestOutputHelper output)
         await sharer.ApplyRemoteAnswerAsync(answer);
         Assert.True(viewer.IsVideoFrameTelemetryNegotiated);
         Assert.True(sharer.IsVideoFrameTelemetryNegotiated);
+        // Current peers reassemble paced packets themselves and repair loss by NACK.
+        Assert.True(viewer.IsVideoRetransmissionNegotiated);
+        Assert.True(sharer.IsVideoRetransmissionNegotiated);
 
         await Task.WhenAll(
             sharerConnected.Task.WaitAsync(TimeSpan.FromSeconds(30)),
@@ -1294,6 +1297,104 @@ public partial class WebRtcLoopbackTests(ITestOutputHelper output)
         {
             Assert.True(framesReceived > 1, "only a single frame arrived");
         }
+    }
+
+    /// <summary>
+    /// An older viewer that never echoes the retransmission attribute keeps SIPSorcery's own VP8
+    /// framer. Paced packets are wire-identical, so its video must still flow.
+    /// </summary>
+    [Fact]
+    public async Task Paced_video_still_reaches_a_viewer_that_did_not_negotiate_retransmission()
+    {
+        await using var capture = new SyntheticCaptureSource(1920, 1080);
+        await capture.StartAsync(new CaptureRequest
+        {
+            Target = new CaptureTargetInfo(CaptureTargetKind.Display, "synthetic", "Synthetic Display", 1920, 1080),
+            MaxFramesPerSecond = 30,
+        });
+
+        var sessionId = SessionId.New();
+        await using var sharer = WebRtcMediaSession.CreateSharer(
+            sessionId, capture, MediaProfile.For(QualityProfile.Quality));
+        await using var viewer = WebRtcMediaSession.CreateViewer(sessionId);
+        await using var identities = await TestHybridIdentityPair.CreateAsync();
+        await using var viewerTransport = new MediaCollaborationTransport(
+            viewer, SessionPermission.ViewScreen, identities.Viewer, identities.SharerLegacyFingerprint);
+        await using var sharerTransport = new MediaCollaborationTransport(
+            sharer, SessionPermission.ViewScreen, identities.Sharer, identities.ViewerLegacyFingerprint);
+        sharer.LocalIceCandidate += async (_, c) =>
+            await viewer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+        viewer.LocalIceCandidate += async (_, c) =>
+            await sharer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+
+        var framesReceived = 0;
+        viewer.RemoteFrameReceived += (_, _) => Interlocked.Increment(ref framesReceived);
+
+        var offer = await sharer.CreateOfferAsync();
+        Assert.True(WebRtcMediaSession.HasVideoRetransmission(offer));
+        var legacyOffer = offer
+            .Replace("a=x-peeronq-video-rtx:1\r\n", string.Empty, StringComparison.Ordinal)
+            .Replace("a=x-peeronq-video-rtx:1\n", string.Empty, StringComparison.Ordinal);
+        var answer = await viewer.CreateAnswerAsync(legacyOffer);
+        Assert.False(WebRtcMediaSession.HasVideoRetransmission(answer));
+        await sharer.ApplyRemoteAnswerAsync(answer);
+        Assert.False(viewer.IsVideoRetransmissionNegotiated);
+        Assert.False(sharer.IsVideoRetransmissionNegotiated);
+
+        await WaitUntilAsync(() => viewerTransport.IsReady && sharerTransport.IsReady);
+        Assert.True(await UntilAsync(() => Volatile.Read(ref framesReceived) > 3, TimeSpan.FromSeconds(30)),
+            "paced video did not reach a viewer using the legacy SIPSorcery framer");
+        Assert.Equal(0, sharer.GetStatistics().VideoPacketsRetransmitted);
+    }
+
+    /// <summary>
+    /// Real RTCP NACKs repair lost video packets: the sharer drops every 40th media packet before
+    /// it reaches the socket, and the viewer must recover them without waiting for key frames.
+    /// </summary>
+    [Fact]
+    public async Task Lost_video_packets_are_repaired_by_nack_retransmission_over_real_rtcp()
+    {
+        await using var capture = new SyntheticCaptureSource(1920, 1080);
+        await capture.StartAsync(new CaptureRequest
+        {
+            Target = new CaptureTargetInfo(CaptureTargetKind.Display, "synthetic", "Synthetic Display", 1920, 1080),
+            MaxFramesPerSecond = 30,
+        });
+
+        var sessionId = SessionId.New();
+        await using var sharer = WebRtcMediaSession.CreateSharer(
+            sessionId, capture, MediaProfile.For(QualityProfile.Quality));
+        await using var viewer = WebRtcMediaSession.CreateViewer(sessionId);
+        await using var identities = await TestHybridIdentityPair.CreateAsync();
+        await using var viewerTransport = new MediaCollaborationTransport(
+            viewer, SessionPermission.ViewScreen, identities.Viewer, identities.SharerLegacyFingerprint);
+        await using var sharerTransport = new MediaCollaborationTransport(
+            sharer, SessionPermission.ViewScreen, identities.Sharer, identities.ViewerLegacyFingerprint);
+        sharer.LocalIceCandidate += async (_, c) =>
+            await viewer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+        viewer.LocalIceCandidate += async (_, c) =>
+            await sharer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+
+        var framesReceived = 0;
+        viewer.RemoteFrameReceived += (_, _) => Interlocked.Increment(ref framesReceived);
+        var mediaPackets = 0;
+        sharer.VideoPacketLossForTesting = (_, payload) =>
+            !Pipeline.VideoRetransmissionPayload.IsRetransmission(payload)
+            && Interlocked.Increment(ref mediaPackets) % 40 == 0;
+
+        var answer = await viewer.CreateAnswerAsync(await sharer.CreateOfferAsync());
+        await sharer.ApplyRemoteAnswerAsync(answer);
+        Assert.True(viewer.IsVideoRetransmissionNegotiated);
+        await WaitUntilAsync(() => viewerTransport.IsReady && sharerTransport.IsReady);
+
+        Assert.True(
+            await UntilAsync(() => viewer.GetStatistics().VideoPacketsRecovered >= 3
+                                   && Volatile.Read(ref framesReceived) > 10, TimeSpan.FromSeconds(30)),
+            $"recovered={viewer.GetStatistics().VideoPacketsRecovered} frames={Volatile.Read(ref framesReceived)}"
+            + $" retransmitted={sharer.GetStatistics().VideoPacketsRetransmitted} lost={Volatile.Read(ref mediaPackets) / 40}");
+        Assert.True(sharer.GetStatistics().VideoPacketsRetransmitted >= 3);
+        output.WriteLine($"lost={Volatile.Read(ref mediaPackets) / 40} recovered={viewer.GetStatistics().VideoPacketsRecovered} "
+                         + $"retransmitted={sharer.GetStatistics().VideoPacketsRetransmitted} frames={framesReceived}");
     }
 
     [LiveTurnFact]

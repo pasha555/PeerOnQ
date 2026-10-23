@@ -3,6 +3,60 @@
 Historical Phase 10 baseline measured on 2026-08-18 from the 0.9.21 x64 unsigned-development Portable Support publish.
 Host: Windows 10.0.26200, AMD Ryzen 7 3700X, 16 logical processors, 32 GiB RAM.
 
+## 1080p60, RTP pacing, NACK repair and GPU presentation — 2026-10-24
+
+Same host and same single-machine limits as the entry below: both endpoints share one GPU/CPU and
+the loopback network, so these are pipeline/protocol results, not physical two-device or WAN
+evidence.
+
+| Measurement (Debug) | Result |
+| --- | --- |
+| Pacing of a 400 KB frame at a 6 Mbps target (deterministic clock) | 17 packets leave at once; about 127 more after 10 ms; the rest at the 20 ms deadline |
+| Ordinary frames (<= 16 packets) | sent in one burst, no added latency |
+| Real WebRTC loopback, every 40th media packet dropped before the socket | 3 runs: 5/5, 7/7, 8/8 lost packets repaired by one retransmission each over real RTCP NACK; video continued |
+| Older viewer without `a=x-peeronq-video-rtx:1` | paced 1080p video decoded by SIPSorcery's framer; zero retransmissions |
+| GPU presenter first present 1920x1080 / 3840x2160 / 1366x768 | 10.85 / 13.95 / 5.90 ms (includes swap chain resize) |
+| GPU presenter steady 4K present (upload + copy + present, off the UI thread) | 7.87 ms mean over 20 frames |
+| GPU presenter upload fidelity | read-back of the uploaded frame byte-identical for all three sizes |
+
+The previous WriteableBitmap path copied each frame on the UI thread and XAML uploaded it again
+at its next render pass; the presenter's single upload runs on the presentation worker, and
+scaling is a compositor transform. Automatic now climbs to 1080p@60 (9 Mbps) only after healthy
+windows while hardware H.264 encodes a standard-tier source; 60 fps end-to-end presentation on a
+physical display and WAN loss recovery remain unmeasured.
+
+## 4K-on-4K tiers, GPU conversion and freeze recovery — 2026-10-23
+
+The owner re-enabled 4K: a 4K-class display streams native 4K (when the viewer has a monitor
+with a short edge of at least 1440 and hardware H.264 is usable), every other display streams a
+1080-pixel short edge. Same host as above (AMD Radeon RX 5600 XT); both coordinated endpoints run
+in one process on one GPU/CPU, so these are local pipeline results, not physical two-device or WAN
+evidence. Earlier failed observations below remain part of the record.
+
+| Measurement (Release unless noted) | Before | After |
+| --- | --- | --- |
+| CPU box scaling 2560x1440 -> 1920x1080 per frame | 38.11-39.01 ms | GPU 1.44-1.52 ms |
+| CPU box scaling 3840x2160 -> 1920x1080 per frame | 46.48-51.12 ms | GPU 1.65-1.79 ms |
+| Native 4K BGRA conversion | CPU AVX2 7.55 ms + 33 MB readback | GPU 4.07 ms incl. 12 MB NV12 readback |
+| MF I420->NV12 format stage at 4K (Debug, coordinated) | 18.64 ms mean | 3.18-3.43 ms mean |
+| MF total encode at 4K (Debug, coordinated) | 63.40 ms mean | 26.74-27.78 ms mean |
+| Coordinated 4K landscape whole-session p95 (Debug, 4 runs) | 185.49 ms, 11.91 fps | 97.82 / 120.34 / 112.78 / 114.62 ms; 10.8-16.4 fps |
+| Coordinated 4K landscape last 5 s p95 (Debug, 4 runs) | 209.92 ms | 94.11 / 115.89 / 105.11 / 92.12 ms |
+| MF H.264 decode at 4K (Debug, coordinated) | 22.40 ms mean | 14.62-14.68 ms mean |
+| Viewer colour conversion at 4K | 35.32 ms mean, CPU BGR24 on the decoder + UI expansion | BGRA32 on the presentation worker; UI thread copies only |
+
+The 100 ms target is met in some runs but not consistently: both coordinated endpoints share one
+GPU/CPU and the synthetic fixture reports no source size, so it exercises the standard ladder that
+lowers frame rate. Production 4K-class sources use the resolution-first ladder (4K@30 ->
+1080p@30) instead; that path, physical displays and WAN remain unmeasured.
+
+GPU NV12 output matches the CPU BT.601 studio-swing converter within one level at native size;
+scaled output differs only on hard edges because the filters differ (bounded outlier share). The
+viewer BGRA32 converter is byte-identical between its vector and scalar paths and within one level
+of the legacy BGR24 converter for all 65,536 chroma pairs. The coordinated startup window still
+misses 100 ms (cold encoder initialization); sustained 4K/30 fps, physical display presentation
+and WAN behaviour remain unproved.
+
 ## Temporary 1080p product scope — 2026-10-18
 
 The user explicitly deferred 4K. Canonical source now selects 0.9.77 for a private unsigned

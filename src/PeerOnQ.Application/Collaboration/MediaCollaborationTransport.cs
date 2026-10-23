@@ -73,6 +73,7 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
     private readonly NativeBulkCapacityEstimator _nativeBulkCapacity;
     private readonly ConcurrentDictionary<Guid, byte> _nativeBulkTransfers = new();
     private readonly ConcurrentDictionary<Guid, byte> _adaptiveBulkTransfers = new();
+    private readonly ConcurrentDictionary<Guid, bool> _relayFileTransfers = new();
     private readonly ConcurrentDictionary<Guid, DeliveryReceiptState> _deliveryReceipts = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Lock _stateGate = new();
@@ -184,7 +185,8 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
                 ? SelectNativeBulkTransport(bound, transferId)
                 : null;
             var useFileRelay = nativeBulkTransport is null
-                               && fileRelay?.IsFileRelayAvailable == true;
+                               && fileRelay?.IsFileRelayAvailable == true
+                               && UsesFileRelay(transferId);
             var adaptiveBulkPath = channel == SecureChannelKind.FileTransfer
                                    && (nativeBulkTransport is not null
                                        || (!useFileRelay && _media.IsBulkDataLaneNegotiated));
@@ -266,8 +268,24 @@ public sealed class MediaCollaborationTransport : ICollaborationTransport
         _media.SetTransferPriorityMode(mode);
         TransferPriorityMode = mode;
     }
+    /// <summary>
+    /// Peer-to-peer first: a transfer uses the signaling relay only when no direct peer-to-peer
+    /// file lane exists as it starts. The choice is pinned per transfer because ordered record
+    /// verification cannot accept one transfer's records interleaved over two routes.
+    /// </summary>
+    private bool UsesFileRelay(Guid transferId)
+    {
+        if (transferId == Guid.Empty) return !IsDirectFileLaneAvailable();
+        return _relayFileTransfers.GetOrAdd(transferId, _ => !IsDirectFileLaneAvailable());
+    }
+
+    private bool IsDirectFileLaneAvailable() =>
+        _media.IsBulkDataLaneReady
+        && _media.GetStatistics().ConnectionPath is ConnectionPath.DirectLan or ConnectionPath.DirectInternet;
+
     public void CompleteTransfer(Guid transferId)
     {
+        _relayFileTransfers.TryRemove(transferId, out _);
         _nativeBulkTransfers.TryRemove(transferId, out _);
         _adaptiveBulkTransfers.TryRemove(transferId, out _);
         _deliveryReceipts.TryRemove(transferId, out _);

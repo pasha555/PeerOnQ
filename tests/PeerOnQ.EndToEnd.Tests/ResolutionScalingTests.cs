@@ -32,9 +32,11 @@ public class FrameScalerTests
 
     [Theory]
     [InlineData(1920, 1080, CaptureResolution.Native, 1920, 1080)]
-    [InlineData(3840, 2160, CaptureResolution.Native, 1920, 1080)]
+    [InlineData(3840, 2160, CaptureResolution.Native, 3840, 2160)]
     [InlineData(1920, 1080, CaptureResolution.Automatic, 1920, 1080)]
-    [InlineData(3840, 2160, CaptureResolution.Automatic, 1920, 1080)]
+    [InlineData(3840, 2160, CaptureResolution.Automatic, 3840, 2160)]
+    [InlineData(5120, 2880, CaptureResolution.Automatic, 3840, 2160)]
+    [InlineData(2560, 1440, CaptureResolution.Automatic, 1920, 1080)]
     [InlineData(2160, 3840, CaptureResolution.Automatic, 1080, 1920)]
     [InlineData(2160, 3840, CaptureResolution.P2160, 1080, 1920)]
     [InlineData(5120, 2160, CaptureResolution.Automatic, 2560, 1080)]
@@ -44,13 +46,13 @@ public class FrameScalerTests
     [InlineData(3840, 2160, CaptureResolution.P720, 1920, 1080)]
     [InlineData(3840, 2160, CaptureResolution.P1080, 1920, 1080)]
     [InlineData(3840, 2160, CaptureResolution.P1440, 1920, 1080)]
-    [InlineData(7680, 4320, CaptureResolution.P2160, 1920, 1080)]
+    [InlineData(7680, 4320, CaptureResolution.P2160, 3840, 2160)]
     [InlineData(1920, 1080, CaptureResolution.P2160, 1920, 1080)]
     [InlineData(2560, 1600, CaptureResolution.P720, 1728, 1080)]
     [InlineData(3440, 1440, CaptureResolution.Native, 2580, 1080)]
     [InlineData(1440, 3440, CaptureResolution.P1440, 1080, 2580)]
     [InlineData(2160, 5120, CaptureResolution.P2160, 1080, 2560)]
-    public void Output_size_caps_legacy_resolution_requests_at_the_1080p_short_edge(
+    public void Output_size_streams_4k_sources_natively_and_every_other_source_at_the_1080p_short_edge(
         int sourceWidth, int sourceHeight, CaptureResolution resolution, int expectedWidth, int expectedHeight)
     {
         var (width, height) = FrameScaler.ResolveOutputSize(sourceWidth, sourceHeight, resolution);
@@ -82,7 +84,7 @@ public class FrameScalerTests
     [InlineData(7680, 1080)]
     [InlineData(1280, 720)]
     [InlineData(1919, 1079)]
-    public void Every_resolution_choice_preserves_aspect_and_never_exceeds_the_1080p_cap_or_source(
+    public void Every_resolution_choice_preserves_aspect_and_never_exceeds_its_tier_or_source(
         int sourceWidth, int sourceHeight)
     {
         foreach (var resolution in Enum.GetValues<CaptureResolution>())
@@ -92,7 +94,11 @@ public class FrameScalerTests
 
                 Assert.InRange(width, 2, sourceWidth);
                 Assert.InRange(height, 2, sourceHeight);
-                Assert.InRange(Math.Min(width, height), 2, 1080);
+                var ultraHd = factor == 1
+                              && CaptureResolutionPolicy.AllowsUltraHd(resolution)
+                              && CaptureResolutionPolicy.IsUltraHdSource(sourceWidth, sourceHeight);
+                Assert.InRange(Math.Min(width, height), 2, ultraHd ? 2160 : 1080);
+                Assert.InRange(width, 2, ultraHd ? CaptureResolutionPolicy.MaximumUltraHdWidth : int.MaxValue);
                 Assert.Equal(0, width % 2);
                 Assert.Equal(0, height % 2);
                 // Rounding to an even I420 dimension may lose at most two source pixels
@@ -469,5 +475,54 @@ public class CaptureResolutionTests(ITestOutputHelper output)
 
         Assert.NotEmpty(targets);
         Assert.All(targets, t => Assert.Equal(CaptureTargetKind.Display, t.Kind));
+    }
+}
+
+public sealed class AllDisplaysLayoutTests
+{
+    [Fact]
+    public void The_composed_view_covers_every_display_including_negative_offsets()
+    {
+        var displays = new[]
+        {
+            new DisplayTarget(1, @"\.\DISPLAY1", "Primary", 0, 0, 3840, 2160, true),
+            new DisplayTarget(2, @"\.\DISPLAY2", "Left", -1920, 600, 1920, 1080, false),
+            new DisplayTarget(3, @"\.\DISPLAY3", "Top", 0, -1440, 2560, 1440, false),
+        };
+
+        var all = DisplayEnumerator.VirtualDesktop(displays)!;
+
+        Assert.Equal(DisplayEnumerator.AllDisplaysId, all.DeviceName);
+        Assert.Equal((-1920, -1440, 5760, 3600), (all.X, all.Y, all.Width, all.Height));
+        // A large composition is judged by its pixels: 5760x3600 is a 4K-class canvas (3456x2160),
+        // while two 1080p displays side by side stay on the 1080 tier at 3840x1080.
+        Assert.True(CaptureResolutionPolicy.IsUltraHdSource(all.Width, all.Height));
+        Assert.Equal((3840, 1080), FrameScaler.ResolveOutputSize(3840, 1080, CaptureResolution.Automatic));
+        var (width, height) = FrameScaler.ResolveOutputSize(all.Width, all.Height, CaptureResolution.Automatic);
+        var (fittedWidth, fittedHeight) = FrameScaler.FitWithinHardwareWindow(width, height);
+        Assert.InRange(fittedWidth, 2, CaptureResolutionPolicy.MaximumUltraHdWidth);
+        Assert.InRange(fittedHeight, 2, CaptureResolutionPolicy.MaximumUltraHdHeight);
+        Assert.Equal(0, fittedWidth % 2);
+        Assert.Equal(0, fittedHeight % 2);
+    }
+
+    [Theory]
+    [InlineData(5760, 1080, 4096, 768)]
+    [InlineData(3840, 1080, 3840, 1080)]
+    [InlineData(1920, 1080, 1920, 1080)]
+    [InlineData(1728, 1080, 1728, 1080)]
+    public void Wide_compositions_fit_the_hardware_encoder_without_distortion(
+        int width, int height, int expectedWidth, int expectedHeight)
+    {
+        Assert.Equal((expectedWidth, expectedHeight), FrameScaler.FitWithinHardwareWindow(width, height));
+    }
+
+    [Fact]
+    public void A_single_display_machine_offers_no_composed_target()
+    {
+        var targets = DisplayEnumerator.ListCaptureTargets();
+        var displays = DisplayEnumerator.ListDisplays();
+        Assert.Equal(displays.Count > 1, targets.Any(target => DisplayEnumerator.IsAllDisplays(target.Id)));
+        if (displays.Count == 1) Assert.Null(DisplayEnumerator.FindByDeviceName(DisplayEnumerator.AllDisplaysId));
     }
 }

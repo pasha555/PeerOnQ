@@ -35,7 +35,7 @@
             </Grid>
 
             <Grid x:Name="ExpandedPanel" Visibility="Collapsed"
-                  ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="12">
+                  ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
                 <FontIcon Grid.Column="0" Glyph="&#xE7B3;" FontSize="16"
                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
                           VerticalAlignment="Center" />
@@ -45,11 +45,21 @@
                 <TextBlock x:Name="DetailDurationText" Grid.Column="2" FontSize="12"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            VerticalAlignment="Center" AutomationProperties.Name="Session duration" />
-                <Button x:Name="RevokeButton" Grid.Column="3" Content="Revoke control"
+                <!-- Local opt-in only: this machine's microphone opens solely from this toggle. -->
+                <ToggleButton x:Name="VoiceToggle" Grid.Column="3" Visibility="Collapsed"
+                              Click="OnVoiceToggled" VerticalAlignment="Center"
+                              AutomationProperties.Name="Talk with the viewer using this microphone"
+                              ToolTipService.ToolTip="Talk with the viewer (your microphone and speaker)">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE720;" FontSize="14" />
+                        <TextBlock Text="Voice" />
+                    </StackPanel>
+                </ToggleButton>
+                <Button x:Name="RevokeButton" Grid.Column="4" Content="Revoke control"
                         Click="OnRevoke" VerticalAlignment="Center" />
-                <Button x:Name="StopButton" Grid.Column="4" Content="End session"
+                <Button x:Name="StopButton" Grid.Column="5" Content="End session"
                         Click="OnStop" VerticalAlignment="Center" />
-                <Button x:Name="CollapseButton" Grid.Column="5" Click="OnCollapse" Width="32" Height="32"
+                <Button x:Name="CollapseButton" Grid.Column="6" Click="OnCollapse" Width="32" Height="32"
                         Padding="0" VerticalAlignment="Center" AutomationProperties.Name="Hide sharing session details"
                         ToolTipService.ToolTip="Hide sharing session details">
                     <FontIcon Glyph="&#xE70D;" />

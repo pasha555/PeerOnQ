@@ -343,7 +343,8 @@ public class SessionCoordinatorTests
         Assert.Equal(Peer, request.Target);
         Assert.Equal(SessionMode.ViewOnly, request.Mode);
         Assert.Equal(QualityProfile.Automatic, request.Quality);
-        Assert.Equal(CaptureResolution.P1080, request.Resolution);
+        // The default Automatic profile lets a 4K host stream its 4K tier; others stay at 1080p.
+        Assert.Equal(CaptureResolution.Automatic, request.Resolution);
     }
 
     [Fact]
@@ -360,12 +361,13 @@ public class SessionCoordinatorTests
     }
 
     [Theory]
-    [InlineData(CaptureResolution.Automatic)]
-    [InlineData(CaptureResolution.Native)]
-    [InlineData(CaptureResolution.P1440)]
-    [InlineData(CaptureResolution.P2160)]
+    [InlineData(CaptureResolution.Automatic, CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.Native, CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.P1440, CaptureResolution.P1080)]
+    [InlineData(CaptureResolution.P2160, CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.P1080, CaptureResolution.P1080)]
     public async Task Viewer_normalizes_resolution_before_sending_the_session_request(
-        CaptureResolution requestedResolution)
+        CaptureResolution requestedResolution, CaptureResolution expectedResolution)
     {
         var h = Build();
         await using var _ = h.Coordinator;
@@ -375,12 +377,12 @@ public class SessionCoordinatorTests
 
         var request = Assert.Single(h.Signaling.Requests);
         Assert.Equal(QualityProfile.Quality, request.Quality);
-        Assert.Equal(CaptureResolution.P1080, request.Resolution);
+        Assert.Equal(expectedResolution, request.Resolution);
         Assert.Equal(requestedResolution, h.Coordinator.Profile.Resolution);
     }
 
     [Fact]
-    public async Task Support_request_keeps_automatic_quality_but_sends_explicit_1080p_resolution()
+    public async Task Support_request_keeps_automatic_quality_and_the_4k_capable_automatic_resolution()
     {
         var h = Build();
         await using var _ = h.Coordinator;
@@ -392,7 +394,7 @@ public class SessionCoordinatorTests
         Assert.Equal(sessionId, request.Id);
         Assert.Equal(SessionAccessKind.SupportInvitation, request.AccessKind);
         Assert.Equal(QualityProfile.Automatic, request.Quality);
-        Assert.Equal(CaptureResolution.P1080, request.Resolution);
+        Assert.Equal(CaptureResolution.Automatic, request.Resolution);
     }
 
     [Fact]
@@ -1322,12 +1324,13 @@ public class SessionCoordinatorTests
     }
 
     [Theory]
-    [InlineData(CaptureResolution.Automatic)]
-    [InlineData(CaptureResolution.Native)]
-    [InlineData(CaptureResolution.P1440)]
-    [InlineData(CaptureResolution.P2160)]
-    public async Task Sharer_snapshots_the_requested_built_in_profile_with_the_runtime_resolution_cap(
-        CaptureResolution legacyResolution)
+    [InlineData(CaptureResolution.Automatic, CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.Native, CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.P1440, CaptureResolution.P1080)]
+    [InlineData(CaptureResolution.P2160, CaptureResolution.Automatic)]
+    [InlineData(CaptureResolution.P1080, CaptureResolution.P1080)]
+    public async Task Sharer_snapshots_the_requested_built_in_profile_with_the_runtime_resolution_tier(
+        CaptureResolution legacyResolution, CaptureResolution expectedResolution)
     {
         var h = Build(promptDelay: TimeSpan.FromMilliseconds(100));
         await using var _ = h.Coordinator;
@@ -1345,8 +1348,8 @@ public class SessionCoordinatorTests
 
         Assert.True(await UntilAsync(() => h.Signaling.Sdps.Any(s => s.Type == "offer")));
         Assert.Equal(QualityProfile.Quality, h.Media.SharerProfile!.Quality);
-        Assert.Equal(CaptureResolution.P1080, h.Capture.LastRequest!.Resolution);
-        Assert.Equal(CaptureResolution.P1080, h.Media.SharerProfile.Resolution);
+        Assert.Equal(expectedResolution, h.Capture.LastRequest!.Resolution);
+        Assert.Equal(expectedResolution, h.Media.SharerProfile.Resolution);
         Assert.Equal(30, h.Capture.LastRequest.MaxFramesPerSecond);
         Assert.Equal(12_000, h.Media.SharerProfile.MaxBitrateKbps);
     }

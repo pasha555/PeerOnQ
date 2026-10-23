@@ -181,8 +181,14 @@ Assert-NotContains $mainCode 'OnClipboardToggled' 'The removed clipboard UI hand
 Assert-NotContains $mainCode 'OnSaveSignalingServer' 'The removed Connection card still has a mutable endpoint handler.'
 Assert-Contains $mainCode 'CheckUpdateButton.IsEnabled = _services.Updates is not null;' 'Trusted client update configuration does not enable the Settings action.'
 $initializationCode = [regex]::Match($mainCode, '(?s)private async Task InitializeAsync\(.*?(?=\r?\n    private )').Value
-Assert-Contains $initializationCode '_services.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic) with' 'Native startup must apply the adaptive Automatic profile without a picker.'
-Assert-Contains $initializationCode 'Resolution = CaptureResolution.P1080,' 'Native startup must explicitly request the fixed 1080p streaming target.'
+Assert-Contains $initializationCode 'ApplyStreamProfile();' 'Native startup must apply the adaptive Automatic profile without a picker.'
+$streamProfileCode = [regex]::Match($mainCode, '(?s)private void ApplyStreamProfile\(.*?(?=\r?\n    private static string GreetingForCurrentTime)').Value
+Assert-Contains $streamProfileCode '_services.Coordinator.Profile = MediaProfile.For(QualityProfile.Automatic) with' 'The stream profile must remain the adaptive Automatic profile.'
+Assert-Contains $streamProfileCode 'Resolution = PreferredStreamResolution(),' 'The stream profile must derive 4K or 1080p from the local monitors.'
+Assert-Contains $streamProfileCode ': CaptureResolution.P1080;' 'A 1080p-class viewer must explicitly request the 1080p tier.'
+if (-not [regex]::IsMatch($mainCode, 'ApplyStreamProfile\(\);\r?\n\s+var sessionId = remoteScopeSelectionRequired')) {
+    throw 'Attended/unattended requests must refresh the monitor-derived stream profile.'
+}
 foreach ($removedPickerCode in @('QualityPicker', 'ResolutionPicker', 'OnQualitySelected', 'ApplySelectedQualityProfile')) {
     Assert-NotContains $mainCode $removedPickerCode "Removed display selection code remains in native startup: $removedPickerCode"
 }

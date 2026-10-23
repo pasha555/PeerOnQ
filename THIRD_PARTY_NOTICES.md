@@ -20,6 +20,14 @@ retains the exact upstream license and source provenance; PeerOnQ's MIT license 
 those terms. Maintenance approval is not redistribution/legal approval. Abstractions is 10.0.17;
 the source-build/advisory contract is in [DEPENDENCIES.md](DEPENDENCIES.md).
 
+Source-only update, 2026-10-23: the user approved Concentus 2.2.2 for two-way Opus voice. It is a
+managed port of the Opus reference codec distributed under the Opus BSD-3-Clause license
+(copyright Skype Limited, Xiph.Org Foundation, CSIRO, Microsoft Corporation, Jean-Marc Valin,
+Gregory Maxwell, Mark Borgerding, Timothy B. Terriberry, Logan Stromberg and other holders); its
+`LICENSE` must ship with release artifacts. PeerOnQ disables its optional native-library probe, so
+no unreviewed native Opus binary is loaded. Opus patent terms are reference material for release
+review.
+
 The Linux viewer preview uses the desktop distribution's separately installed `libvpx.so.9`
 from fixed system directories. Its portable payload excludes Windows `vpxmd.dll`; install and
 update the Linux library through the distribution package manager. This does not resolve the

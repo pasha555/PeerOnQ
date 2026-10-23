@@ -183,6 +183,37 @@ public sealed class SessionCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>True when this session's peer opened the encrypted two-way voice lane.</summary>
+    public bool IsVoiceAvailable(SessionId id)
+    {
+        lock (_gate)
+            return _sessions.TryGetValue(id, out var runtime) && runtime.Media is { IsVoiceLaneReady: true };
+    }
+
+    public bool IsVoiceEnabled(SessionId id)
+    {
+        lock (_gate)
+            return _sessions.TryGetValue(id, out var runtime) && runtime.Media is { IsVoiceEnabled: true };
+    }
+
+    /// <summary>
+    /// Local opt-in for one session: enabling opens this device's microphone and plays the
+    /// peer's voice. It is only ever called from this device's own UI; the peer cannot invoke it.
+    /// </summary>
+    public bool SetVoiceEnabled(SessionId id, bool enabled)
+    {
+        IMediaSession? media;
+        lock (_gate) media = _sessions.TryGetValue(id, out var runtime) ? runtime.Media : null;
+        if (media is null) return !enabled;
+        var applied = media.SetVoiceEnabled(enabled);
+        if (applied)
+        {
+            _timeline.Record(id, enabled ? "voice.enabled" : "voice.disabled",
+                enabled ? "Microphone and voice playback enabled locally" : "Voice disabled locally");
+        }
+        return applied;
+    }
+
     public MediaStatistics StatisticsOf(SessionId id)
     {
         lock (_gate)

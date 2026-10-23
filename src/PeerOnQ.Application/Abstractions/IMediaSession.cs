@@ -22,6 +22,16 @@ public sealed record MediaStatistics
     public double DecodeFps { get; init; }
     public double RenderFps { get; init; }
     public double RttMs { get; init; }
+
+    /// <summary>Fresh path-minimum RTT; RTT above it is queueing delay. Zero when unknown.</summary>
+    public double BaselineRttMs { get; init; }
+
+    /// <summary>Sharer: video packets resent for viewer NACKs instead of a new key frame.</summary>
+    public long VideoPacketsRetransmitted { get; init; }
+
+    /// <summary>Viewer: lost video packets repaired by retransmission.</summary>
+    public long VideoPacketsRecovered { get; init; }
+
     public double PacketLossPercent { get; init; }
     public double JitterMs { get; init; }
     public double AvailableOutgoingBitrateKbps { get; init; }
@@ -144,6 +154,12 @@ public enum RemotePixelFormat
 
     /// <summary>Planar Y + U + V, 12 bits per pixel.</summary>
     I420 = 1,
+
+    /// <summary>
+    /// Packed 32-bit BGRA with opaque alpha, the layout of the Windows viewer back buffer. Only
+    /// produced for a renderer that explicitly asks for it, so it can be copied without expansion.
+    /// </summary>
+    Bgra32 = 2,
 }
 
 /// <summary>
@@ -162,6 +178,12 @@ public sealed record RemoteVideoFrame(
     /// This avoids a second full-frame copy for decoded 4K frames.
     /// </summary>
     public bool BufferOwnershipCanTransfer { get; init; }
+
+    /// <summary>
+    /// Optional reuse hook for a transferred buffer. The renderer that took ownership may call it
+    /// once, after it copied the pixels and will never read or write that array again.
+    /// </summary>
+    public Action<byte[]>? ReturnBuffer { get; init; }
 
     /// <summary>
     /// Local monotonic timestamp assigned after this exact decoded frame is available. The viewer
@@ -184,6 +206,7 @@ public sealed record RemoteVideoFrame(
     {
         RemotePixelFormat.Bgr24 => Width * Height * 3,
         RemotePixelFormat.I420 => Width * Height * 3 / 2,
+        RemotePixelFormat.Bgra32 => Width * Height * 4,
         _ => 0,
     };
 }
@@ -241,6 +264,18 @@ public interface IMediaSession : IAsyncDisposable
     bool IsInputDataLaneNegotiated => false;
 
     bool IsInputDataLaneReady => false;
+
+    /// <summary>True when the peer opened the encrypted two-way voice lane.</summary>
+    bool IsVoiceLaneReady => false;
+
+    /// <summary>True while this device's microphone and voice playback are enabled.</summary>
+    bool IsVoiceEnabled => false;
+
+    /// <summary>
+    /// Local opt-in only: enabling opens this device's microphone and plays the peer's voice;
+    /// disabling closes both. Returns whether the requested state is now in effect.
+    /// </summary>
+    bool SetVoiceEnabled(bool enabled) => !enabled;
 
     bool IsBulkDataLaneNegotiated => false;
 
@@ -378,6 +413,13 @@ public sealed record MediaProfile
     public int TargetFps { get; init; } = 30;
     public CaptureResolution Resolution { get; init; } = CaptureResolution.Automatic;
     public int MaxBitrateKbps { get; init; } = 4000;
+
+    /// <summary>
+    /// Optional frame rate above <see cref="TargetFps"/> that adaptive quality may climb to on a
+    /// healthy link while hardware encoding a standard-tier source; 0 disables it.
+    /// </summary>
+    public int HighMotionFps { get; init; }
+
     public bool IncludeCursor { get; init; } = true;
 
     /// <summary>Default profiles never request audio; system sound requires a separate explicit permission.</summary>
@@ -387,12 +429,16 @@ public sealed record MediaProfile
 
     public static MediaProfile For(QualityProfile quality) => quality switch
     {
+        // Automatic is a ceiling for the standard tier; a 4K-class source derives its 4K ceiling
+        // from it and every rung is lowered by measured congestion before it costs interactivity.
+        // A healthy hardware-encoded 1080p-class stream may climb to 60 fps; 4K stays at 30.
         QualityProfile.Automatic => new MediaProfile
         {
             Quality = quality,
             TargetFps = 30,
             Resolution = CaptureResolution.Automatic,
-            MaxBitrateKbps = 4000,
+            MaxBitrateKbps = 6000,
+            HighMotionFps = 60,
         },
         QualityProfile.Performance => new MediaProfile
         {

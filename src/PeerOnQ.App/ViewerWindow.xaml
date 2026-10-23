@@ -12,6 +12,9 @@
                               ToolTipService.ToolTip="Fullscreen (F11 exits during Full Control)" />
                 <AppBarButton x:Name="SystemSoundButton" Icon="Volume" Label="Play system sound" Visibility="Collapsed"
                               Click="OnSystemSound" ToolTipService.ToolTip="Play or mute the system sound explicitly allowed by the host" />
+                <AppBarToggleButton x:Name="VoiceButton" Icon="Microphone" Label="Voice" Visibility="Collapsed"
+                                    Click="OnVoiceToggled" AutomationProperties.Name="Talk with the remote side"
+                                    ToolTipService.ToolTip="Talk with the remote side (your microphone and speaker). The remote side enables its own microphone." />
                 <AppBarButton x:Name="FileTransferButton" Icon="OpenFile" Label="File Transfer"
                               Click="OnChooseFiles" IsEnabled="False" Visibility="Collapsed"
                               AutomationProperties.Name="Choose files to send to the remote device"
@@ -40,9 +43,19 @@
                 <AppBarElementContainer x:Name="MonitorContainer" Visibility="Collapsed" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
                         <TextBlock Text="Monitor" VerticalAlignment="Center" />
+                        <Button x:Name="PreviousMonitorButton" IsEnabled="False"
+                                Content="&#xE76B;" FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                ToolTipService.ToolTip="Previous monitor (Ctrl+Alt+Shift+Left)"
+                                AutomationProperties.Name="Previous remote monitor"
+                                Click="OnPreviousMonitor" />
                         <ComboBox x:Name="MonitorPicker" MinWidth="200" IsEnabled="False"
                                   AutomationProperties.Name="Remote monitor"
                                   SelectionChanged="OnMonitorSelected" />
+                        <Button x:Name="NextMonitorButton" IsEnabled="False"
+                                Content="&#xE76C;" FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                ToolTipService.ToolTip="Next monitor (Ctrl+Alt+Shift+Right)"
+                                AutomationProperties.Name="Next remote monitor"
+                                Click="OnNextMonitor" />
                     </StackPanel>
                 </AppBarElementContainer>
                 <AppBarSeparator />
@@ -86,6 +99,15 @@
                            AutomationProperties.Name="Remote desktop image"
                            Loaded="OnRemoteImageLoaded" Unloaded="OnRemoteImageUnloaded"
                            PointerEntered="OnRemoteImagePointerEntered" />
+                    <!-- GPU presentation surface. It replaces the Image only after a Direct3D
+                         swap chain is attached; any failure returns to the bitmap path. -->
+                    <SwapChainPanel x:Name="RemoteSwapChainPanel" Visibility="Collapsed"
+                                    Background="Transparent"
+                                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                    AutomationProperties.Name="Remote desktop image"
+                                    SizeChanged="OnRemoteSwapChainPanelSizeChanged"
+                                    CompositionScaleChanged="OnRemoteSwapChainPanelCompositionScaleChanged"
+                                    PointerEntered="OnRemoteImagePointerEntered" />
                 </Grid>
             </ScrollViewer>
 

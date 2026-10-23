@@ -97,6 +97,13 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private long _bulkDataFragmentsSent;
     private RemoteSessionQualityFeedback? _remoteQualityFeedback;
     private long _remoteQualityFeedbackTimestamp;
+    private int _lastSourceWidth;
+    private int _lastSourceHeight;
+    private int _ultraHdSourceActive;
+    private int _softwareResolutionFloor;
+    private readonly Lock _ultraHdGate = new();
+    private readonly Lock _qualityApplyGate = new();
+    private readonly RtpSequenceGapDetector _videoRtpGaps = new();
 
     /// <summary>Adapts frame rate and resolution from RTCP loss and local backpressure.</summary>
     public AdaptiveQualityController? Adaptive { get; private set; }
@@ -118,10 +125,12 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         ILogger log,
         IEncodedVideoFrameSink? encodedVideoSink = null,
         Func<IHardwareH264Encoder?>? hardwareH264EncoderFactory = null,
-        IH264VideoDecoder? h264Decoder = null)
+        IH264VideoDecoder? h264Decoder = null,
+        RemotePixelFormat viewerOutputFormat = RemotePixelFormat.Bgr24)
     {
         SessionId = sessionId;
         Role = role;
+        _viewerOutputFormat = viewerOutputFormat;
         _peer = peer;
         _inputPeer = inputPeer;
         _bulkPeer = bulkPeer;
@@ -132,6 +141,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         _log = log;
         _encodedVideoSink = encodedVideoSink;
         InitializeVideoCodecs(hardwareH264EncoderFactory, h264Decoder);
+        InitializeVideoTransport();
         InitializeSystemAudio(peer.getConfiguration());
         if (_bulkPeer is not null)
             _bulkInboundDispatchLoop = Task.Run(() => DispatchBulkRecordsAsync(_lifetime.Token));
@@ -220,6 +230,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         Primary,
         Input,
         Bulk,
+        Voice,
     }
 
     [LoggerMessage(1000, LogLevel.Information, "Session {SessionId} encoder: {Encoder}")]
@@ -377,7 +388,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             profile.MaxBitrateKbps,
             policy: session._connectionPolicy,
             allowResolutionDownscale: profile.Quality != QualityProfile.Quality
-                && profile.Resolution is not (CaptureResolution.Automatic or CaptureResolution.Native or CaptureResolution.P2160));
+                && profile.Resolution is not (CaptureResolution.Automatic or CaptureResolution.Native or CaptureResolution.P2160),
+            highMotionFps: profile.HighMotionFps);
         session.Adaptive.LevelChanged += session.OnQualityLevelChanged;
 
         if (capture is not null && permissions.HasFlag(SessionPermission.ViewScreen))
@@ -402,6 +414,14 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 BulkDataChannelLabel,
                 new RTCDataChannelInit { ordered = true, protocol = CollaborationProtocol });
         }
+        if (permissions.HasFlag(SessionPermission.ViewScreen))
+        {
+            // Created after the collaboration channel so its stream identifier is unchanged.
+            // Unordered delivery keeps a late voice packet from holding back newer speech.
+            session._voiceDataChannelCreation = peer.createDataChannel(
+                VoiceDataChannelLabel,
+                new RTCDataChannelInit { ordered = false, protocol = CollaborationProtocol });
+        }
 
         return session;
     }
@@ -413,9 +433,12 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         IceConfiguration? iceConfiguration = null,
         SessionPermission permissions = SessionPermission.ViewScreen,
         IEncodedVideoFrameSink? encodedVideoSink = null,
-        IH264VideoDecoder? h264Decoder = null)
+        IH264VideoDecoder? h264Decoder = null,
+        RemotePixelFormat outputFormat = RemotePixelFormat.Bgr24)
     {
         Phase1SessionScope.EnsureInteractiveMediaPermissions(permissions);
+        if (outputFormat is not (RemotePixelFormat.Bgr24 or RemotePixelFormat.Bgra32))
+            throw new ArgumentOutOfRangeException(nameof(outputFormat), "Viewers present packed BGR24 or BGRA32 frames.");
         var peerConfiguration = configuration ?? DefaultConfiguration;
         var peer = new RTCPeerConnection(peerConfiguration);
         var inputPeer = permissions.HasFlag(SessionPermission.ControlInput)
@@ -443,7 +466,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             permissions,
             logger ?? NullLogger.Instance,
             encodedVideoSink,
-            h264Decoder: h264Decoder);
+            h264Decoder: h264Decoder,
+            viewerOutputFormat: outputFormat);
     }
 
     private static RTCPeerConnection? CreateDirectBulkPeer(
@@ -464,7 +488,12 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
     private void WirePeerEvents()
     {
-        _peer.ondatachannel += channel => ConfigureDataChannel(channel, DataLane.Primary);
+        // The voice lane shares the primary association. Older peers reject its unknown label
+        // and keep their single collaboration channel, so the extra channel is compatible.
+        _peer.ondatachannel += channel => ConfigureDataChannel(channel,
+            string.Equals(channel.label, VoiceDataChannelLabel, StringComparison.Ordinal)
+                ? DataLane.Voice
+                : DataLane.Primary);
         if (_inputPeer is not null)
         {
             _inputPeer.ondatachannel += channel => ConfigureDataChannel(channel, DataLane.Input);
@@ -533,6 +562,12 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                         // its single encode loop and only publish a coalescing atomic request.
                         _lossRecovery.RequestKeyFrame();
                     }
+                    else if (IsGenericNack(report))
+                    {
+                        // The pacer answers from its send history on its own thread.
+                        _videoPacer?.OnNack(report!.Feedback.PID, report.Feedback.BLP);
+                        return;
+                    }
 
                     var reception = report?.ReceiverReport?.ReceptionReports?.FirstOrDefault();
                     if (reception is null) return;
@@ -554,134 +589,149 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 {
                     // Keep the SSRC from the traffic that actually reached this viewer. This
                     // also works on TURN paths where the library does not update RemoteTrack.Ssrc.
-                    Volatile.Write(ref _remoteVideoSsrc, packet.Header.SyncSource);
+                    var previousSsrc = Interlocked.Exchange(ref _remoteVideoSsrc, packet.Header.SyncSource);
+                    if (IsVideoRetransmissionNegotiated)
+                    {
+                        AssembleVideoPacket(packet, previousSsrc != 0 && previousSsrc != packet.Header.SyncSource);
+                        return;
+                    }
+                    if (_videoRtpGaps.Observe(packet.Header.SyncSource, packet.Header.SequenceNumber))
+                        RequestPictureLossIndication();
                 }
             };
 
-            _peer.OnVideoFrameReceived += (_, _, frame, format) =>
+            _peer.OnVideoFrameReceived += (_, _, frame, _) =>
             {
-                var protector = Volatile.Read(ref _trafficProtector);
-                if (protector is null || !protector.IsEstablished) return;
-                if (!protector.TryUnprotectVideoFrame(frame, out var encodedFrame, out var securityError))
-                {
-                    // Video is unordered/lossy. An authenticated newer epoch/frame can legitimately
-                    // overtake an older one at a rekey boundary; reject the stale frame without
-                    // letting a replay become a session-level denial of service.
-                    if (string.Equals(securityError, "stale_video_record", StringComparison.Ordinal)) return;
+                // A negotiated viewer reassembles and repairs frames itself. This framer then also
+                // sees retransmission packets, so its output is ignored rather than decoded twice.
+                if (!IsVideoRetransmissionNegotiated) ProcessReceivedVideoFrame(frame);
+            };
+        }
+    }
 
-                    // RTP is intentionally lossy. A truncated frame remains untrusted and is never
-                    // decoded, but one bad frame must not end an otherwise authenticated session.
-                    // Ask for a fresh key frame and retain the fail-closed session abort for a
-                    // sustained run of failures that indicates key/state mismatch or active abuse.
-                    var reason = securityError ?? "video_authentication_failed";
-                    var failures = _videoSecurityFailures.RecordFailure();
-                    LogRejectedUnauthenticatedVideoFrame(
-                        _log,
-                        reason,
-                        failures,
-                        _videoSecurityFailures.MaximumConsecutiveFailures);
+    /// <summary>Authenticates, decodes and presents one received protected video frame.</summary>
+    private void ProcessReceivedVideoFrame(byte[] frame)
+    {
+        var protector = Volatile.Read(ref _trafficProtector);
+        if (protector is null || !protector.IsEstablished) return;
+        if (!protector.TryUnprotectVideoFrame(frame, out var encodedFrame, out var securityError))
+        {
+            // Video is unordered/lossy. An authenticated newer epoch/frame can legitimately
+            // overtake an older one at a rekey boundary; reject the stale frame without
+            // letting a replay become a session-level denial of service.
+            if (string.Equals(securityError, "stale_video_record", StringComparison.Ordinal)) return;
+
+            // RTP is intentionally lossy. A truncated frame remains untrusted and is never
+            // decoded, but one bad frame must not end an otherwise authenticated session.
+            // Ask for a fresh key frame and retain the fail-closed session abort for a
+            // sustained run of failures that indicates key/state mismatch or active abuse.
+            var reason = securityError ?? "video_authentication_failed";
+            var failures = _videoSecurityFailures.RecordFailure();
+            LogRejectedUnauthenticatedVideoFrame(
+                _log,
+                reason,
+                failures,
+                _videoSecurityFailures.MaximumConsecutiveFailures);
+            RequestPictureLossIndication();
+            if (_videoSecurityFailures.IsExhausted)
+                SecurityError?.Invoke(this, reason);
+            return;
+        }
+        _videoSecurityFailures.RecordSuccess();
+        byte[]? telemetryEncodedFrame = null;
+        byte[]? codecEncodedFrame = null;
+        try
+        {
+            var captureTimestampUnixMicroseconds = 0L;
+            var captureSequenceNumber = 0L;
+            var vp8Frame = encodedFrame;
+            if (IsVideoFrameTelemetryNegotiated
+                && VideoFrameTelemetryCodec.LooksLikeEnvelope(encodedFrame))
+            {
+                if (!VideoFrameTelemetryCodec.TryDecode(
+                        encodedFrame,
+                        out captureTimestampUnixMicroseconds,
+                        out captureSequenceNumber,
+                        out telemetryEncodedFrame))
+                {
                     RequestPictureLossIndication();
-                    if (_videoSecurityFailures.IsExhausted)
-                        SecurityError?.Invoke(this, reason);
                     return;
                 }
-                _videoSecurityFailures.RecordSuccess();
-                byte[]? telemetryEncodedFrame = null;
-                byte[]? codecEncodedFrame = null;
-                try
+
+                vp8Frame = telemetryEncodedFrame;
+            }
+
+            if (IsH264PayloadNegotiated)
+            {
+                if (!VideoPayloadEnvelope.TryDecode(vp8Frame, out var codec, out var width,
+                        out var height, out var keyFrame, out codecEncodedFrame)
+                    || !TryAcceptVideoCodec(codec, keyFrame, out var changed))
                 {
-                    var captureTimestampUnixMicroseconds = 0L;
-                    var captureSequenceNumber = 0L;
-                    var vp8Frame = encodedFrame;
-                    if (IsVideoFrameTelemetryNegotiated
-                        && VideoFrameTelemetryCodec.LooksLikeEnvelope(encodedFrame))
-                    {
-                        if (!VideoFrameTelemetryCodec.TryDecode(
-                                encodedFrame,
-                                out captureTimestampUnixMicroseconds,
-                                out captureSequenceNumber,
-                                out telemetryEncodedFrame))
-                        {
-                            RequestPictureLossIndication();
-                            return;
-                        }
-
-                        vp8Frame = telemetryEncodedFrame;
-                    }
-
-                    if (IsH264PayloadNegotiated)
-                    {
-                        if (!VideoPayloadEnvelope.TryDecode(vp8Frame, out var codec, out var width,
-                                out var height, out var keyFrame, out codecEncodedFrame)
-                            || !TryAcceptVideoCodec(codec, keyFrame, out var changed))
-                        {
-                            RequestPictureLossIndication();
-                            return;
-                        }
-                        vp8Frame = codecEncodedFrame;
-                        if (codec == VideoPayloadCodec.H264)
-                        {
-                            DecodeH264Frame(width, height, vp8Frame, changed,
-                                captureTimestampUnixMicroseconds, captureSequenceNumber);
-                            return;
-                        }
-                    }
-
-                    if (_encodedVideoSink is not null)
-                    {
-                        if (!_encodedVideoSink.TrySubmit(new AuthenticatedVp8Frame(
-                                vp8Frame,
-                                captureTimestampUnixMicroseconds,
-                                captureSequenceNumber,
-                                GetPeerClockEstimate())))
-                        {
-                            RequestPictureLossIndication();
-                        }
-                        return;
-                    }
-
-                    // One decoder for the whole session: VP8 inter frames reference the
-                    // decoder's previous state, so a per-frame decoder only ever produces
-                    // key frames.
-                    VideoSample[] images;
-                    lock (_decoderGate)
-                    {
-                    // Native VP8 reference decoding returns independent I420 planes. Color
-                    // conversion/presentation happens after this ordered decode step.
-                        images = _decoder!.DecodeI420(vp8Frame);
-                    }
-
-                    if (images.Length == 0)
-                    {
-                        RequestPictureLossIndication();
-                        return;
-                    }
-
-                    foreach (var image in images)
-                    {
-                        var decodedTimestamp = Stopwatch.GetTimestamp();
-                        _statistics.FrameDecoded(vp8Frame.Length, (int)image.Width, (int)image.Height);
-                        // Reference decoding stays ordered on the authenticated receive path.
-                        // Only independent decoded planes enter the bounded latest-image worker.
-                        _videoPresentation!.Enqueue(new DecodedVideoPresentation(
-                            (int)image.Width, (int)image.Height, image.Sample, decodedTimestamp,
-                            captureTimestampUnixMicroseconds, captureSequenceNumber, GetPeerClockEstimate()));
-                    }
+                    RequestPictureLossIndication();
+                    return;
                 }
-                catch (Exception ex)
+                vp8Frame = codecEncodedFrame;
+                if (codec == VideoPayloadCodec.H264)
                 {
-                    LogUndecodableFrame(_log, ex);
+                    DecodeH264Frame(width, height, vp8Frame, changed,
+                        captureTimestampUnixMicroseconds, captureSequenceNumber);
+                    return;
+                }
+            }
+
+            if (_encodedVideoSink is not null)
+            {
+                if (!_encodedVideoSink.TrySubmit(new AuthenticatedVp8Frame(
+                        vp8Frame,
+                        captureTimestampUnixMicroseconds,
+                        captureSequenceNumber,
+                        GetPeerClockEstimate())))
+                {
                     RequestPictureLossIndication();
                 }
-                finally
-                {
-                    if (codecEncodedFrame is not null)
-                        CryptographicOperations.ZeroMemory(codecEncodedFrame);
-                    if (telemetryEncodedFrame is not null)
-                        CryptographicOperations.ZeroMemory(telemetryEncodedFrame);
-                    CryptographicOperations.ZeroMemory(encodedFrame);
-                }
-            };
+                return;
+            }
+
+            // One decoder for the whole session: VP8 inter frames reference the
+            // decoder's previous state, so a per-frame decoder only ever produces
+            // key frames.
+            VideoSample[] images;
+            lock (_decoderGate)
+            {
+            // Native VP8 reference decoding returns independent I420 planes. Color
+            // conversion/presentation happens after this ordered decode step.
+                images = _decoder!.DecodeI420(vp8Frame);
+            }
+
+            if (images.Length == 0)
+            {
+                RequestPictureLossIndication();
+                return;
+            }
+
+            foreach (var image in images)
+            {
+                var decodedTimestamp = Stopwatch.GetTimestamp();
+                _statistics.FrameDecoded(vp8Frame.Length, (int)image.Width, (int)image.Height);
+                // Reference decoding stays ordered on the authenticated receive path.
+                // Only independent decoded planes enter the bounded latest-image worker.
+                _videoPresentation!.Enqueue(new DecodedVideoPresentation(
+                    (int)image.Width, (int)image.Height, image.Sample, decodedTimestamp,
+                    captureTimestampUnixMicroseconds, captureSequenceNumber, GetPeerClockEstimate()));
+            }
+        }
+        catch (Exception ex)
+        {
+            LogUndecodableFrame(_log, ex);
+            RequestPictureLossIndication();
+        }
+        finally
+        {
+            if (codecEncodedFrame is not null)
+                CryptographicOperations.ZeroMemory(codecEncodedFrame);
+            if (telemetryEncodedFrame is not null)
+                CryptographicOperations.ZeroMemory(telemetryEncodedFrame);
+            CryptographicOperations.ZeroMemory(encodedFrame);
         }
     }
 
@@ -750,13 +800,12 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         report?.Feedback?.Header.PacketType == RTCPReportTypesEnum.PSFB
         && report.Feedback.Header.PayloadFeedbackMessageType == PSFBFeedbackTypesEnum.PLI;
 
-    private void RequestPictureLossIndication()
+    /// <summary>The SSRC pair video RTCP feedback (PLI, NACK) must carry to reach the sharer.</summary>
+    private bool TryGetVideoFeedbackSsrcs(out uint senderSsrc, out uint mediaSsrc)
     {
-        if (State != MediaConnectionState.Connected) return;
-
         var videoStream = _peer.VideoStream;
-        var senderSsrc = videoStream?.LocalTrack?.Ssrc ?? 0;
-        var mediaSsrc = unchecked((uint)Volatile.Read(ref _remoteVideoSsrc));
+        senderSsrc = videoStream?.LocalTrack?.Ssrc ?? 0;
+        mediaSsrc = unchecked((uint)Volatile.Read(ref _remoteVideoSsrc));
         if (mediaSsrc == 0)
         {
             mediaSsrc = videoStream?.RemoteTrack?.Ssrc ?? 0;
@@ -767,7 +816,18 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             mediaSsrc = sdpSsrc.Keys.First();
         }
 
-        if (senderSsrc == 0 || mediaSsrc == 0
+        return senderSsrc != 0 && mediaSsrc != 0;
+    }
+
+    private static bool IsGenericNack(RTCPCompoundPacket? report) =>
+        report?.Feedback?.Header.PacketType == RTCPReportTypesEnum.RTPFB
+        && report.Feedback.Header.FeedbackMessageType == RTCPFeedbackTypesEnum.NACK;
+
+    private void RequestPictureLossIndication()
+    {
+        if (State != MediaConnectionState.Connected) return;
+
+        if (!TryGetVideoFeedbackSsrcs(out var senderSsrc, out var mediaSsrc)
             || !_lossRecovery.TryAcquirePictureLossIndication(Stopwatch.GetTimestamp()))
         {
             return;
@@ -799,6 +859,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                               && string.Equals(channel.label, InputDataChannelLabel, StringComparison.Ordinal),
             DataLane.Bulk => _permissions.HasFlag(SessionPermission.FileTransfer)
                              && string.Equals(channel.label, BulkDataChannelLabel, StringComparison.Ordinal),
+            DataLane.Voice => _permissions.HasFlag(SessionPermission.ViewScreen)
+                              && string.Equals(channel.label, VoiceDataChannelLabel, StringComparison.Ordinal),
             _ => false,
         };
         if (!validLane
@@ -813,6 +875,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             DataLane.Primary => _dataChannel,
             DataLane.Input => Volatile.Read(ref _inputDataChannel),
             DataLane.Bulk => _bulkDataChannel,
+            DataLane.Voice => Volatile.Read(ref _voiceDataChannel),
             _ => null,
         };
         if (existing is not null && !ReferenceEquals(existing, channel))
@@ -823,6 +886,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
         if (lane == DataLane.Primary) _dataChannel = channel;
         else if (lane == DataLane.Input) Volatile.Write(ref _inputDataChannel, channel);
+        else if (lane == DataLane.Voice) Volatile.Write(ref _voiceDataChannel, channel);
         else _bulkDataChannel = channel;
 
         channel.bufferedAmountLowThreshold = MaximumBufferedBytes / 2;
@@ -835,6 +899,13 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             if (payload.Length is 0 or > MaximumDataMessageBytes)
             {
                 LogRejectedCollaborationMessage(_log, payload.Length);
+                return;
+            }
+
+            if (lane == DataLane.Voice)
+            {
+                // Voice records stay on their own lossy context and never reach collaboration.
+                ReceiveVoiceRecord(payload);
                 return;
             }
 
@@ -897,6 +968,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         {
             if (lane == DataLane.Input)
                 Interlocked.CompareExchange(ref _inputDataChannel, null, channel);
+            if (lane == DataLane.Voice && ReferenceEquals(
+                    Interlocked.CompareExchange(ref _voiceDataChannel, null, channel), channel))
+                SetVoiceEnabled(false);
             LogDataChannelClosed(_log);
         };
 
@@ -940,18 +1014,74 @@ public sealed partial class WebRtcMediaSession : IMediaSession
 
     private void OnQualityLevelChanged(object? sender, QualityLevel level)
     {
-        _rateLimiter.SetTargetFps(level.TargetFps);
-        Volatile.Write(ref _targetBitrateKbps, Math.Clamp(level.MaxBitrateKbps, 100, 50_000));
-        _encoder?.SetTargetFps(level.TargetFps);
-        _encoder?.SetTargetKbps(level.MaxBitrateKbps);
-
-        if (_capture is IAdaptiveCaptureSource adaptive)
+        // The adapt loop, capture thread and encode loop can all change levels. Serialize the
+        // application and always apply the controller's newest level, so a stale handler can
+        // never be the last writer of frame rate, bitrate or capture scale.
+        lock (_qualityApplyGate)
         {
-            adaptive.SetTargetFps(level.TargetFps);
-            adaptive.SetDownscaleFactor(level.DownscaleFactor);
+            level = Adaptive?.Current ?? level;
+            _rateLimiter.SetTargetFps(level.TargetFps);
+            Volatile.Write(ref _targetBitrateKbps, Math.Clamp(level.MaxBitrateKbps, 100, 50_000));
+            _videoPacer?.SetTargetBitrateKbps(Math.Clamp(level.MaxBitrateKbps, 100, 50_000));
+            _encoder?.SetTargetFps(level.TargetFps);
+            _encoder?.SetTargetKbps(level.MaxBitrateKbps);
+
+            if (_capture is IAdaptiveCaptureSource adaptive)
+            {
+                adaptive.SetTargetFps(level.TargetFps);
+                adaptive.SetDownscaleFactor(EffectiveDownscaleFactor(level));
+            }
         }
 
         LogQualityChanged(_log, SessionId, level);
+    }
+
+    /// <summary>
+    /// Software VP8 cannot keep a 4K desktop interactive, so a 4K-class source is captured at the
+    /// standard tier until hardware H.264 is actually available for this peer.
+    /// </summary>
+    private int EffectiveDownscaleFactor(QualityLevel level) =>
+        Volatile.Read(ref _softwareResolutionFloor) != 0
+            ? Math.Max(2, level.DownscaleFactor)
+            : level.DownscaleFactor;
+
+    private bool UltraHdEncodingAvailable =>
+        _hardwareEncoding is { IsHardwareAvailable: true, IsAwaitingHardwareRetry: false }
+        && (State != MediaConnectionState.Connected || IsH264PayloadNegotiated);
+
+    /// <summary>
+    /// Selects the 4K resolution-first ladder only for a 4K-class source that this session can
+    /// encode in hardware; every other case uses the standard 1080p ladder. The whole decision
+    /// runs under one lock: capture and encode threads may both observe a change.
+    /// </summary>
+    private void UpdateUltraHdState(int sourceWidth, int sourceHeight)
+    {
+        if (Adaptive is not { } adaptive || sourceWidth <= 0 || sourceHeight <= 0) return;
+        lock (_ultraHdGate)
+        {
+            Volatile.Write(ref _lastSourceWidth, sourceWidth);
+            Volatile.Write(ref _lastSourceHeight, sourceHeight);
+            var ultraHdSource = CaptureResolutionPolicy.AllowsUltraHd(_profile.Resolution)
+                                && CaptureResolutionPolicy.IsUltraHdSource(sourceWidth, sourceHeight);
+            var hardware = UltraHdEncodingAvailable;
+            var floor = ultraHdSource && !hardware ? 1 : 0;
+            var floorChanged = Interlocked.Exchange(ref _softwareResolutionFloor, floor) != floor;
+            var useUltraHdLadder = ultraHdSource && hardware;
+            Volatile.Write(ref _ultraHdSourceActive, useUltraHdLadder ? 1 : 0);
+            var ladderChanged = adaptive.IsUltraHdLadder != useUltraHdLadder;
+            // SetUltraHdSource applies the new level through LevelChanged when the ladder moves.
+            if (ladderChanged)
+                adaptive.SetUltraHdSource(useUltraHdLadder);
+            // 60 fps is a hardware-only, standard-tier reward: software VP8 or a 4K source keeps
+            // the profile rate, and losing the hardware encoder leaves the high-motion rung.
+            adaptive.SetHighMotionAllowed(hardware && !ultraHdSource && IsH264PayloadNegotiated);
+            // A capture restart may also have reset its scale; re-apply whenever it diverges.
+            if (!ladderChanged
+                && (floorChanged
+                    || (_capture is IAdaptiveCaptureSource capture
+                        && capture.DownscaleFactor != EffectiveDownscaleFactor(adaptive.Current))))
+                OnQualityLevelChanged(this, adaptive.Current);
+        }
     }
 
     /// <summary>
@@ -1036,6 +1166,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private void OnCaptureFrame(object? sender, CapturedFrame frame)
     {
         _statistics.FrameCaptured();
+        UpdateUltraHdState(frame.SourceWidth, frame.SourceHeight);
 
         // Adaptive capture sources enforce their target before GPU readback/conversion. Keep
         // this fallback for sources that cannot pace themselves, without applying two clocks.
@@ -1055,6 +1186,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             Width = frame.Width,
             Height = frame.Height,
             I420 = frame.BufferOwnershipCanTransfer ? frame.I420 : frame.I420.ToArray(),
+            Format = frame.Format,
             Timestamp = frame.Timestamp,
             SequenceNumber = frame.SequenceNumber,
             BufferOwnershipCanTransfer = true,
@@ -1127,7 +1259,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                     input = frame.I420.ToArray();
                 }
 
-                var (codec, encoded) = EncodeVideoFrame(frame.Width, frame.Height, input);
+                var (codec, encoded) = EncodeVideoFrame(frame.Width, frame.Height, input, frame.Format);
+                // Negotiation or a hardware fallback may have changed what 4K this peer can get.
+                UpdateUltraHdState(frame.SourceWidth, frame.SourceHeight);
 
                 if (encoded is { Length: > 0 })
                 {
@@ -1151,7 +1285,11 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                         CryptographicOperations.ZeroMemory(codecEnvelope);
                     if (telemetryEnvelope is not null)
                         CryptographicOperations.ZeroMemory(telemetryEnvelope);
-                    _peer.SendVideo(durationRtpUnits, protectedFrame);
+                    // The pacer emits the same RTP packets SIPSorcery would, spread in time.
+                    if (_videoPacer is { } pacer)
+                        pacer.EnqueueFrame(protectedFrame, durationRtpUnits);
+                    else
+                        _peer.SendVideo(durationRtpUnits, protectedFrame);
                     var pipelineLatency = frame.PipelineEnteredTimestamp > 0
                         ? Stopwatch.GetElapsedTime(frame.PipelineEnteredTimestamp).TotalMilliseconds
                         : 0;
@@ -1241,11 +1379,20 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 DataLane.Bulk);
             _bulkDataChannelCreation = null;
         }
+        if (_voiceDataChannelCreation is not null)
+        {
+            ConfigureDataChannel(
+                await _voiceDataChannelCreation.WaitAsync(cancellationToken),
+                DataLane.Voice);
+            _voiceDataChannelCreation = null;
+        }
 
         var offer = _peer.createOffer();
         await _peer.setLocalDescription(offer);
         var advertisedOffer = AdvertiseVideoFrameTelemetry(offer.sdp);
         advertisedOffer = AdvertiseVideoCodec(advertisedOffer);
+        if (_permissions.HasFlag(SessionPermission.ViewScreen))
+            advertisedOffer = AdvertiseVideoRetransmission(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.ControlInput))
             advertisedOffer = AdvertiseInputAcknowledgement(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.FileTransfer))
@@ -1266,6 +1413,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         var audioAnswer = await CreateSystemAudioAnswerAsync(remoteOffer, cancellationToken);
         var telemetryOffered = HasVideoFrameTelemetry(remoteOffer);
         var h264Offered = _canOfferH264 && HasH264Payload(remoteOffer);
+        var retransmissionOffered = _permissions.HasFlag(SessionPermission.ViewScreen)
+                                    && HasVideoRetransmission(remoteOffer);
         var inputAcknowledgementOffered = _permissions.HasFlag(SessionPermission.ControlInput)
                                            && HasInputAcknowledgement(remoteOffer);
         var nativeBulkTransportOffered = _permissions.HasFlag(SessionPermission.FileTransfer)
@@ -1302,6 +1451,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         await _peer.setLocalDescription(answer);
         Volatile.Write(ref _videoFrameTelemetryNegotiated, telemetryOffered ? 1 : 0);
         SetVideoCodecNegotiated(h264Offered);
+        SetVideoRetransmissionNegotiated(retransmissionOffered);
         Volatile.Write(ref _inputAcknowledgementNegotiated, inputAcknowledgementOffered ? 1 : 0);
         Volatile.Write(ref _nativeBulkTransportNegotiated, nativeBulkTransportOffered ? 1 : 0);
         CompleteAuxiliaryDataLaneNegotiation(DataLane.Input, inputDataLaneOffered);
@@ -1313,6 +1463,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             negotiatedAnswer = AdvertiseInputAcknowledgement(negotiatedAnswer);
         if (h264Offered)
             negotiatedAnswer = AppendVideoCodec(negotiatedAnswer);
+        if (retransmissionOffered)
+            negotiatedAnswer = AdvertiseVideoRetransmission(negotiatedAnswer);
         if (nativeBulkTransportOffered)
             negotiatedAnswer = AdvertiseNativeBulkTransport(negotiatedAnswer);
         if (inputDataLaneOffered)
@@ -1346,6 +1498,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             throw new InvalidOperationException($"Remote answer rejected: {result}");
         }
         SetVideoCodecNegotiated(_videoCodecOffered && HasH264Payload(answer));
+        SetVideoRetransmissionNegotiated(
+            _permissions.HasFlag(SessionPermission.ViewScreen) && HasVideoRetransmission(answer));
 
         Volatile.Write(
             ref _videoFrameTelemetryNegotiated,
@@ -1657,6 +1811,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         await _peer.setLocalDescription(offer);
         var advertisedOffer = AdvertiseVideoFrameTelemetry(offer.sdp);
         advertisedOffer = AdvertiseVideoCodec(advertisedOffer);
+        if (_permissions.HasFlag(SessionPermission.ViewScreen))
+            advertisedOffer = AdvertiseVideoRetransmission(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.ControlInput))
             advertisedOffer = AdvertiseInputAcknowledgement(advertisedOffer);
         if (_permissions.HasFlag(SessionPermission.FileTransfer))
@@ -2038,6 +2194,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         return measured with
         {
             ConnectionHealth = decision.Health,
+            BaselineRttMs = _networkFeedback.GetBaselineRttMs(),
+            VideoPacketsRetransmitted = _videoPacer?.RetransmittedPackets ?? 0,
+            VideoPacketsRecovered = VideoPacketsRecovered,
             ActiveQualityProfile = _profile.Quality,
             VideoPresentationQueueDepth = _videoPresentation?.PendingFrames ?? 0,
             VideoPresentationFramesReplaced = _videoPresentation?.DroppedFrames ?? 0,
@@ -2162,7 +2321,10 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         }
 
         _queue.Clear();
+        CloseVideoTransport();
         _videoPresentation?.Close();
+        _presentationBuffers.Close();
+        SetVoiceEnabled(false);
         _bulkDataReassembler.Clear();
         _bulkInboundRecords.Writer.TryComplete();
         lock (_auxiliaryIceGate)
@@ -2192,7 +2354,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             LogPeerCloseError(_log, ex);
         }
 
-        foreach (var loop in new[] { _encodeLoop, _adaptLoop, _bulkInboundDispatchLoop })
+        foreach (var loop in new[] { _encodeLoop, _adaptLoop, _bulkInboundDispatchLoop, _assembledVideoLoop })
         {
             if (loop is null) continue;
 
@@ -2209,6 +2371,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         _encoder?.Dispose();
         _hardwareEncoding?.Dispose();
         if (_videoPresentation is not null) await _videoPresentation.DisposeAsync();
+        _presentationBuffers.Close();
 
         lock (_decoderGate)
         {
@@ -2234,7 +2397,10 @@ public sealed class WebRtcMediaEngine(
     Func<bool>? hardwareH264Available = null,
     Func<SessionId, IEncodedVideoFrameSink?>? viewerVideoSinkFactory = null,
     Func<IHardwareH264Encoder?>? hardwareH264EncoderFactory = null,
-    Func<IH264VideoDecoder?>? h264DecoderFactory = null) : IMediaEngine
+    Func<IH264VideoDecoder?>? h264DecoderFactory = null,
+    RemotePixelFormat viewerPixelFormat = RemotePixelFormat.Bgr24,
+    Func<IVoiceCaptureSource?>? voiceCaptureFactory = null,
+    Func<IVoicePlaybackSink?>? voicePlaybackFactory = null) : IMediaEngine
 {
     private readonly ILogger _log = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WebRtcMediaEngine>();
 
@@ -2247,17 +2413,25 @@ public sealed class WebRtcMediaEngine(
     private readonly Func<SessionId, IEncodedVideoFrameSink?> _viewerVideoSinkFactory =
         viewerVideoSinkFactory ?? (_ => null);
 
+    /// <summary>Gives every session the platform voice devices; they open only on local opt-in.</summary>
+    private WebRtcMediaSession WithVoice(WebRtcMediaSession session)
+    {
+        session.ConfigureVoiceDevices(voiceCaptureFactory, voicePlaybackFactory);
+        return session;
+    }
+
     public Task<IMediaSession> CreateSharerSessionAsync(
         SessionId sessionId, IScreenCaptureSource capture, MediaProfile profile, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IMediaSession>(
+        Task.FromResult<IMediaSession>(WithVoice(
             WebRtcMediaSession.CreateSharer(sessionId, capture, profile, _log, encoderSelector: _encoderSelector,
-                hardwareH264EncoderFactory: hardwareH264EncoderFactory));
+                hardwareH264EncoderFactory: hardwareH264EncoderFactory)));
 
     public Task<IMediaSession> CreateViewerSessionAsync(SessionId sessionId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IMediaSession>(WebRtcMediaSession.CreateViewer(
+        Task.FromResult<IMediaSession>(WithVoice(WebRtcMediaSession.CreateViewer(
             sessionId,
             _log,
-            encodedVideoSink: _viewerVideoSinkFactory(sessionId), h264Decoder: h264DecoderFactory?.Invoke()));
+            encodedVideoSink: _viewerVideoSinkFactory(sessionId), h264Decoder: h264DecoderFactory?.Invoke(),
+            outputFormat: viewerPixelFormat)));
 
     public Task<IMediaSession> CreateSharerSessionAsync(
         SessionId sessionId,
@@ -2265,25 +2439,26 @@ public sealed class WebRtcMediaEngine(
         MediaProfile profile,
         IceConfiguration iceConfiguration,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult<IMediaSession>(WebRtcMediaSession.CreateSharer(
+        Task.FromResult<IMediaSession>(WithVoice(WebRtcMediaSession.CreateSharer(
             sessionId,
             capture,
             profile,
             _log,
             WebRtcMediaSession.BuildConfiguration(iceConfiguration),
             _encoderSelector,
-            iceConfiguration, hardwareH264EncoderFactory: hardwareH264EncoderFactory));
+            iceConfiguration, hardwareH264EncoderFactory: hardwareH264EncoderFactory)));
 
     public Task<IMediaSession> CreateViewerSessionAsync(
         SessionId sessionId,
         IceConfiguration iceConfiguration,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult<IMediaSession>(WebRtcMediaSession.CreateViewer(
+        Task.FromResult<IMediaSession>(WithVoice(WebRtcMediaSession.CreateViewer(
             sessionId,
             _log,
             WebRtcMediaSession.BuildConfiguration(iceConfiguration),
             iceConfiguration,
-            encodedVideoSink: _viewerVideoSinkFactory(sessionId), h264Decoder: h264DecoderFactory?.Invoke()));
+            encodedVideoSink: _viewerVideoSinkFactory(sessionId), h264Decoder: h264DecoderFactory?.Invoke(),
+            outputFormat: viewerPixelFormat)));
 
     public Task<IMediaSession> CreateSharerSessionAsync(
         SessionId sessionId,
@@ -2292,7 +2467,7 @@ public sealed class WebRtcMediaEngine(
         IceConfiguration iceConfiguration,
         SessionPermission permissions,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult<IMediaSession>(WebRtcMediaSession.CreateSharer(
+        Task.FromResult<IMediaSession>(WithVoice(WebRtcMediaSession.CreateSharer(
             sessionId,
             capture,
             profile,
@@ -2300,20 +2475,20 @@ public sealed class WebRtcMediaEngine(
             WebRtcMediaSession.BuildConfiguration(iceConfiguration, permissions),
             _encoderSelector,
             iceConfiguration,
-            permissions, hardwareH264EncoderFactory));
+            permissions, hardwareH264EncoderFactory)));
 
     public Task<IMediaSession> CreateViewerSessionAsync(
         SessionId sessionId,
         IceConfiguration iceConfiguration,
         SessionPermission permissions,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult<IMediaSession>(WebRtcMediaSession.CreateViewer(
+        Task.FromResult<IMediaSession>(WithVoice(WebRtcMediaSession.CreateViewer(
             sessionId,
             _log,
             WebRtcMediaSession.BuildConfiguration(iceConfiguration, permissions),
             iceConfiguration,
             permissions,
-            _viewerVideoSinkFactory(sessionId), h264DecoderFactory?.Invoke()));
+            _viewerVideoSinkFactory(sessionId), h264DecoderFactory?.Invoke(), viewerPixelFormat)));
 }
 
 internal sealed class Vp8LossRecoveryController

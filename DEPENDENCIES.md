@@ -24,7 +24,8 @@ current release blockers; it is not a substitute for the exact-artifact SPDX SBO
 | VP8 software codec | SIPSorceryMedia.Encoders | 10.0.4 | Native binaries match upstream checked-in files and carry a `v1.9.0` string; exact libvpx source/build, security patch status and bundled notices remain unverified |
 | Windows capture/GPU interop | Vortice.Direct3D11 / Vortice.DXGI | 3.8.3 | MIT; retain notices |
 | Windows hardware video | Vortice.MediaFoundation | 3.8.3 | User-approved on 2026-10-18; MIT interop, installed Windows codecs/drivers remain platform components |
-| Windows system sound | NAudio.Wasapi | 3.2.0 | User-approved on 2026-10-18; MIT; exact transitive inventory belongs in the release SBOM |
+| Windows system sound | NAudio.Wasapi | 3.2.0 | User-approved on 2026-10-18; MIT; exact transitive inventory belongs in the release SBOM; also opens the communications microphone for opt-in two-way voice |
+| Two-way voice codec | Concentus | 2.2.2 | User-approved on 2026-10-23; managed Opus port under the BSD-3-Clause Opus license (retain notice); `OpusCodecFactory.AttemptToUseNativeLibrary` is forced off so no native codec is probed |
 | Optional Windows SCM broker | Microsoft.Extensions.Hosting.WindowsServices | 10.0.13 | User-approved on 2026-10-18; Microsoft MIT package; service has no remote-control/network endpoint |
 | Structured logging | Serilog | 4.4.0 | Apache-2.0; retain notices |
 | Local persistence | Microsoft.Data.Sqlite / SQLitePCLRaw | 10.0.13 / 3.0.4 | Pinned above the recorded SQLitePCLRaw advisory floor |

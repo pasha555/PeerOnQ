@@ -11,6 +11,9 @@ namespace PeerOnQ.Platform.Windows.Media;
 /// <summary>Hardware MFT only, one outstanding frame, asynchronous events with bounded waits.</summary>
 public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
 {
+    /// <summary>Safety-net IDR interval; normal recovery uses explicit keyframe requests.</summary>
+    internal const int KeyFrameIntervalSeconds = 5;
+
     private readonly bool _retainFillerForDiagnostics;
     private readonly Lock _gate = new();
     private IMFActivate? _activation;
@@ -49,7 +52,20 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
     internal MediaFoundationH264Encoder(bool retainFillerForDiagnostics) =>
         _retainFillerForDiagnostics = retainFillerForDiagnostics;
 
-    public byte[] EncodeI420(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame)
+    public bool SupportsDimensions(int width, int height) => CompatibleH264Dimensions(width, height);
+
+    public byte[] EncodeI420(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame) =>
+        Encode(width, height, frame, bitrateKbps, frameRate, forceKeyFrame, nv12Input: false);
+
+    /// <summary>
+    /// Encodes a GPU-converted NV12 frame directly: no managed scratch, interleave or extra copy;
+    /// the only CPU work left is the synchronous copy into the native input sample.
+    /// </summary>
+    public byte[] EncodeNv12(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame) =>
+        Encode(width, height, frame, bitrateKbps, frameRate, forceKeyFrame, nv12Input: true);
+
+    private byte[] Encode(int width, int height, byte[] frame, int bitrateKbps, int frameRate, bool forceKeyFrame,
+        bool nv12Input)
     {
         ArgumentNullException.ThrowIfNull(frame);
         lock (_gate)
@@ -58,9 +74,10 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
             if (!CompatibleH264Dimensions(width, height))
                 throw new ArgumentOutOfRangeException(nameof(width), "This source size requires the VP8 fallback.");
             // Validate before entering a driver or allocating its native buffers.
-            ValidateI420(width, height, frame);
+            if (nv12Input) Nv12Planes.Validate(width, height, frame);
+            else ValidateI420(width, height, frame);
             var conversionBegan = Stopwatch.GetTimestamp();
-            var nv12 = GetNv12Scratch(frame.Length);
+            var nv12 = nv12Input ? frame : GetNv12Scratch(frame.Length);
             bitrateKbps = Math.Clamp(bitrateKbps, 100, 50_000);
             frameRate = Math.Clamp(frameRate, 1, 60);
             var duration = 10_000_000L / frameRate;
@@ -68,7 +85,7 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
             IMFSample sample;
             try
             {
-                I420ToNv12(width, height, frame, nv12);
+                if (!nv12Input) I420ToNv12(width, height, frame, nv12);
                 LastFormatConversionMilliseconds = Stopwatch.GetElapsedTime(conversionBegan).TotalMilliseconds;
                 nativeBegan = Stopwatch.GetTimestamp();
                 if (_transform is null || width != _width || height != _height)
@@ -94,7 +111,8 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
             {
                 // Sample() completed its synchronous native copy, or failed without handing
                 // these bytes to a driver. No plaintext remains in the reusable managed buffer.
-                CryptographicOperations.ZeroMemory(nv12);
+                // A caller-owned NV12 frame is not this encoder's scratch and is left intact.
+                if (!nv12Input) CryptographicOperations.ZeroMemory(nv12);
             }
             using var inputSample = sample;
             _timestamp += duration;
@@ -238,7 +256,12 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
                     throw new InvalidOperationException("The hardware encoder cannot guarantee low-latency output.");
                 _ = SetCodecValue(transform, new("1c0608e9-370c-4710-8a58-cb6181c42423"), 0); // CBR
                 _ = SetCodecValue(transform, new("8d390aac-dc5c-4200-b57f-814d04babab2"), 0); // no B frames
-                _ = SetCodecValue(transform, new("95f31b26-95a4-41aa-9303-246a7fc6eef1"), (uint)frameRate * 2);
+                // GOP size. Loss recovery is driven by authenticated PLI/keyframe requests, so a
+                // periodic IDR only adds a burst: at 4K a two-second GOP produced a large key
+                // frame, a CBR quality dip and a frame-age spike every two seconds. Five seconds bounds
+                // corruption when a single loss and its PLI are both lost; RTP gaps also request PLI.
+                _ = SetCodecValue(transform, new("95f31b26-95a4-41aa-9303-246a7fc6eef1"),
+                    (uint)frameRate * KeyFrameIntervalSeconds);
                 using var output = VideoType(H264, width, height, frameRate);
                 output.Set(MediaTypeAttributeKeys.AvgBitrate, (uint)bitrate * 1000);
                 output.Set(MediaTypeAttributeKeys.Mpeg2Profile, 77u); // Main profile, no frame reordering.

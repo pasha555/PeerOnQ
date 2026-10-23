@@ -22,6 +22,10 @@ public partial class App : Microsoft.UI.Xaml.Application
 
     public App()
     {
+        // Remote sessions move full-frame buffers continuously. Avoid blocking gen2 collections
+        // while the app runs; background collection still reclaims memory without pausing the
+        // capture, decode, render and input threads for a full blocking collection.
+        System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
         InitializeComponent();
         UnhandledException += (_, args) => RecordCrash(args.Exception, "winui_unhandled");
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>

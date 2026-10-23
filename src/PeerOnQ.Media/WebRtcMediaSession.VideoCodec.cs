@@ -17,6 +17,8 @@ public sealed partial class WebRtcMediaSession
     private int _videoCodecNegotiated;
     private VideoPayloadCodec? _receivedVideoCodec;
     private LatestDecodedVideoWorker? _videoPresentation;
+    private readonly RemotePixelFormat _viewerOutputFormat;
+    private readonly FrameBufferPool _presentationBuffers = new();
 
     public bool IsH264PayloadNegotiated => Volatile.Read(ref _videoCodecNegotiated) != 0;
 
@@ -28,10 +30,32 @@ public sealed partial class WebRtcMediaSession
             && (Role == SessionRole.Sharer ? hardwareFactory is not null : decoder is not null && _encodedVideoSink is null);
         if (Role == SessionRole.Viewer && _permissions.HasFlag(SessionPermission.ViewScreen) && _encodedVideoSink is null)
             _videoPresentation = new LatestDecodedVideoWorker(
-                frame => frame.Nv12 is { } nv12
-                    ? ((IDeferredH264VideoDecoder)_h264Decoder!).ConvertNv12ToBgr(nv12)
-                    : I420BgrConverter.Convert(frame.Planes, frame.Width, frame.Height),
+                _viewerOutputFormat == RemotePixelFormat.Bgra32
+                    ? ConvertDecodedToBgra
+                    : frame => frame.Nv12 is { } nv12
+                        ? ((IDeferredH264VideoDecoder)_h264Decoder!).ConvertNv12ToBgr(nv12)
+                        : I420BgrConverter.Convert(frame.Planes, frame.Width, frame.Height),
                 PresentDecodedVideo, error => LogUndecodableFrame(_log, error));
+    }
+
+    /// <summary>
+    /// Writes the decoded planes straight into a reusable BGRA32 presentation buffer, so the
+    /// renderer only copies rows and the conversion stays on the bounded presentation worker.
+    /// </summary>
+    private byte[] ConvertDecodedToBgra(DecodedVideoPresentation frame)
+    {
+        var target = _presentationBuffers.Rent(YuvBgraConverter.OutputLength(frame.Width, frame.Height));
+        try
+        {
+            if (frame.Nv12 is { } nv12) YuvBgraConverter.ConvertNv12(nv12, target);
+            else YuvBgraConverter.ConvertI420(frame.Planes, frame.Width, frame.Height, target);
+            return target;
+        }
+        catch
+        {
+            _presentationBuffers.Return(target);
+            throw;
+        }
     }
 
     internal static bool HasH264Payload(string sdp)
@@ -58,11 +82,12 @@ public sealed partial class WebRtcMediaSession
         _videoPresentation?.Clear();
     }
 
-    private (VideoPayloadCodec Codec, byte[] Bytes) EncodeVideoFrame(int width, int height, byte[] frame)
+    private (VideoPayloadCodec Codec, byte[] Bytes) EncodeVideoFrame(
+        int width, int height, byte[] frame, CapturedPixelFormat format = CapturedPixelFormat.I420)
     {
         var encoded = _hardwareEncoding!.Encode(_encoder!, IsH264PayloadNegotiated,
             width, height, frame, Volatile.Read(ref _targetBitrateKbps), _rateLimiter.TargetFps,
-            _lossRecovery.ConsumeKeyFrameRequest());
+            _lossRecovery.ConsumeKeyFrameRequest(), format);
         var actual = _hardwareEncoding.Selection;
         if (actual != Encoder)
         {
@@ -84,11 +109,12 @@ public sealed partial class WebRtcMediaSession
         }
     }
 
-    private void PresentDecodedVideo(DecodedVideoPresentation frame, byte[] bgr) =>
+    private void PresentDecodedVideo(DecodedVideoPresentation frame, byte[] pixels) =>
         RemoteFrameReceived?.Invoke(this, new RemoteVideoFrame(
-            frame.Width, frame.Height, bgr, RemotePixelFormat.Bgr24, TimeSpan.Zero)
+            frame.Width, frame.Height, pixels, _viewerOutputFormat, TimeSpan.Zero)
         {
             BufferOwnershipCanTransfer = true,
+            ReturnBuffer = _viewerOutputFormat == RemotePixelFormat.Bgra32 ? _presentationBuffers.Return : null,
             PipelineDecodedTimestamp = frame.DecodedTimestamp,
             CaptureTimestampUnixMicroseconds = frame.CaptureTimestampUnixMicroseconds,
             CaptureSequenceNumber = frame.SequenceNumber,

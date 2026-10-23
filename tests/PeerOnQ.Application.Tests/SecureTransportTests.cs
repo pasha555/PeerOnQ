@@ -1063,6 +1063,67 @@ public sealed class SecureTransportTests
     }
 
     [Fact]
+    public async Task A_ready_direct_peer_to_peer_lane_carries_file_records_even_when_the_relay_is_available()
+    {
+        using var viewerIdentity = await TestHybridIdentity.CreateAsync("Viewer");
+        using var sharerIdentity = await TestHybridIdentity.CreateAsync("Sharer");
+        var sessionId = SessionId.New();
+        var viewerMedia = new FakeMediaSession(sessionId, SessionRole.Viewer)
+        {
+            Statistics = new MediaStatistics { ConnectionPath = ConnectionPath.DirectInternet },
+            IsBulkDataLaneReady = true,
+        };
+        var sharerMedia = new FakeMediaSession(sessionId, SessionRole.Sharer)
+        {
+            Statistics = new MediaStatistics { ConnectionPath = ConnectionPath.DirectInternet },
+            IsBulkDataLaneReady = true,
+        };
+        viewerMedia.DataPeer = sharerMedia;
+        sharerMedia.DataPeer = viewerMedia;
+        var viewerRelay = new InMemoryFileRelay();
+        var sharerRelay = new InMemoryFileRelay();
+        viewerRelay.Peer = sharerRelay;
+        sharerRelay.Peer = viewerRelay;
+
+        await using var viewer = new MediaCollaborationTransport(
+            viewerMedia,
+            SessionPermission.FileTransfer,
+            viewerIdentity.Service,
+            sharerIdentity.LegacyFingerprint,
+            fileRelay: viewerRelay);
+        await using var sharer = new MediaCollaborationTransport(
+            sharerMedia,
+            SessionPermission.FileTransfer,
+            sharerIdentity.Service,
+            viewerIdentity.LegacyFingerprint,
+            fileRelay: sharerRelay);
+        var viewerReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sharerReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        viewer.Ready += (_, _) => viewerReady.TrySetResult();
+        sharer.Ready += (_, _) => sharerReady.TrySetResult();
+        sharerMedia.SetDataChannelReady();
+        viewerMedia.SetDataChannelReady();
+        await Task.WhenAll(
+            viewerReady.Task.WaitAsync(TimeSpan.FromSeconds(10)),
+            sharerReady.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var receivedBySharer = new TaskCompletionSource<CollaborationMessage>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        sharer.MessageReceived += (_, message) => receivedBySharer.TrySetResult(message);
+        var transferId = Guid.NewGuid();
+        await viewer.SendAsync(new TransferPause { TransferId = transferId });
+        Assert.IsType<TransferPause>(await receivedBySharer.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        // The route is pinned for the transfer: a later loss of the direct lane does not move
+        // this transfer's ordered records onto the relay mid-stream.
+        viewerMedia.IsBulkDataLaneReady = false;
+        await viewer.SendAsync(new TransferResume { TransferId = transferId });
+
+        Assert.Empty(viewerRelay.Sent);
+        Assert.Empty(sharerRelay.Sent);
+    }
+
+    [Fact]
     public async Task Secure_file_records_are_serialized_before_relay_without_media_rate_pacing()
     {
         using var viewerIdentity = await TestHybridIdentity.CreateAsync("Viewer");

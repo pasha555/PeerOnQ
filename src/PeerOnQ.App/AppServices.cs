@@ -305,7 +305,12 @@ public sealed class AppServices : IAsyncDisposable, IRegistrationProofProvider
                 loggerFactory,
                 hardwareH264Available: () => HardwareEncoderProbe.Supports(HardwareVideoCodec.H264),
                 hardwareH264EncoderFactory: () => new MediaFoundationH264Encoder(),
-                h264DecoderFactory: MediaFoundationH264Decoder.TryCreate),
+                h264DecoderFactory: MediaFoundationH264Decoder.TryCreate,
+                // The WinUI back buffer is BGRA32: convert once off the UI thread, then copy rows.
+                viewerPixelFormat: RemotePixelFormat.Bgra32,
+                // Voice devices open only after the local user enables voice for a session.
+                voiceCaptureFactory: () => new WindowsVoiceCapture(),
+                voicePlaybackFactory: () => new WindowsVoicePlayback()),
             prompt,
             blockedDevices,
             sessionAudit,
