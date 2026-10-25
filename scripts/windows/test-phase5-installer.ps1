@@ -267,6 +267,14 @@ try {
     }
     $files = @($fileRows | ForEach-Object { $_[0] })
     if (-not ($files | Where-Object { $_ -match 'PeerOnQ\.exe$' })) { throw 'PeerOnQ.exe is absent from MSI.' }
+    # Files whose version is lower than in an earlier release must follow PeerOnQ.exe (companion
+    # files); otherwise a major upgrade keeps the old file during costing and then removes it.
+    foreach ($companion in @('NativeSqliteFile', 'SipsorceryAssembly', 'SipsorceryAbstractionsAssembly')) {
+        $companionRow = @(Read-Rows $database "SELECT ``Version`` FROM ``File`` WHERE ``File``='$companion'")
+        if ($companionRow.Count -ne 1 -or $companionRow[0][0] -ne 'PeerOnQExecutable') {
+            throw "MSI file $companion must be a companion of PeerOnQ.exe so upgrades cannot drop it."
+        }
+    }
     foreach ($noticeFile in @('LICENSE.txt', 'THIRD_PARTY_NOTICES.md')) {
         if (-not ($files | Where-Object { $_ -match [regex]::Escape($noticeFile) + '$' })) {
             throw "MSI is missing required open-source notice file: $noticeFile"

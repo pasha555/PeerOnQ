@@ -37,6 +37,8 @@
         <Exclude Files="!(bindpath.Publish)\**\*.pdb" />
         <Exclude Files="!(bindpath.Publish)\**\*.xml" />
         <Exclude Files="!(bindpath.Publish)\e_sqlite3.dll" />
+        <Exclude Files="!(bindpath.Publish)\SIPSorcery.dll" />
+        <Exclude Files="!(bindpath.Publish)\SIPSorceryMedia.Abstractions.dll" />
         <Exclude Files="!(bindpath.Publish)\PeerOnQ.exe" />
         <Exclude Files="!(bindpath.Publish)\SessionBroker\**" />
       </Files>
@@ -60,10 +62,15 @@
       <ServiceControl Id="ControlSessionBroker" Name="PeerOnQ.SessionBroker" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
     </Component>
 
-    <!-- SQLite is unversioned, so repair/upgrade follows the signed, versioned application executable. -->
+    <!-- SQLite is unversioned, so repair/upgrade follows the signed, versioned application executable.
+         The WebRTC assemblies follow it too: 0.9.89 moved them from 10.0.17 to 8.0.14/8.0.10, and
+         Windows Installer costing keeps a higher-versioned file that RemoveExistingProducts then
+         deletes, so an upgrade from 0.9.88 left them missing. -->
     <Component Id="AppCoreFiles" Directory="INSTALLFOLDER" Guid="ACDAB784-34CF-41EF-B081-930AB2230E76">
       <File Id="PeerOnQExecutable" Source="!(bindpath.Publish)\PeerOnQ.exe" KeyPath="yes" />
       <File Id="NativeSqliteFile" Source="!(bindpath.Publish)\e_sqlite3.dll" CompanionFile="PeerOnQExecutable" />
+      <File Id="SipsorceryAssembly" Source="!(bindpath.Publish)\SIPSorcery.dll" CompanionFile="PeerOnQExecutable" />
+      <File Id="SipsorceryAbstractionsAssembly" Source="!(bindpath.Publish)\SIPSorceryMedia.Abstractions.dll" CompanionFile="PeerOnQExecutable" />
     </Component>
 
     <Component Id="StartMenuShortcut" Directory="PeerOnQProgramMenuFolder" Guid="DEB743DF-B5EB-4D9E-B32A-B02FDF29D678">
