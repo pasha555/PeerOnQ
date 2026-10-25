@@ -109,7 +109,7 @@ public sealed partial class WebRtcMediaSession
     private void AssembleVideoPacket(RTPPacket packet, bool sourceChanged)
     {
         if (_videoAssembler is not { } assembler) return;
-        var payload = packet.GetPayloadBytes();
+        var payload = packet.Payload;
         List<ushort>? nacks;
         bool keyFrame;
         lock (_videoAssemblyGate)

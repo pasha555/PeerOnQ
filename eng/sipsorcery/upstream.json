@@ -1,80 +1,236 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "requiredSdkVersion": "10.0.402",
   "package": {
     "id": "PeerOnQ.SIPSorcery",
-    "version": "10.0.17.6",
+    "version": "8.0.14.1",
     "assemblyName": "SIPSorcery",
-    "assemblyVersion": "10.0.17.0"
+    "assemblyVersion": "8.0.14.0"
   },
   "upstream": {
     "packageId": "SIPSorcery",
-    "packageVersion": "10.0.17",
+    "packageVersion": "8.0.14",
     "repositoryUrl": "https://github.com/sipsorcery-org/sipsorcery",
-    "commit": "08c2ed0ad72c423ca06950dee2e842488a219884",
-    "archiveUrl": "https://codeload.github.com/sipsorcery-org/sipsorcery/tar.gz/08c2ed0ad72c423ca06950dee2e842488a219884",
-    "archiveSha256": "b25b9e182a11a14f6919a0d0e153b8ddb4537894b116d9103b1b1791f4a8b4aa",
-    "archiveRoot": "sipsorcery-08c2ed0ad72c423ca06950dee2e842488a219884",
+    "commit": "08d3a0271dded6aaebc3183f963bc820b099c552",
+    "archiveUrl": "https://codeload.github.com/sipsorcery-org/sipsorcery/tar.gz/08d3a0271dded6aaebc3183f963bc820b099c552",
+    "archiveSha256": "e2544850def7e7c7bda0b64928b4bbe339e21b0d63e91e7f55d0d10d95353916",
+    "archiveRoot": "sipsorcery-08d3a0271dded6aaebc3183f963bc820b099c552",
+    "projectPath": "src/SIPSorcery.csproj",
     "licensePath": "LICENSE.md",
-    "licenseSha256": "6675c4a1e6ecda95cfc1d55540d264a08ebb61ef3ec5c0dfa2076d112f60c042"
+    "licenseSha256": "522136acbe9c1d7978dfe3b2e8590815b46e93ca4594b26d720b8fa38f7a382f"
   },
-  "patch": {
-    "file": "dtls-receive-wakeup.patch",
-    "sha256": "307a8161fde581f37529fbc7f996c7ee10d5e08bf65adaa9b3d2018e864f5485",
-    "targetPath": "src/SIPSorcery/net/DtlsSrtp/DtlsSrtpTransport.cs",
-    "upstreamFileSha256": "2118faf4b51c95f0bf7e3a1e62619b7c64d944945461b755ec46de8fdf988729",
-    "patchedFileSha256": "9166f2c02923cd4826ccea665c85513d21b965f84161dc85be981e82ce157e9a"
-  },
-  "additionalPatches": [
+  "patches": [
     {
-      "file": "sctp-sack-duplicate-reset.patch",
-      "sha256": "666771f9cbfdda5af83d2f1991a77000aacaea800cf3bca02509991b552dbf49",
-      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataReceiver.cs",
-      "upstreamFileSha256": "29040f8e9fd978d29baa52d2ecf724c64f025c9d9b284110458c749dbf954b37",
-      "patchedFileSha256": "4825922e32279673892004153103ecf13f71d1cf73c43f4339da8037b1db01b7"
+      "file": "dtls-receive-oversize-and-close-wakeup.patch",
+      "sha256": "bfb0fc1de960b51097324a5ba56c37c7f4ef167828cced5791d7070eb4fbb6c2",
+      "targetPath": "src/net/DtlsSrtp/DtlsSrtpTransport.cs",
+      "upstreamFileSha256": "492da09e062f596486d3945aa1f99e80530b2b7069301375979c79e792733a42",
+      "patchedFileSha256": "832b053a28c0758d5efdc60bb4923bc1159f3c0611f65cf9904f083751876a92"
     },
     {
-      "file": "sctp-gap-counter-bound.patch",
-      "sha256": "8eab5985d7aa6d012b0c0bf2644bcb1a559f8785e450d94ff74b51a2fc67a225",
-      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataSender.cs",
-      "upstreamFileSha256": "c0722a2417e71c969427a05d0babfa3de0f46074d57f72f88e94eef47014e003",
-      "patchedFileSha256": "64176da269629f039be2700c71ff2c7cc9292aac8504a7744795264591c01a33"
+      "file": "srtcp-replay-window.patch",
+      "sha256": "44d7a46d42d04781eedf718e922acbf9ba6fa59998d16c738455e8b1e8c4ca51",
+      "targetPath": "src/net/DtlsSrtp/Transform/SrtcpCryptoContext.cs",
+      "upstreamFileSha256": "d9067f3dd83d21d0b9e7b6cb3e441e5bbbede441282ffb1200bd00bec725e386",
+      "patchedFileSha256": "f1b0de33c1f680679f1ec8c45f7f558161deefba3a1cbc08f736d04fe8c59867"
     },
     {
-      "file": "sctp-sender-flow-control.patch",
-      "sha256": "ed82e5e82e0643c0ab6843b8723d7a80e45f2ef9e37508b016258b9bb6644a3f",
-      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataSender.cs",
-      "upstreamFileSha256": "64176da269629f039be2700c71ff2c7cc9292aac8504a7744795264591c01a33",
-      "patchedFileSha256": "1d806ba67071efaef4ab8146ee08f41a97057d15d379abdb2ecb82d9ac03d338"
+      "file": "srtcp-context-after-authentication.patch",
+      "sha256": "4c24656f42ce632d9517abc14071cba7c7fcc0e47cd086e0ea9d7adbf1c2e928",
+      "targetPath": "src/net/DtlsSrtp/Transform/SrtcpTransformer.cs",
+      "upstreamFileSha256": "6aeba116b8f5777542e2b6c968d0020372e08ddf44fe662460d6cd79230962e0",
+      "patchedFileSha256": "5aff13046c9ef74a5615e9e2ddb589ca6cc6c7adf620300ba77c64b988ee9340"
     },
     {
-      "file": "sctp-receiver-window-credit.patch",
-      "sha256": "dae03a96182d421f4afd5ac5d6e3a0e3273e6b464736b968a89cf722738df9ae",
-      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataReceiver.cs",
-      "upstreamFileSha256": "4825922e32279673892004153103ecf13f71d1cf73c43f4339da8037b1db01b7",
-      "patchedFileSha256": "9d22c47759ddea1d8012acc8d883200c27eb51721035f8bd9e55fb988e165050"
+      "file": "srtp-authenticated-state-update.patch",
+      "sha256": "4db47ee098b3a1f7c12be7b8bdcfadb6663a41c7abf94050690aa022b6de6f78",
+      "targetPath": "src/net/DtlsSrtp/Transform/SrtpCryptoContext.cs",
+      "upstreamFileSha256": "09c4b17170cf3c5ffa22bcc65736a7abec15caef14398fdcccee934cf84f21a2",
+      "patchedFileSha256": "45703324975f163932337da4f8c4b10c9789367aed2d501d4955cec0ac91db23"
     },
     {
-      "file": "udp-receive-admission.patch",
-      "sha256": "c27e06f71333550f1262deaad8ad368907b5d68235cc12b12aad800e29173494",
-      "targetPath": "src/SIPSorcery/net/RTP/UdpReceiver.cs",
-      "upstreamFileSha256": "335c8aa5934a9bf0d24a1df27ef8ef9e2c9d5b9f4f6b237099bddc407227e8fc",
-      "patchedFileSha256": "b6400df4eca1787ee3fcaffdcdb4df70038b72d018139b7f9ec7d96f499371f3"
+      "file": "srtp-context-after-authentication.patch",
+      "sha256": "b8f3876bc905813c7f2770bcfc63a11f5cc93f57965a4a44419ea0bd52bbcec2",
+      "targetPath": "src/net/DtlsSrtp/Transform/SrtpTransformer.cs",
+      "upstreamFileSha256": "33e2172112516001ac7435ca0c348d8ded0d223df9ee137c4d1623a25963141f",
+      "patchedFileSha256": "a90f0be50df50bed63ab802859036cc8ea8f348c6bae173c4c7b896d52bbaad8"
+    },
+    {
+      "file": "rtpicechannel-turn-tls.patch",
+      "sha256": "e2da301009b6601e58821d34bd079e230bbe417e567e39188773d0fcb3a93ddd",
+      "targetPath": "src/net/ICE/RtpIceChannel.cs",
+      "upstreamFileSha256": "1c6fd90f68a7b54b3e83c11d33438fc4b5bc34a4b9afb746d1e50f33156030b4",
+      "patchedFileSha256": "75bec27ac69fe756b1a3112b681f51afb806778a34a2a1090cad2a7832867640"
+    },
+    {
+      "file": "rtcp-compound-length-bounds.patch",
+      "sha256": "f500a97e2f4f15d94ee1e58140c5cbc2b19fffc4b539e7cd55feff50570ca693",
+      "targetPath": "src/net/RTCP/RTCPCompoundPacket.cs",
+      "upstreamFileSha256": "42d9590588eb55600e870ce2cf6ab2597b9edff9bf41dcf305366201031ecd47",
+      "patchedFileSha256": "4dd4dbce6ce913ca7a71d0934fce00445257f354377849058dba8bb86ad11bf8"
+    },
+    {
+      "file": "rtcp-feedback-length-bounds.patch",
+      "sha256": "f654a795fbeaf7037e48fecc4cfab8ab79fad2ebaa64479b8bd4d8b7e0497676",
+      "targetPath": "src/net/RTCP/RTCPFeedback.cs",
+      "upstreamFileSha256": "fb04e90f7ff31778d0f10d5c437245d5679b0c3ae8476b4075e7f06ad5e26819",
+      "patchedFileSha256": "c5ac81d6d629afa376a14beab251fb61df62ca44958a6623fd6fc138c1137507"
+    },
+    {
+      "file": "rtcp-sdes-cname-bounds.patch",
+      "sha256": "fb8bc473f2dbf88ead7ea3a409dc7fd8bbbf3cdf7cb67ec13e1fd110cce1e023",
+      "targetPath": "src/net/RTCP/RTCPSdesReport.cs",
+      "upstreamFileSha256": "32647b7a973b17cfc783f40c1807ecfe0269d0387c41d3efa978a67b3fe1b053",
+      "patchedFileSha256": "7470d7799738fde2ad22f3f494837d5cfeb8b62acac2fb194c5ba340a1240af1"
+    },
+    {
+      "file": "rtcp-twcc-truncated-deltas.patch",
+      "sha256": "a49af4ee6badd7496bd0e66e1d31123672ea5b15ba18a9f3634b294da2ba5e38",
+      "targetPath": "src/net/RTCP/RTCPTWCCFeedback.cs",
+      "upstreamFileSha256": "d34cf4ffc0af1290a552844fa40139170bfd3f36efd7c8638f7a79bd10f2a300",
+      "patchedFileSha256": "1c1e2d4130a1e9627540e8e05de5d7babc6337e89578cc4bbdcd9c897935c139"
     },
     {
       "file": "rtcp-first-transit-initialization.patch",
-      "sha256": "c63ebdefc7d2482e8dfee6cf2ff68ede72583e22bb9d43a50ffd29a5e1c8472e",
-      "targetPath": "src/SIPSorcery/net/RTCP/ReceptionReport.cs",
-      "upstreamFileSha256": "55e540f576b426efdc6a63643cb858464e2eb27721ec485e20ff7ae62669637b",
-      "patchedFileSha256": "e7f733a000e4feffa2778d72c552c9b5832efe2a29c952ad162448a4da9ce494"
+      "sha256": "1aa27ff28c928b54f1fc0d781ad83234177ee252e32b7de687cd739775ca2773",
+      "targetPath": "src/net/RTCP/ReceptionReport.cs",
+      "upstreamFileSha256": "d7bcf761e683154944ddb10ee82d5f3b4b2fb22b89c8191d43d904d798068b25",
+      "patchedFileSha256": "442ac59315db469aa75fddcf1a25667c3ab44ffdafee1e1cd92bcd2741ba99d5"
+    },
+    {
+      "file": "rtp-channel-receive-hardening.patch",
+      "sha256": "11fa36469e792a164317cecf4bdb3e936be94b98adad45ee6b451048b708737d",
+      "targetPath": "src/net/RTP/RTPChannel.cs",
+      "upstreamFileSha256": "5f0f53e2f6e9df384d0c0021c23d7e8f05f472fc5b9a278cd1a2ae09ab0db515",
+      "patchedFileSha256": "61cbc3f4e940c9eddfd5fdc5955c375ff61df5185361489f0069bc8fdd6c53d2"
+    },
+    {
+      "file": "rtp-header-bounds.patch",
+      "sha256": "cf5fe98c09abfcecc26b8a344f6db3d2d49c7b66f0490145f3a8f34d4767af7a",
+      "targetPath": "src/net/RTP/RTPHeader.cs",
+      "upstreamFileSha256": "2a679dbeeaaf3f98fec120dd57e74e8924ccc9dd1f9823c1136ce5f595d1a0d2",
+      "patchedFileSha256": "d826ed23832e96ef755e4d65420ddb270b9214d4658aeabe7edf153aa4ea9f6e"
+    },
+    {
+      "file": "sctp-chunk-length-bounds.patch",
+      "sha256": "e180be6de3ddd747ac32648075f882b891ca32dca1c39d4977525905f5218fd9",
+      "targetPath": "src/net/SCTP/Chunks/SctpChunk.cs",
+      "upstreamFileSha256": "67a3f65c9724e5be1608a11a429218a836af357ee1b18cc1e2d46a61a040b022",
+      "patchedFileSha256": "6e926c505301ef03dc3aaac24f1a5bfacbfe380fa1711e3128f38ad9aba3065b"
+    },
+    {
+      "file": "sctp-sack-report-count-bounds.patch",
+      "sha256": "565f13a0612ab1ccd6579b3b4ac3d6935e31adc1c4612df0b67f7b9279480fb6",
+      "targetPath": "src/net/SCTP/Chunks/SctpSackChunk.cs",
+      "upstreamFileSha256": "52584ab71b3193e3135703f722db2ff8ac9bfcf27edbeb5adfc8b92cb7255f3e",
+      "patchedFileSha256": "59998ced860ed3f72114ad1b59fea74a23976366ede43e86d4b125db4edc8550"
+    },
+    {
+      "file": "sctp-data-receiver-sack-credit.patch",
+      "sha256": "0d4bf75a9b6aa3e9d9059fba25c344254c651d0fe6cf6a17291a673dd02f2bc0",
+      "targetPath": "src/net/SCTP/SctpDataReceiver.cs",
+      "upstreamFileSha256": "59bcb6c3da20c93c8d7365cd6e2b114914689087bd4d1d5e62be7ca6a7aa480b",
+      "patchedFileSha256": "f2ac1446357db38eb1f173c905d81a16e3dde4e2aade8b6d9a1c3aeadff549e9"
+    },
+    {
+      "file": "sctp-data-sender-flow-control.patch",
+      "sha256": "9fd5e621542b1bb5853f57ea3649bb87d77ae99683d84902b4b6a21a650405d8",
+      "targetPath": "src/net/SCTP/SctpDataSender.cs",
+      "upstreamFileSha256": "e1a49e5627bc5be4158c57dba1fc22729178b4ed72ca1a581eccd54d7fa7d956",
+      "patchedFileSha256": "cd7f6f2951c2a41bf49ff5456f1927f6e3a23e1cbe742bae3a8270ed68e0e1a1"
+    },
+    {
+      "file": "sctp-packet-chunk-bounds.patch",
+      "sha256": "d1c40f01f6a22acf715347d7397d9390f33b58e0409bb7ed4c5fb190d3012cbe",
+      "targetPath": "src/net/SCTP/SctpPacket.cs",
+      "upstreamFileSha256": "4cc1e64b0df199c8151080bafa673f007667b4dc9b02b3e3352221d9cc70eae5",
+      "patchedFileSha256": "bba592f4245578225fe2d2449e70156df2f09fcf95ef3e8868d52e55d3d152a4"
+    },
+    {
+      "file": "stun-attribute-length-checks.patch",
+      "sha256": "f4e714917a248324c55689ca1c6d170fb77369befea50f806669fbf24972eceb",
+      "targetPath": "src/net/STUN/STUNAttributes/STUNAttribute.cs",
+      "upstreamFileSha256": "2a6fbc305f28ddf116125dd4f283750672d670e4f45ae44fc95e6abd3a486a1b",
+      "patchedFileSha256": "957dbd17df882f412e3540d8b243b4f03b5bb267c002b21f23458f567b3e60f7"
+    },
+    {
+      "file": "stun-header-empty-segment.patch",
+      "sha256": "d261513fe9cdad97b98c20717ad58214cfa5b9f0a23620a0931796dfb9da2e1e",
+      "targetPath": "src/net/STUN/STUNHeader.cs",
+      "upstreamFileSha256": "6f9fb8c66feae6530a7355aeb59134c4e05832d454359f125d829e12493e55ee",
+      "patchedFileSha256": "93fdcbfb7afaf78982f325bab1932d2cae2eb103daa34f9b1e61f9ffa708b43d"
+    },
+    {
+      "file": "stun-message-length-checks.patch",
+      "sha256": "c2fdb734b806c9fd179de230f080f51e6f01a6056500fede510d6e35b1bb4a1a",
+      "targetPath": "src/net/STUN/STUNMessage.cs",
+      "upstreamFileSha256": "074921713498d75cb10693f77bcca4471626a0cc4909714e4507c5e6b53e9178",
+      "patchedFileSha256": "4949623745e5097e0dfe16f9fe9015a9456b0a245f08908882b2bd36cc6d9396"
+    },
+    {
+      "file": "dtls-handshake-dedicated-thread.patch",
+      "sha256": "047eaa5b785bfdc35256ca48392126fae47cc76037ed7fea7cb2bd0f4b822665",
+      "targetPath": "src/net/WebRTC/RTCPeerConnection.cs",
+      "upstreamFileSha256": "43a5f4c141c5625ce840a383a713127bdfe6595ddbf0da71ee71c7fd7fe08195",
+      "patchedFileSha256": "272af505fd38674c46e096ab8f29ea5ff6563d69019c80741505deee67548c60"
+    },
+    {
+      "file": "rtcsctp-receive-loop-resilience.patch",
+      "sha256": "826fd78b41f29aa08e30d7ea4d7179cd48f921f37495f51a554871e2923770e0",
+      "targetPath": "src/net/WebRTC/RTCSctpTransport.cs",
+      "upstreamFileSha256": "7ed10abadb22c20ab43124a1cc22376b7e29578b69407f4669860c6df7a032d1",
+      "patchedFileSha256": "13e4f81b693df31161acd3c27082d42fd77ea8fb0c5173ad544beb720866549f"
     }
   ],
-  "reviewEvidence": {
-    "priorCrLfPatchSha256": "191db7d6e7211c9bcfdd371a415715799d9d47e6dc61ae934ef10258ea349b10",
-    "sourceEquivalentAfterLfNormalization": true,
-    "priorCandidateAssemblySha256": "e079407059823e7be17b46f2a4c2a7ec25a55a2fe64a797c2fec6538024fc4e1",
-    "priorLoopbackCasesPassed": 6,
-    "inputP95GateMs": 35,
-    "requiresActualSdk402PackageConsumerRetest": true
-  }
+  "addedFiles": [
+    {
+      "file": "TurnTlsConnection.cs",
+      "sha256": "745a48a7840adc24f0da1c46358889bbe2410cff0064a5686915861ec2732e11",
+      "targetPath": "src/net/ICE/TurnTlsConnection.cs"
+    }
+  ],
+  "mitigatedAdvisories": [
+    {
+      "id": "GHSA-28gm-jrmw-xx93",
+      "summary": "One malformed UDP packet on the RTP/ICE socket ended the media session.",
+      "fixedBy": [
+        "rtp-channel-receive-hardening.patch",
+        "rtpicechannel-turn-tls.patch",
+        "stun-message-length-checks.patch",
+        "stun-attribute-length-checks.patch",
+        "rtp-header-bounds.patch"
+      ]
+    },
+    {
+      "id": "GHSA-jwjp-4649-v8jp",
+      "summary": "SCTP SACK gap/duplicate counts read past the receive buffer and end the receive thread.",
+      "fixedBy": [
+        "sctp-sack-report-count-bounds.patch",
+        "rtcsctp-receive-loop-resilience.patch"
+      ]
+    },
+    {
+      "id": "GHSA-mc26-5x96-8x52",
+      "summary": "DTLS handshakes held thread-pool workers for up to the handshake timeout.",
+      "fixedBy": [
+        "dtls-handshake-dedicated-thread.patch",
+        "dtls-receive-oversize-and-close-wakeup.patch"
+      ]
+    },
+    {
+      "id": "GHSA-mwf8-6m4x-pgmm",
+      "summary": "ICE-over-TCP receiver closed itself on one malformed packet.",
+      "fixedBy": [
+        "rtpicechannel-turn-tls.patch"
+      ]
+    },
+    {
+      "id": "GHSA-qmvg-569h-hqrh",
+      "summary": "SCTP parser loop on a zero-length chunk.",
+      "fixedBy": [
+        "sctp-packet-chunk-bounds.patch",
+        "sctp-chunk-length-bounds.patch"
+      ]
+    }
+  ]
 }

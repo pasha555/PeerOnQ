@@ -15,6 +15,19 @@ if ($packageId -ne 'SIPSorcery' -or $packageVersion -notmatch '^\d+\.\d+\.\d+$' 
     $sdkVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw 'The maintained dependency manifest has an unsupported upstream audit identity.'
 }
+# Advisories against the pinned upstream version that a reviewed PeerOnQ change fixes. Each entry
+# names the patch or added file; the builder rejects entries that do not name reviewed changes.
+$mitigated = @{}
+$mitigatedProperty = $manifest.PSObject.Properties['mitigatedAdvisories']
+if ($null -ne $mitigatedProperty -and $null -ne $mitigatedProperty.Value) {
+    foreach ($entry in @($mitigatedProperty.Value)) {
+        if ([string]$entry.id -notmatch '^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$' -or @($entry.fixedBy).Count -eq 0) {
+            throw 'The maintained dependency manifest has an invalid mitigated advisory entry.'
+        }
+        $mitigated[[string]$entry.id] = (@($entry.fixedBy) -join ', ')
+    }
+}
+$mitigatedFound = New-Object 'System.Collections.Generic.List[string]'
 
 $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $workDirectory = Join-Path $temporaryRoot ('peeronq-upstream-advisory-' + [Guid]::NewGuid().ToString('N'))
@@ -60,6 +73,11 @@ try {
                     $advisories = $package.PSObject.Properties['vulnerabilities']
                     if ($null -eq $advisories) { continue }
                     foreach ($advisory in @($advisories.Value)) {
+                        $advisoryId = ([string]$advisory.advisoryurl).TrimEnd('/').Split('/')[-1]
+                        if ($package.id -eq $packageId -and $mitigated.ContainsKey($advisoryId)) {
+                            $mitigatedFound.Add("$advisoryId ($($advisory.severity)) fixed by $($mitigated[$advisoryId])")
+                            continue
+                        }
                         if ($advisory.severity -in 'High', 'Critical') {
                             "$($package.id): $($advisory.severity) $($advisory.advisoryurl)"
                         }
@@ -69,7 +87,8 @@ try {
         }
     )
     if ($blocked.Count -gt 0) { throw "Upstream $packageId $packageVersion has blocked advisories: $($blocked -join '; ')" }
-    Write-Host "Upstream $packageId ${packageVersion}: no high/critical NuGet advisories (including transitive packages)."
+    foreach ($line in $mitigatedFound) { Write-Host "Upstream $packageId ${packageVersion} advisory $line." }
+    Write-Host "Upstream $packageId ${packageVersion}: no unmitigated high/critical NuGet advisories (including transitive packages)."
 } finally {
     if ($locationChanged) { Pop-Location }
     $resolvedWorkDirectory = [IO.Path]::GetFullPath($workDirectory)

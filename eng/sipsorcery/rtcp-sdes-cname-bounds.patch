@@ -1,0 +1,12 @@
+--- a/src/net/RTCP/RTCPSdesReport.cs
++++ b/src/net/RTCP/RTCPSdesReport.cs
+@@ -132,7 +132,8 @@
+             if (packet.Length >= MIN_PACKET_SIZE)
+             {
+                 int cnameLength = packet[9];
+-                if (cnameLength <= 0 || packet.Length < RTCPHeader.HEADER_BYTES_LENGTH + 4 + cnameLength)
++                // The CNAME text starts after the 4 byte SSRC and the 2 byte item type and length (offset 10).
++                if (cnameLength <= 0 || packet.Length < MIN_PACKET_SIZE + cnameLength)
+                 {
+                     CNAME = string.Empty;
+                     return;

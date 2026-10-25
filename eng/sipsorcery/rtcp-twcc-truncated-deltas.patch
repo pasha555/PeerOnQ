@@ -1,0 +1,13 @@
+--- a/src/net/RTCP/RTCPTWCCFeedback.cs
++++ b/src/net/RTCP/RTCPTWCCFeedback.cs
+@@ -351,7 +351,9 @@
+ 
+             for (int i = 0; i < statusSymbols.Count; i++)
+             {
+-                int? delta = deltaValues[i] == int.MinValue ? null :
++                // ParseDeltaValues stops at the first delta that does not fit in the packet, so a truncated packet
++                // has fewer delta values than statuses; the missing ones are reported as unknown.
++                int? delta = (i >= deltaValues.Count || deltaValues[i] == int.MinValue) ? null :
+                             (statusSymbols[i] == TWCCPacketStatusType.NotReceived ||
+                              statusSymbols[i] == TWCCPacketStatusType.Reserved) ? null : deltaValues[i];
+ 

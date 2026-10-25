@@ -1,0 +1,29 @@
+--- a/src/net/DtlsSrtp/Transform/SrtcpTransformer.cs
++++ b/src/net/DtlsSrtp/Transform/SrtcpTransformer.cs
+@@ -118,11 +118,14 @@
+                 SrtcpCryptoContext context = null;
+                 contexts.TryGetValue(ssrc, out context);
+ 
++                bool isNewContext = false;
+                 if (context == null)
+                 {
++                    // A context for a new SSRC is only kept once a packet has authenticated with it, so unauthenticated
++                    // packets carrying arbitrary SSRCs cannot grow the context table.
+                     context = reverseEngine.GetDefaultContextControl().DeriveContext(ssrc);
+                     context.DeriveSrtcpKeys();
+-                    contexts.AddOrUpdate(ssrc, context, (a, b) => context);
++                    isNewContext = true;
+                 }
+ 
+                 // Decode packet to RTCP format
+@@ -130,6 +133,10 @@
+                 bool reversed = context.ReverseTransformPacket(packet);
+                 if (reversed)
+                 {
++                    if (isNewContext)
++                    {
++                        contexts.AddOrUpdate(ssrc, context, (a, b) => context);
++                    }
+                     result = packet.GetData();
+                 }
+                 return result;

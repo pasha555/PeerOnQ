@@ -1,6 +1,6 @@
---- a/src/SIPSorcery/net/RTCP/ReceptionReport.cs
-+++ b/src/SIPSorcery/net/RTCP/ReceptionReport.cs
-@@ -266,6 +266,7 @@
+--- a/src/net/RTCP/ReceptionReport.cs
++++ b/src/net/RTCP/ReceptionReport.cs
+@@ -290,6 +290,7 @@
              if (m_received == 0)
              {
                  m_base_seq = seq;

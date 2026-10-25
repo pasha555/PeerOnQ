@@ -68,8 +68,7 @@ public sealed class Vp8ScreenDecoderTests(ITestOutputHelper output)
             Assert.Equal((uint)width, decodedWidth);
             Assert.Equal((uint)height, decodedHeight);
             began = Stopwatch.GetTimestamp();
-            var bgr = PixelConverter.I420toBGR(image, width, height, out _,
-                dop: Math.Clamp(Environment.ProcessorCount / 2, 1, 8));
+            var bgr = PixelConverter.I420toBGR(image, width, height, out _);
             var upstream = Stopwatch.GetElapsedTime(began).TotalMilliseconds;
             Assert.Equal(width * height * 3, bgr.Length);
             began = Stopwatch.GetTimestamp();
@@ -103,7 +102,7 @@ public sealed class Vp8ScreenDecoderTests(ITestOutputHelper output)
                     source[position + width] = (byte)(phase * 4 + 2);
                     source[position + width + 1] = (byte)(phase * 4 + 3);
                 }
-            var expected = PixelConverter.I420toBGR(source, width, height, out _, dop: 1);
+            var expected = PixelConverter.I420toBGR(source, width, height, out _);
             var actual = I420BgrConverter.Convert(source, width, height);
             Assert.True(expected.AsSpan().SequenceEqual(actual), $"Color mismatch for luma group {phase}.");
         }
@@ -121,7 +120,7 @@ public sealed class Vp8ScreenDecoderTests(ITestOutputHelper output)
     {
         var source = Enumerable.Range(0, width * height * 3 / 2).Select(index => (byte)(index * 17)).ToArray();
         var original = source.ToArray();
-        var expected = PixelConverter.I420toBGR(source, width, height, out var upstreamStride, dop: 1);
+        var expected = PixelConverter.I420toBGR(source, width, height, out var upstreamStride);
         var actual = I420BgrConverter.Convert(source, width, height);
         Assert.Equal(original, source);
         Assert.NotSame(source, actual);

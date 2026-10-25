@@ -1,0 +1,42 @@
+--- a/src/net/SCTP/Chunks/SctpSackChunk.cs
++++ b/src/net/SCTP/Chunks/SctpSackChunk.cs
+@@ -17,6 +17,7 @@
+ // BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
+ //-----------------------------------------------------------------------------
+ 
++using System;
+ using System.Collections.Generic;
+ using SIPSorcery.Sys;
+ 
+@@ -134,13 +135,30 @@
+             var sackChunk = new SctpSackChunk();
+             ushort chunkLen = sackChunk.ParseFirstWord(buffer, posn);
+ 
+-            ushort startPosn = (ushort)(posn + SCTP_CHUNK_HEADER_LENGTH);
++            if (chunkLen < SCTP_CHUNK_HEADER_LENGTH + FIXED_PARAMETERS_LENGTH)
++            {
++                throw new ApplicationException($"The SCTP SACK chunk length of {chunkLen} was too short for its fixed fields.");
++            }
++
++            int startPosn = posn + SCTP_CHUNK_HEADER_LENGTH;
+ 
+             sackChunk.CumulativeTsnAck = NetConvert.ParseUInt32(buffer, startPosn);
+             sackChunk.ARwnd = NetConvert.ParseUInt32(buffer, startPosn + 4);
+             ushort numGapAckBlocks = NetConvert.ParseUInt16(buffer, startPosn + 8);
+             ushort numDuplicateTSNs = NetConvert.ParseUInt16(buffer, startPosn + 10);
+ 
++            // RFC 9260 section 3.3.4: every gap ack block and duplicate TSN occupies 4 bytes of the chunk.
++            // Both counts are peer controlled, so they must fit in the declared chunk length (which
++            // ParseFirstWord has already checked against the buffer) before any report is read.
++            int requiredLen = SCTP_CHUNK_HEADER_LENGTH + FIXED_PARAMETERS_LENGTH +
++                numGapAckBlocks * GAP_REPORT_LENGTH + numDuplicateTSNs * DUPLICATE_TSN_LENGTH;
++
++            if (requiredLen > chunkLen)
++            {
++                throw new ApplicationException($"The SCTP SACK chunk length of {chunkLen} was too short for its " +
++                    $"{numGapAckBlocks} gap ack blocks and {numDuplicateTSNs} duplicate TSNs ({requiredLen} bytes required).");
++            }
++
+             int reportPosn = startPosn + FIXED_PARAMETERS_LENGTH;
+ 
+             for (int i=0; i < numGapAckBlocks; i++)

@@ -1,0 +1,15 @@
+--- a/src/net/STUN/STUNHeader.cs
++++ b/src/net/STUN/STUNHeader.cs
+@@ -167,6 +167,12 @@
+         public static STUNHeader ParseSTUNHeader(ArraySegment<byte> bufferSegment)
+         {
+             var startIndex = bufferSegment.Offset;
++            if (bufferSegment.Array == null || bufferSegment.Count == 0)
++            {
++                // Nothing to parse; do not read the byte that follows an empty segment.
++                return null;
++            }
++
+             if ((bufferSegment.Array[startIndex] & STUN_INITIAL_BYTE_MASK) != 0)
+             {
+                 throw new ApplicationException("The STUN header did not begin with 0x00.");

@@ -1,0 +1,234 @@
+--- a/src/net/DtlsSrtp/Transform/SrtpCryptoContext.cs
++++ b/src/net/DtlsSrtp/Transform/SrtpCryptoContext.cs
+@@ -112,11 +112,6 @@
+          */
+         private int roc;
+ 
+-        /**
+-         * Roll-Over-Counter guessed from packet
+-         */
+-        private int guessedROC;
+-
+         /**
+          * RTP sequence number of the packet current processing
+          */
+@@ -220,7 +215,6 @@
+             ssrcCtx = ssrcIn;
+             mki = null;
+             roc = 0;
+-            guessedROC = 0;
+             seqNum = 0;
+             keyDerivationRate = 0;
+             masterKey = null;
+@@ -265,7 +259,6 @@
+             ssrcCtx = ssrcIn;
+             mki = null;
+             roc = rocIn;
+-            guessedROC = 0;
+             seqNum = 0;
+             keyDerivationRate = kdr;
+             seqNumSet = false;
+@@ -469,20 +462,25 @@
+          */
+         public bool ReverseTransformPacket(RawPacket pkt)
+         {
+-            int seqNo = pkt.GetSequenceNumber();
+-
+-            if (!seqNumSet)
++            int authTagLength = (policy.AuthType != SrtpPolicy.NULL_AUTHENTICATION) ? policy.AuthTagLength : 0;
++            if (pkt.GetLength() < RawPacket.FIXED_HEADER_SIZE + authTagLength)
+             {
+-                seqNumSet = true;
+-                seqNum = seqNo;
++                // Too short to hold an RTP header and the authentication tag.
++                return false;
+             }
+ 
++            int seqNo = pkt.GetSequenceNumber();
++
++            // RFC3711 3.3: the ROC, s_l and the replay list change only after the packet has been authenticated
++            // (step 7), so nothing in this context is written before that. Until a first packet authenticates there is
++            // no s_l, and the packet's own sequence number is the reference for the index estimate.
++            int referenceSeqNum = seqNumSet ? seqNum : seqNo;
++
+             // Guess the SRTP index (48 bit), see rFC 3711, 3.3.1
+-            // Stores the guessed roc in this.guessedROC
+-            long guessedIndex = GuessIndex(seqNo);
++            long guessedIndex = GuessIndex(seqNo, referenceSeqNum, out int guessedROC);
+ 
+             // Replay control
+-            if (!CheckReplay(seqNo, guessedIndex))
++            if (seqNumSet && !CheckReplay(seqNo, guessedIndex))
+             {
+                 return false;
+             }
+@@ -508,25 +506,33 @@
+                 }
+             }
+ 
+-            // Decrypt packet
++            // Decrypt packet with the estimated index the sender used (RFC3711 3.3 step 5), which differs from the
++            // context's ROC for packets either side of a rollover.
+             switch (policy.EncType)
+             {
+                 case SrtpPolicy.AESCM_ENCRYPTION:
+                 case SrtpPolicy.TWOFISH_ENCRYPTION:
+                     // using Counter Mode encryption
+-                    ProcessPacketAESCM(pkt);
++                    ProcessPacketAESCM(pkt, guessedROC);
+                     break;
+ 
+                 case SrtpPolicy.AESF8_ENCRYPTION:
+                 case SrtpPolicy.TWOFISHF8_ENCRYPTION:
+                     // using F8 Mode encryption
+-                    ProcessPacketAESF8(pkt);
++                    ProcessPacketAESF8(pkt, guessedROC);
+                     break;
+ 
+                 default:
+                     return false;
+             }
+-            Update(seqNo, guessedIndex);
++
++            // The packet is authentic: only now record it (RFC3711 3.3 step 7).
++            if (!seqNumSet)
++            {
++                seqNumSet = true;
++                seqNum = seqNo;
++            }
++            Update(seqNo, guessedIndex, guessedROC);
+             return true;
+         }
+ 
+@@ -537,11 +543,16 @@
+          *            the RTP packet to be encrypted / decrypted
+          */
+         public void ProcessPacketAESCM(RawPacket pkt)
++        {
++            ProcessPacketAESCM(pkt, roc);
++        }
++
++        private void ProcessPacketAESCM(RawPacket pkt, int rocIn)
+         {
+             long ssrc = pkt.GetSSRC();
+             int seqNo = pkt.GetSequenceNumber();
+ #pragma warning disable CS0675 // Bitwise-or operator used on a sign-extended operand
+-            long index = ((long)roc << 16) | seqNo;
++            long index = ((long)rocIn << 16) | seqNo;
+ #pragma warning restore CS0675 // Bitwise-or operator used on a sign-extended operand
+ 
+             ivStore[0] = saltKey[0];
+@@ -575,6 +586,11 @@
+          *            the RTP packet to be encrypted / decrypted
+          */
+         public void ProcessPacketAESF8(RawPacket pkt)
++        {
++            ProcessPacketAESF8(pkt, roc);
++        }
++
++        private void ProcessPacketAESF8(RawPacket pkt, int rocIn)
+         {
+             // 11 bytes of the RTP header are the 11 bytes of the iv
+             // the first byte of the RTP header is not used.
+@@ -583,10 +599,10 @@
+             ivStore[0] = 0;
+ 
+             // set the ROC in network order into IV
+-            ivStore[12] = (byte)(this.roc >> 24);
+-            ivStore[13] = (byte)(this.roc >> 16);
+-            ivStore[14] = (byte)(this.roc >> 8);
+-            ivStore[15] = (byte)this.roc;
++            ivStore[12] = (byte)(rocIn >> 24);
++            ivStore[13] = (byte)(rocIn >> 16);
++            ivStore[14] = (byte)(rocIn >> 8);
++            ivStore[15] = (byte)rocIn;
+ 
+             int payloadOffset = pkt.GetHeaderLength();
+             int payloadLength = pkt.GetPayloadLength();
+@@ -651,7 +667,8 @@
+             }
+             else
+             {
+-                if (-delta > REPLAY_WINDOW_SIZE)
++                // The window holds bits 0 to REPLAY_WINDOW_SIZE - 1; anything further back is too old.
++                if (-delta >= REPLAY_WINDOW_SIZE)
+                 {
+                     /* Packet too old */
+                     return false;
+@@ -765,13 +782,17 @@
+          * 
+          * @param seqNo
+          *            sequence number of the received RTP packet
++         * @param referenceSeqNum
++         *            s_l, the highest authenticated sequence number
++         * @param guessedROC
++         *            the estimated Roll-Over-Counter of the packet
+          * @return the new SRTP packet index
+          */
+-        private long GuessIndex(int seqNo)
++        private long GuessIndex(int seqNo, int referenceSeqNum, out int guessedROC)
+         {
+-            if (this.seqNum < 32768)
++            if (referenceSeqNum < 32768)
+             {
+-                if (seqNo - this.seqNum > 32768)
++                if (seqNo - referenceSeqNum > 32768)
+                 {
+                     guessedROC = roc - 1;
+                 }
+@@ -782,7 +803,7 @@
+             }
+             else
+             {
+-                if (seqNum - 32768 > seqNo)
++                if (referenceSeqNum - 32768 > seqNo)
+                 {
+                     guessedROC = roc + 1;
+                 }
+@@ -806,35 +827,28 @@
+          * @param seqNo
+          *            sequence number of the accepted packet
+          * @param guessedIndex
+-         *            guessed roc
++         *            guessed index of the accepted packet
++         * @param guessedROC
++         *            guessed roc of the accepted packet
+          */
+-        private void Update(int seqNo, long guessedIndex)
++        private void Update(int seqNo, long guessedIndex, int guessedROC)
+         {
+ #pragma warning disable CS0675 // Bitwise-or operator used on a sign-extended operand
+             long delta = guessedIndex - (((long)this.roc) << 16 | this.seqNum);
+ #pragma warning restore CS0675 // Bitwise-or operator used on a sign-extended operand
+ 
+-            /* update the replay bit mask */
+             if (delta > 0)
+             {
+-                replayWindow = replayWindow << (int)delta;
+-                replayWindow |= 1;
+-            }
+-            else
+-            {
+-#pragma warning disable CS0675 // Bitwise-or operator used on a sign-extended operand
+-                replayWindow |= (1 << (int)delta);
+-#pragma warning restore CS0675 // Bitwise-or operator used on a sign-extended operand
+-            }
+-
+-            if (seqNo > seqNum)
+-            {
++                // Newest packet so far: slide the replay window and advance s_l and the ROC together, so that a
++                // late packet from before a rollover can never move s_l without the ROC (RFC3711 3.3.1).
++                replayWindow = (delta < REPLAY_WINDOW_SIZE) ? (replayWindow << (int)delta) | 1 : 1;
++                roc = guessedROC;
+                 seqNum = seqNo & 0xffff;
+             }
+-            if (this.guessedROC > this.roc)
++            else if (-delta < REPLAY_WINDOW_SIZE)
+             {
+-                roc = guessedROC;
+-                seqNum = seqNo & 0xffff;
++                // Older packet inside the window: mark its own bit; s_l and the ROC do not move backwards.
++                replayWindow |= 1L << (int)-delta;
+             }
+         }
+ 

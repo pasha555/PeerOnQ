@@ -79,14 +79,22 @@ grep -Fqx '  "unattendedAccess": false' "$manifest_path"
   echo "Linux viewer license notices are missing." >&2; exit 1;
 }
 dependency_notices="$payload_root/ThirdParty/SIPSorcery"
-for notice in LICENSE.md _PeerOnQ/upstream.json _PeerOnQ/provenance.json _PeerOnQ/dtls-receive-wakeup.patch; do
+for notice in LICENSE.md _PeerOnQ/upstream.json _PeerOnQ/provenance.json; do
   [[ -s "$dependency_notices/$notice" ]] || { echo "Maintained dependency notice is missing: $notice" >&2; exit 1; }
 done
-while IFS= read -r patch; do
-  [[ "$patch" =~ ^[a-z0-9-]+\.patch$ && -s "$dependency_notices/_PeerOnQ/$patch" ]] || {
-    echo "Maintained dependency patch notice is missing or invalid." >&2; exit 1;
-  }
+maintained_changes=0
+while IFS= read -r change; do
+  if [[ "$change" =~ ^[a-z0-9]+(-[a-z0-9]+)*\.patch$ ]]; then
+    notice_path="$dependency_notices/_PeerOnQ/$change"
+  elif [[ "$change" =~ ^[A-Za-z0-9]+\.cs$ ]]; then
+    notice_path="$dependency_notices/_PeerOnQ/added/$change"
+  else
+    echo "Maintained dependency change name is invalid: $change" >&2; exit 1
+  fi
+  [[ -s "$notice_path" ]] || { echo "Maintained dependency change notice is missing: $change" >&2; exit 1; }
+  maintained_changes=$((maintained_changes + 1))
 done < <(sed -n 's/^[[:space:]]*"file": "\([^"]*\)",*$/\1/p' "$dependency_notices/_PeerOnQ/upstream.json")
+(( maintained_changes > 0 )) || { echo "Maintained dependency patches are missing." >&2; exit 1; }
 [[ -s "$payload_root/PeerOnQ" ]] || { echo "Linux viewer entrypoint is missing or empty." >&2; exit 1; }
 [[ "$(od -An -t x1 -N 4 "$payload_root/PeerOnQ" | tr -d '[:space:]')" == 7f454c46 ]] || {
   echo "Linux viewer entrypoint is not ELF." >&2; exit 1;

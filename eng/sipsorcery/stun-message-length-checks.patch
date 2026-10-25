@@ -1,0 +1,65 @@
+--- a/src/net/STUN/STUNMessage.cs
++++ b/src/net/STUN/STUNMessage.cs
+@@ -94,13 +94,20 @@
+         {
+             if (buffer != null && buffer.Length > 0 && buffer.Length >= bufferLength)
+             {
++                if (bufferLength < STUNHeader.STUN_HEADER_LENGTH)
++                {
++                    // Too short for the fixed STUN header: not a STUN message.
++                    return null;
++                }
++
+                 STUNMessage stunMessage = new STUNMessage();
+                 stunMessage._receivedBuffer = buffer.Take(bufferLength).ToArray();
+                 stunMessage.Header = STUNHeader.ParseSTUNHeader(buffer);
+ 
+                 if (stunMessage.Header.MessageLength > 0)
+                 {
+-                    stunMessage.Attributes = STUNAttribute.ParseMessageAttributes(buffer, STUNHeader.STUN_HEADER_LENGTH, bufferLength, stunMessage.Header);
++                    stunMessage.Attributes = STUNAttribute.ParseMessageAttributes(buffer, STUNHeader.STUN_HEADER_LENGTH, bufferLength, stunMessage.Header)
++                        ?? new List<STUNAttribute>();
+                 }
+ 
+                 if (stunMessage.Attributes.Count > 0 && stunMessage.Attributes.Last().AttributeType == STUNAttributeTypesEnum.FingerPrint)
+@@ -108,7 +115,7 @@
+                     // Check fingerprint.
+                     var fingerprintAttribute = stunMessage.Attributes.Last();
+ 
+-                    var input = buffer.Take(buffer.Length - STUNAttribute.STUNATTRIBUTE_HEADER_LENGTH - FINGERPRINT_ATTRIBUTE_CRC32_LENGTH).ToArray();
++                    var input = buffer.Take(bufferLength - STUNAttribute.STUNATTRIBUTE_HEADER_LENGTH - FINGERPRINT_ATTRIBUTE_CRC32_LENGTH).ToArray();
+ 
+                     uint crc = Crc32.Compute(input) ^ FINGERPRINT_XOR;
+                     byte[] fingerPrint = (BitConverter.IsLittleEndian) ? BitConverter.GetBytes(NetConvert.DoReverseEndian(crc)) : BitConverter.GetBytes(crc);
+@@ -116,7 +123,8 @@
+                     //logger.LogDebug($"STUNMessage supplied fingerprint attribute: {fingerprintAttribute.Value.HexStr()}.");
+                     //logger.LogDebug($"STUNMessage calculated fingerprint attribute: {fingerPrint.HexStr()}.");
+ 
+-                    if (fingerprintAttribute.Value.HexStr() == fingerPrint.HexStr())
++                    if (fingerprintAttribute.Value?.Length == FINGERPRINT_ATTRIBUTE_CRC32_LENGTH &&
++                        fingerprintAttribute.Value.HexStr() == fingerPrint.HexStr())
+                     {
+                         stunMessage.isFingerprintValid = true;
+                     }
+@@ -235,7 +243,8 @@
+ 
+             if (isFingerprintValid)
+             {
+-                if (Attributes.Count > 2 && Attributes[Attributes.Count - 2].AttributeType == STUNAttributeTypesEnum.MessageIntegrity)
++                if (Attributes.Count > 2 && Attributes[Attributes.Count - 2].AttributeType == STUNAttributeTypesEnum.MessageIntegrity &&
++                    Attributes[Attributes.Count - 2].Value?.Length == MESSAGE_INTEGRITY_ATTRIBUTE_HMAC_LENGTH)
+                 {
+                     var messageIntegrityAttribute = Attributes[Attributes.Count - 2];
+ 
+@@ -244,6 +253,11 @@
+                         - MESSAGE_INTEGRITY_ATTRIBUTE_HMAC_LENGTH
+                         - FINGERPRINT_ATTRIBUTE_CRC32_LENGTH;
+ 
++                    if (preImageLength < STUNHeader.STUN_HEADER_LENGTH)
++                    {
++                        return false;
++                    }
++
+                     // Need to adjust the STUN message length field for to remove the fingerprint.
+                     ushort length = (ushort)(Header.MessageLength - STUNAttribute.STUNATTRIBUTE_HEADER_LENGTH - FINGERPRINT_ATTRIBUTE_CRC32_LENGTH);
+                     if (BitConverter.IsLittleEndian)

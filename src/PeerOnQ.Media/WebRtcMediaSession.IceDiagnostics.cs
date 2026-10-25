@@ -68,13 +68,13 @@ public sealed partial class WebRtcMediaSession
         });
 
     /// <summary>
-    /// Closes the TCP/TLS connections this session's peers opened to TURN servers. SIPSorcery's
-    /// ICE channel stops its timers on close but never closes the sockets of turn:?transport=tcp
-    /// and turns: servers, so each closed session left its connections, and with them its coturn
-    /// allocations, alive (0.9.86: 2 per session, against user-quota=4). coturn deletes the
-    /// allocation of a TCP/TLS client when that connection closes. UDP allocations stop being
-    /// refreshed and expire on their own lifetime; a lifetime-0 Refresh would need SIPSorcery's
-    /// internal TURN credentials and nonce.
+    /// Closes the TCP/TLS connections this session's peers opened to TURN servers. The maintained
+    /// SIPSorcery 8.0.14 derivative closes its turns: (TLS) connections with the RTP channel, but
+    /// a session that left connections open (0.9.86: 2 per session, against user-quota=4) kept
+    /// its coturn allocations alive, so this stays as a safety net for every TCP/TLS socket.
+    /// coturn deletes the allocation of a TCP/TLS client when that connection closes. UDP
+    /// allocations stop being refreshed and expire on their own lifetime; a lifetime-0 Refresh
+    /// would need SIPSorcery's internal TURN credentials and nonce.
     /// </summary>
     internal static int ReleaseTurnConnections(params RTCPeerConnection?[] peers)
     {

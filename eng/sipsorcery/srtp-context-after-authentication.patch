@@ -1,0 +1,28 @@
+--- a/src/net/DtlsSrtp/Transform/SrtpTransformer.cs
++++ b/src/net/DtlsSrtp/Transform/SrtpTransformer.cs
+@@ -137,17 +137,24 @@
+                 long ssrc = rawPacket.GetSSRC();
+                 SrtpCryptoContext context = null;
+                 this.contexts.TryGetValue(ssrc, out context);
++                bool isNewContext = false;
+                 if (context == null)
+                 {
++                    // A context for a new SSRC is only kept once a packet has authenticated with it, so unauthenticated
++                    // packets carrying arbitrary SSRCs cannot grow the context table.
+                     context = this.reverseEngine.GetDefaultContext().deriveContext(ssrc, 0, 0);
+                     context.DeriveSrtpKeys(rawPacket.GetSequenceNumber());
+-                    contexts.AddOrUpdate(ssrc, context, (a, b) => context);
++                    isNewContext = true;
+                 }
+ 
+                 byte[] result = null;
+                 bool reversed = context.ReverseTransformPacket(rawPacket);
+                 if (reversed)
+                 {
++                    if (isNewContext)
++                    {
++                        contexts.AddOrUpdate(ssrc, context, (a, b) => context);
++                    }
+                     result = rawPacket.GetData();
+                 }
+ 

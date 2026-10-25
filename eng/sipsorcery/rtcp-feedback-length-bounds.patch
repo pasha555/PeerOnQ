@@ -1,0 +1,47 @@
+--- a/src/net/RTCP/RTCPFeedback.cs
++++ b/src/net/RTCP/RTCPFeedback.cs
+@@ -148,6 +148,11 @@
+         /// <param name="packet">The byte array holding the serialised feedback report.</param>
+         public RTCPFeedback(byte[] packet)
+         {
++            if (packet.Length < RTCPHeader.HEADER_BYTES_LENGTH + 8)
++            {
++                throw new ApplicationException("The packet did not contain the minimum number of bytes for an RTCP feedback packet.");
++            }
++
+             Header = new RTCPHeader(packet);
+ 
+             int payloadIndex = RTCPHeader.HEADER_BYTES_LENGTH;
+@@ -170,6 +175,10 @@
+                     break;
+                 case var x when x.PacketType == RTCPReportTypesEnum.RTPFB:
+                     SENDER_PAYLOAD_SIZE = 12;
++                    if (packet.Length < payloadIndex + SENDER_PAYLOAD_SIZE)
++                    {
++                        throw new ApplicationException("The RTCP transport layer feedback packet did not contain its feedback control information.");
++                    }
+                     if (BitConverter.IsLittleEndian)
+                     {
+                         PID = NetConvert.DoReverseEndian(BitConverter.ToUInt16(packet, payloadIndex + 8));
+@@ -202,11 +211,21 @@
+                     SENDER_PAYLOAD_SIZE = 8 + 12; // 8 bytes from (SenderSSRC + MediaSSRC) + extra 12 bytes from REMB Definition
+ 
+                     var currentCounter = payloadIndex + 8;
++                    if (packet.Length < currentCounter + 4)
++                    {
++                        throw new ApplicationException("The RTCP application layer feedback packet did not contain a unique identifier.");
++                    }
+                     UniqueID = System.Text.ASCIIEncoding.ASCII.GetString(packet, currentCounter, 4);
+                     currentCounter += 4;
+ 
+                     if (string.Equals(UniqueID,"REMB", StringComparison.CurrentCultureIgnoreCase))
+                     {
++                        // Num SSRC (1), BR Exp and Mantissa (3) and one SSRC feedback entry (4).
++                        if (packet.Length < currentCounter + 8)
++                        {
++                            throw new ApplicationException("The RTCP REMB feedback packet was truncated.");
++                        }
++
+                         // Read first 8 bits
+                         NumSsrcs = packet[currentCounter];
+                         currentCounter++;

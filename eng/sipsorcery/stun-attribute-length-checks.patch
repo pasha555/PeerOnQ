@@ -1,0 +1,73 @@
+--- a/src/net/STUN/STUNAttributes/STUNAttribute.cs
++++ b/src/net/STUN/STUNAttributes/STUNAttribute.cs
+@@ -192,7 +192,12 @@
+                         break;
+                     }
+                     STUNAttribute attribute = null;
+-                    if (attributeType == STUNAttributeTypesEnum.ChangeRequest)
++                    if (!HasMinimumTypedValueLength(attributeType, stunAttributeValue))
++                    {
++                        // A typed attribute whose value is too short for its parser is malformed and is skipped.
++                        logger.LogWarning("A STUN {AttributeType} attribute with a {Length} byte value was too short and was ignored.", attributeType, stunAttributeLength);
++                    }
++                    else if (attributeType == STUNAttributeTypesEnum.ChangeRequest)
+                     {
+                         attribute = new STUNChangeRequestAttribute(stunAttributeValue);
+                     }
+@@ -206,7 +211,7 @@
+                     }
+                     else if (attributeType == STUNAttributeTypesEnum.XORMappedAddress || attributeType == STUNAttributeTypesEnum.XORPeerAddress || attributeType == STUNAttributeTypesEnum.XORRelayedAddress)
+                     {
+-                        attribute = new STUNXORAddressAttribute(attributeType, stunAttributeValue, header.TransactionId);
++                        attribute = new STUNXORAddressAttribute(attributeType, stunAttributeValue, header?.TransactionId);
+                     }
+                     else if(attributeType == STUNAttributeTypesEnum.ConnectionId)
+                     {
+@@ -217,7 +222,10 @@
+                         attribute = new STUNAttribute(attributeType, stunAttributeValue);
+                     }
+ 
+-                    attributes.Add(attribute);
++                    if (attribute != null)
++                    {
++                        attributes.Add(attribute);
++                    }
+ 
+                     // Attributes start on 32 bit word boundaries so where an attribute length is not a multiple of 4 it gets padded. 
+                     int padding = (stunAttributeLength % 4 != 0) ? 4 - (stunAttributeLength % 4) : 0;
+@@ -233,6 +241,35 @@
+             }
+         }
+ 
++        /// <summary>
++        /// Checks that a received attribute value is long enough for the typed attribute parser that reads it. These
++        /// values arrive before any MESSAGE-INTEGRITY check, so their lengths cannot be trusted.
++        /// </summary>
++        private static bool HasMinimumTypedValueLength(STUNAttributeTypesEnum attributeType, byte[] value)
++        {
++            int length = (value != null) ? value.Length : 0;
++
++            switch (attributeType)
++            {
++                case STUNAttributeTypesEnum.ChangeRequest:
++                    return length >= STUNChangeRequestAttribute.CHANGEREQUEST_ATTRIBUTE_LENGTH;
++                case STUNAttributeTypesEnum.ErrorCode:
++                case STUNAttributeTypesEnum.ConnectionId:
++                    return length >= 4;
++                case STUNAttributeTypesEnum.MappedAddress:
++                case STUNAttributeTypesEnum.AlternateServer:
++                    return length >= STUNAddressAttributeBase.ADDRESS_ATTRIBUTE_IPV4_LENGTH;
++                case STUNAttributeTypesEnum.XORMappedAddress:
++                case STUNAttributeTypesEnum.XORPeerAddress:
++                case STUNAttributeTypesEnum.XORRelayedAddress:
++                    // An IPv6 address (family 2) carries a 16 byte address after the family and port.
++                    return length >= STUNAddressAttributeBase.ADDRESS_ATTRIBUTE_IPV4_LENGTH &&
++                        (value[1] != STUNAttributeConstants.IPv6AddressFamily[0] || length >= STUNAddressAttributeBase.ADDRESS_ATTRIBUTE_IPV6_LENGTH);
++                default:
++                    return true;
++            }
++        }
++
+         public virtual int ToByteBuffer(byte[] buffer, int startIndex)
+         {
+             if (BitConverter.IsLittleEndian)

@@ -1,0 +1,43 @@
+--- a/src/net/RTCP/RTCPCompoundPacket.cs
++++ b/src/net/RTCP/RTCPCompoundPacket.cs
+@@ -72,6 +72,11 @@
+                     // Not enough bytes left for a RTCP header.
+                     break;
+                 }
++                else if (!IsDeclaredLengthAvailable(packet, offset))
++                {
++                    logger.LogWarning("RTCPCompoundPacket stopped parsing, the RTCP packet at offset {Offset} declares more bytes than the {Remaining} remaining.", offset, packet.Length - offset);
++                    break;
++                }
+                 else
+                 {
+                     var buffer = packet.Skip(offset).ToArray();
+@@ -235,6 +240,11 @@
+                     // Not enough bytes left for a RTCP header.
+                     break;
+                 }
++                else if (!IsDeclaredLengthAvailable(packet, offset))
++                {
++                    logger.LogWarning("RTCPCompoundPacket stopped parsing, the RTCP packet at offset {Offset} declares more bytes than the {Remaining} remaining.", offset, packet.Length - offset);
++                    break;
++                }
+                 else
+                 {
+                     var buffer = packet.Skip(offset).ToArray();
+@@ -302,5 +312,16 @@
+             consumed = offset;
+             return true;
+         }
++
++        /// <summary>
++        /// Checks that the RTCP packet starting at the offset fits in the remaining bytes. The header length field is the
++        /// packet length in 32-bit words minus one (RFC3550 6.4.1), so a truncated or inflated packet is detected before
++        /// any report parser reads beyond it.
++        /// </summary>
++        private static bool IsDeclaredLengthAvailable(byte[] packet, int offset)
++        {
++            int declaredLength = (((packet[offset + 2] << 8) | packet[offset + 3]) + 1) * 4;
++            return declaredLength <= packet.Length - offset;
++        }
+     }
+ }

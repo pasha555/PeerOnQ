@@ -1,0 +1,28 @@
+--- a/src/net/WebRTC/RTCSctpTransport.cs
++++ b/src/net/WebRTC/RTCSctpTransport.cs
+@@ -275,9 +275,14 @@
+ 
+             while (!_isClosed)
+             {
++                // Only a failure of the DTLS transport itself may end this loop. Once a packet has been
++                // received, a malformed packet or any other per-packet failure costs only that packet.
++                bool isTransportReceive = true;
++
+                 try
+                 {
+                     int bytesRead = transport.Receive(recvBuffer, 0, recvBuffer.Length, RECEIVE_TIMEOUT_MILLISECONDS);
++                    isTransportReceive = false;
+ 
+                     if (bytesRead == DtlsSrtpTransport.DTLS_RETRANSMISSION_CODE)
+                     {
+@@ -347,6 +352,10 @@
+                     logger.LogWarning(sockExcp, "SCTP RTCSctpTransport receive socket failure {SocketErrorCode}.", sockExcp.SocketErrorCode);
+                     break;
+                 }
++                catch (Exception excp) when (!isTransportReceive)
++                {
++                    logger.LogWarning(excp, "SCTP packet received on RTCSctpTransport dropped after a processing error. {ErrorMessage}", excp.Message);
++                }
+                 catch (Exception excp)
+                 {
+                     logger.LogError(excp, "SCTP fatal error processing RTCSctpTransport receive. {ErrorMessage}", excp.Message);

@@ -1,0 +1,103 @@
+--- a/src/net/SCTP/Chunks/SctpChunk.cs
++++ b/src/net/SCTP/Chunks/SctpChunk.cs
+@@ -187,10 +187,21 @@
+         /// <returns>The chunk length value.</returns>
+         public ushort ParseFirstWord(byte[] buffer, int posn)
+         {
++            if (posn < 0 || buffer.Length - posn < SCTP_CHUNK_HEADER_LENGTH)
++            {
++                throw new ApplicationException("The SCTP chunk buffer was too short for the chunk header.");
++            }
++
+             ChunkType = buffer[posn];
+             ChunkFlags = buffer[posn + 1];
+             ushort chunkLength = NetConvert.ParseUInt16(buffer, posn + 2);
+ 
++            if (chunkLength < SCTP_CHUNK_HEADER_LENGTH)
++            {
++                // RFC 9260 section 3.2: the Chunk Length includes the 4 byte chunk header.
++                throw new ApplicationException($"The SCTP chunk length of {chunkLength} was less than the minimum of {SCTP_CHUNK_HEADER_LENGTH}.");
++            }
++
+             if (chunkLength > 0 && buffer.Length < posn + chunkLength)
+             {
+                 // The buffer was not big enough to supply the specified chunk length.
+@@ -301,14 +312,30 @@
+         public static IEnumerable<SctpTlvChunkParameter> GetParameters(byte[] buffer, int posn, int length)
+         {
+             int paramPosn = posn;
++            int end = posn + length;
+ 
+-            while (paramPosn < posn + length)
++            while (paramPosn < end)
+             {
++                // RFC 9260 section 3.2.1: a parameter is at least its 4 byte header and must fit in the
++                // chunk. Only the last parameter may omit its padding, which ends the walk.
++                if (end - paramPosn < SctpTlvChunkParameter.SCTP_PARAMETER_HEADER_LENGTH)
++                {
++                    throw new ApplicationException($"The SCTP chunk had {end - paramPosn} trailing bytes, too few for a parameter header.");
++                }
++
++                int paramLength = NetConvert.ParseUInt16(buffer, paramPosn + 2);
++
++                if (paramLength < SctpTlvChunkParameter.SCTP_PARAMETER_HEADER_LENGTH || paramLength > end - paramPosn)
++                {
++                    throw new ApplicationException($"The SCTP chunk parameter declared an invalid length of {paramLength} with {end - paramPosn} bytes remaining in the chunk.");
++                }
++
+                 var chunkParam = SctpTlvChunkParameter.ParseTlvParameter(buffer, paramPosn);
+ 
+                 yield return chunkParam;
+ 
+-                paramPosn += chunkParam.GetParameterLength(true);
++                // Pad in int arithmetic, the ushort padding helper wraps to zero for lengths above 65532.
++                paramPosn += (paramLength + 3) & ~3;
+             }
+         }
+ 
+@@ -329,6 +356,16 @@
+ 
+             if (Enum.IsDefined(typeof(SctpChunkType), chunkType))
+             {
++                // The specialised parsers read their fixed fields at set offsets, so the declared length
++                // must cover them and stay within the buffer.
++                int chunkLength = (int)GetChunkLengthFromHeader(buffer, posn, false);
++                int minimumLength = GetMinimumChunkLength((SctpChunkType)chunkType);
++
++                if (chunkLength < minimumLength || chunkLength > buffer.Length - posn)
++                {
++                    throw new ApplicationException($"The SCTP {(SctpChunkType)chunkType} chunk length of {chunkLength} was invalid, minimum {minimumLength}, available {buffer.Length - posn}.");
++                }
++
+                 switch ((SctpChunkType)chunkType)
+                 {
+                     case SctpChunkType.ABORT:
+@@ -362,6 +399,28 @@
+             throw new ApplicationException($"SCTP chunk type of {chunkType} was not recognised.");
+         }
+ 
++        /// <summary>
++        /// Gets the smallest Chunk Length a recognised chunk type can declare and still hold the
++        /// fixed fields its parser reads, see RFC 9260 section 3.3.
++        /// </summary>
++        private static int GetMinimumChunkLength(SctpChunkType chunkType)
++        {
++            switch (chunkType)
++            {
++                case SctpChunkType.DATA:
++                    return SCTP_CHUNK_HEADER_LENGTH + SctpDataChunk.FIXED_PARAMETERS_LENGTH;
++                case SctpChunkType.SACK:
++                    return SCTP_CHUNK_HEADER_LENGTH + SctpSackChunk.FIXED_PARAMETERS_LENGTH;
++                case SctpChunkType.INIT:
++                case SctpChunkType.INIT_ACK:
++                    return SCTP_CHUNK_HEADER_LENGTH + SctpInitChunk.FIXED_PARAMETERS_LENGTH;
++                case SctpChunkType.SHUTDOWN:
++                    return SCTP_CHUNK_HEADER_LENGTH + SctpShutdownChunk.FIXED_PARAMETERS_LENGTH;
++                default:
++                    return SCTP_CHUNK_HEADER_LENGTH;
++            }
++        }
++
+         /// <summary>
+         /// Extracts the padded length field from a serialised chunk buffer.
+         /// </summary>

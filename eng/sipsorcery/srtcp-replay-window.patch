@@ -1,0 +1,57 @@
+--- a/src/net/DtlsSrtp/Transform/SrtcpCryptoContext.cs
++++ b/src/net/DtlsSrtp/Transform/SrtcpCryptoContext.cs
+@@ -357,6 +357,13 @@
+         {
+             bool decrypt = false;
+             int tagLength = policy.AuthTagLength;
++
++            // RTCP header and sender SSRC (8), E flag and SRTCP index (4) and the authentication tag.
++            if (pkt.GetLength() < 8 + 4 + tagLength)
++            {
++                return false;
++            }
++
+             int indexEflag = pkt.GetSRTCPIndex(tagLength);
+ 
+             if ((indexEflag & 0x80000000) == 0x80000000)
+@@ -548,7 +555,8 @@
+             }
+             else
+             {
+-                if (-delta > REPLAY_WINDOW_SIZE)
++                // The window holds bits 0 to REPLAY_WINDOW_SIZE - 1; anything further back is too old.
++                if (-delta >= REPLAY_WINDOW_SIZE)
+                 {
+                     /* Packet too old */
+                     return false;
+@@ -646,22 +654,21 @@
+          */
+         private void Update(int index)
+         {
+-            int delta = receivedIndex - index;
++            long delta = (long)index - receivedIndex;
+ 
+             /* update the replay bit mask */
+             if (delta > 0)
+             {
+-                replayWindow = replayWindow << delta;
+-                replayWindow |= 1;
++                // Newest packet so far: slide the window and advance the highest received index.
++                replayWindow = (delta < REPLAY_WINDOW_SIZE) ? (replayWindow << (int)delta) | 1 : 1;
++                receivedIndex = index;
+             }
+-            else
++            else if (-delta < REPLAY_WINDOW_SIZE)
+             {
+-#pragma warning disable CS0675 // Bitwise-or operator used on a sign-extended operand
+-                replayWindow |= 1 << delta;
+-#pragma warning restore CS0675 // Bitwise-or operator used on a sign-extended operand
++                // Older packet inside the window: mark its own bit. The highest received index never moves
++                // backwards, otherwise every newer packet would become replayable.
++                replayWindow |= 1L << (int)-delta;
+             }
+-
+-            receivedIndex = index;
+         }
+ 
+         /**

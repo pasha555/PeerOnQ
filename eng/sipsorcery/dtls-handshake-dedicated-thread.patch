@@ -1,0 +1,57 @@
+--- a/src/net/WebRTC/RTCPeerConnection.cs
++++ b/src/net/WebRTC/RTCPeerConnection.cs
+@@ -157,6 +157,7 @@
+         private const string BUNDLE_ATTRIBUTE = "BUNDLE";
+         private const string ICE_OPTIONS = "ice2,trickle";          // Supported ICE options.
+         private const string NORMAL_CLOSE_REASON = "normal";
++        private const string DTLS_HANDSHAKE_THREAD_NAME = "SIPSorcery DTLS handshake";
+         private const ushort SCTP_DEFAULT_PORT = 5000;
+         private const string UNKNOWN_DATACHANNEL_ERROR = "unknown";
+ 
+@@ -581,7 +582,7 @@
+ 
+                     try
+                     {
+-                        bool handshakeResult = await Task.Run(() => DoDtlsHandshake(_dtlsHandle)).ConfigureAwait(false);
++                        bool handshakeResult = await RunOnDedicatedThread(() => DoDtlsHandshake(_dtlsHandle), DTLS_HANDSHAKE_THREAD_NAME).ConfigureAwait(false);
+ 
+                         connectionState = handshakeResult ? RTCPeerConnectionState.connected : connectionState = RTCPeerConnectionState.failed;
+                         onconnectionstatechange?.Invoke(connectionState);
+@@ -1829,6 +1830,37 @@
+             }
+         }
+ 
++        /// <summary>
++        /// Runs a blocking operation on a dedicated background thread and returns a task for its result.
++        /// </summary>
++        /// <remarks>
++        /// The DTLS handshake is fully synchronous and blocks while it waits for each flight, up to the handshake
++        /// timeout. On a thread pool worker a few remote peers that complete ICE and then send no or slow DTLS would
++        /// starve the pool. The thread ends when the operation returns; closing the peer connection closes the DTLS
++        /// transport, which ends a pending handshake. Continuations do not run on the dedicated thread.
++        /// </remarks>
++        internal static Task<T> RunOnDedicatedThread<T>(Func<T> operation, string threadName)
++        {
++            var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
++            var thread = new Thread(() =>
++            {
++                try
++                {
++                    completion.TrySetResult(operation());
++                }
++                catch (Exception excp)
++                {
++                    completion.TrySetException(excp);
++                }
++            })
++            {
++                IsBackground = true,
++                Name = threadName
++            };
++            thread.Start();
++            return completion.Task;
++        }
++
+         /// <summary>
+         ///  DtlsHandshake requires DtlsSrtpTransport to work.
+         ///  DtlsSrtpTransport is similar to C++ DTLS class combined with Srtp class and can perform 

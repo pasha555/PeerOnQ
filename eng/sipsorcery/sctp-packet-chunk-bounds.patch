@@ -1,0 +1,105 @@
+--- a/src/net/SCTP/SctpPacket.cs
++++ b/src/net/SCTP/SctpPacket.cs
+@@ -159,6 +159,16 @@
+         /// <param name="length">The length of the serialised packet in the buffer.</param>
+         public static SctpPacket Parse(byte[] buffer, int offset, int length)
+         {
++            if (buffer == null)
++            {
++                throw new ArgumentNullException(nameof(buffer));
++            }
++
++            if (offset < 0 || length < SctpHeader.SCTP_HEADER_LENGTH || offset > buffer.Length - length)
++            {
++                throw new ApplicationException($"The SCTP packet length of {length} at offset {offset} was too short for the common header or exceeded the buffer.");
++            }
++
+             var pkt = new SctpPacket();
+             pkt.Header = SctpHeader.Parse(buffer, offset);
+             (pkt.Chunks, pkt.UnrecognisedChunks) = ParseChunks(buffer, offset, length);
+@@ -179,11 +189,32 @@
+             List<byte[]> unrecognisedChunks = new List<byte[]>();
+ 
+             int posn = offset + SctpHeader.SCTP_HEADER_LENGTH;
++            int end = offset + length;
+ 
+             bool stop = false;
+ 
+-            while (posn < length)
++            while (posn < end)
+             {
++                // RFC 9260 section 3.2: every chunk starts with a 4 byte header and its Chunk Length,
++                // which excludes any trailing padding, includes that header. A declared length that is
++                // too short (zero in particular) or that overruns the packet makes the packet malformed
++                // and it is dropped instead of being walked.
++                if (end - posn < SctpChunk.SCTP_CHUNK_HEADER_LENGTH)
++                {
++                    throw new ApplicationException($"The SCTP packet had {end - posn} trailing bytes at position {posn - offset}, too few for a chunk header.");
++                }
++
++                int chunkLength = (int)SctpChunk.GetChunkLengthFromHeader(buffer, posn, false);
++
++                if (chunkLength < SctpChunk.SCTP_CHUNK_HEADER_LENGTH || chunkLength > end - posn)
++                {
++                    throw new ApplicationException($"The SCTP chunk at position {posn - offset} declared an invalid length of {chunkLength} for a packet of {length} bytes.");
++                }
++
++                // Pad to the 4 byte boundary in int arithmetic (the ushort padding helper wraps to zero for
++                // lengths above 65532). Only the final chunk may omit its padding, which ends the walk.
++                int paddedLength = (chunkLength + 3) & ~3;
++
+                 byte chunkType = buffer[posn];
+ 
+                 if (Enum.IsDefined(typeof(SctpChunkType), chunkType))
+@@ -200,12 +231,12 @@
+                             break;
+                         case SctpUnrecognisedChunkActions.StopAndReport:
+                             stop = true;
+-                            unrecognisedChunks.Add(SctpChunk.CopyUnrecognisedChunk(buffer, posn));
++                            unrecognisedChunks.Add(CopyChunk(buffer, posn, Math.Min(paddedLength, end - posn)));
+                             break;
+                         case SctpUnrecognisedChunkActions.Skip:
+                             break;
+                         case SctpUnrecognisedChunkActions.SkipAndReport:
+-                            unrecognisedChunks.Add(SctpChunk.CopyUnrecognisedChunk(buffer, posn));
++                            unrecognisedChunks.Add(CopyChunk(buffer, posn, Math.Min(paddedLength, end - posn)));
+                             break;
+                     }
+                 }
+@@ -216,12 +247,22 @@
+                     break;
+                 }
+ 
+-                posn += (int)SctpChunk.GetChunkLengthFromHeader(buffer, posn, true);
++                posn += paddedLength;
+             }
+ 
+             return (chunks, unrecognisedChunks);
+         }
+ 
++        /// <summary>
++        /// Copies a chunk, whose bounds have already been validated against the packet, to a new buffer.
++        /// </summary>
++        private static byte[] CopyChunk(byte[] buffer, int posn, int length)
++        {
++            byte[] copy = new byte[length];
++            Buffer.BlockCopy(buffer, posn, copy, 0, length);
++            return copy;
++        }
++
+         /// <summary>
+         /// Verifies whether the checksum for a serialised SCTP packet is valid.
+         /// </summary>
+@@ -231,6 +272,12 @@
+         /// <returns>True if the checksum was valid, false if not.</returns>
+         public static bool VerifyChecksum(byte[] buffer, int posn, int length)
+         {
++            if (buffer == null || posn < 0 || length < SctpHeader.SCTP_HEADER_LENGTH || posn > buffer.Length - length)
++            {
++                // Too short to hold the common header, and its checksum field, or outside the buffer.
++                return false;
++            }
++
+             uint origChecksum = NetConvert.ParseUInt32(buffer, posn + CHECKSUM_BUFFER_POSITION);
+             NetConvert.ToBuffer(0U, buffer, posn + CHECKSUM_BUFFER_POSITION);
+             uint calcChecksum = CRC32C.Calculate(buffer, posn, length);

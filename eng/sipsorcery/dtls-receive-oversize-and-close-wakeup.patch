@@ -1,0 +1,68 @@
+--- a/src/net/DtlsSrtp/DtlsSrtpTransport.cs
++++ b/src/net/DtlsSrtp/DtlsSrtpTransport.cs
+@@ -489,7 +489,15 @@
+         {
+             if (!_isClosed)
+             {
+-                _chunks.Add(buf);
++                try
++                {
++                    _chunks.Add(buf);
++                }
++                catch (InvalidOperationException)
++                {
++                    // Closed concurrently: adding has been completed or the collection disposed
++                    // (ObjectDisposedException is an InvalidOperationException). The datagram is not needed any more.
++                }
+             }
+         }
+ 
+@@ -502,10 +510,31 @@
+                     throw new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.NotConnected);
+                     //return DTLS_RECEIVE_ERROR_CODE;
+                 }
+-                else if (_chunks.TryTake(out var item, timeout))
++
++                // TryTake blocks on the collection's semaphore until a datagram arrives, the timeout expires or the
++                // transport is closed, so this does not poll.
++                var waitTimer = System.Diagnostics.Stopwatch.StartNew();
++                int remaining = timeout;
++                while (_chunks.TryTake(out var item, remaining))
+                 {
+-                    Buffer.BlockCopy(item, 0, buffer, 0, item.Length);
+-                    return item.Length;
++                    if (item.Length <= count)
++                    {
++                        Buffer.BlockCopy(item, 0, buffer, offset, item.Length);
++                        return item.Length;
++                    }
++
++                    // Any peer can send a datagram larger than the DTLS record buffer before the handshake has
++                    // authenticated anything. Copying it would throw and abort the handshake or session, so it is dropped.
++                    logger.LogWarning("DTLS transport dropped a {DatagramLength} byte datagram larger than its {BufferLength} byte receive buffer.", item.Length, count);
++
++                    if (timeout >= 0)
++                    {
++                        remaining = timeout - (int)waitTimer.ElapsedMilliseconds;
++                        if (remaining <= 0)
++                        {
++                            break;
++                        }
++                    }
+                 }
+             }
+             catch (ObjectDisposedException) { }
+@@ -587,6 +616,13 @@
+             {
+                 _isClosed = true;
+                 this._startTime = System.DateTime.MinValue;
++                try
++                {
++                    // Wakes a receive blocked in TryTake, such as a handshake waiting for the next flight, so it
++                    // observes the close now instead of at the end of its wait.
++                    this._chunks?.CompleteAdding();
++                }
++                catch (ObjectDisposedException) { }
+                 this._chunks?.Dispose();
+                 Transport?.Close();
+             }

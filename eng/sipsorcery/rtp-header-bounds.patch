@@ -1,0 +1,65 @@
+--- a/src/net/RTP/RTPHeader.cs
++++ b/src/net/RTP/RTPHeader.cs
+@@ -98,6 +98,13 @@
+             int headerExtensionLength = 0;
+             int headerAndCSRCLength = 12 + 4 * CSRCCount;
+ 
++            // The CSRC list and, when flagged, the extension header must lie inside the packet. Otherwise the
++            // header is malformed and would yield a negative payload size.
++            if (packet.Length < headerAndCSRCLength + ((HeaderExtensionFlag == 1) ? 4 : 0))
++            {
++                throw new ApplicationException("The packet did not contain enough bytes for the RTP header CSRC list and extension header.");
++            }
++
+             if (HeaderExtensionFlag == 1 && (packet.Length >= (headerAndCSRCLength + 4)))
+             {
+                 if (BitConverter.IsLittleEndian)
+@@ -115,6 +122,11 @@
+                     headerExtensionLength += 2 + ExtensionLength * 4;
+                 }
+ 
++                if (packet.Length < headerAndCSRCLength + headerExtensionLength)
++                {
++                    throw new ApplicationException("The RTP header extension length exceeded the packet length.");
++                }
++
+                 if (ExtensionLength > 0 && packet.Length >= (headerAndCSRCLength + 4 + ExtensionLength * 4))
+                 {
+                     ExtensionPayload = new byte[ExtensionLength * 4];
+@@ -302,19 +314,31 @@
+ 
+             int headerAndCSRCLength = offset + 4 * header.CSRCCount;
+ 
+-            if (header.HeaderExtensionFlag == 1 && (buffer.Length >= (headerAndCSRCLength + 4)))
++            // The CSRC list, extension header and extension payload must all lie inside the buffer.
++            if (buffer.Length < headerAndCSRCLength + ((header.HeaderExtensionFlag == 1) ? 4 : 0))
++            {
++                return false;
++            }
++            offset = headerAndCSRCLength;
++
++            if (header.HeaderExtensionFlag == 1)
+             {
+                 header.ExtensionProfile =BinaryPrimitives.ReadUInt16BigEndian(buffer.Slice(offset));
+                 offset += 2;
+                 header.ExtensionLength = BinaryPrimitives.ReadUInt16BigEndian(buffer.Slice(offset));
+-                offset += 2 + header.ExtensionLength * 4;
++                offset += 2;
+ 
+                 var extensionPayloadLength = header.ExtensionLength * 4;
+-                if (header.ExtensionLength > 0 && buffer.Length >= extensionPayloadLength)
++                if (buffer.Length < offset + extensionPayloadLength)
++                {
++                    return false;
++                }
++
++                if (header.ExtensionLength > 0)
+                 {
+-                    header.ExtensionPayload = new byte[extensionPayloadLength];
+-                    Buffer.BlockCopy(buffer.ToArray(), headerAndCSRCLength + 4, header.ExtensionPayload, 0, extensionPayloadLength);
++                    header.ExtensionPayload = buffer.Slice(offset, extensionPayloadLength).ToArray();
+                 }
++                offset += extensionPayloadLength;
+             }
+ 
+             header.PayloadSize = buffer.Length - offset;

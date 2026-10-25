@@ -1873,7 +1873,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 }
 
                 var bytes = payload.ToArray();
-                channel.send(bytes, 0, bytes.Length);
+                channel.send(bytes);
                 return;
             }
             finally

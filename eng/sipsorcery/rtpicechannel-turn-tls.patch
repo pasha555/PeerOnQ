@@ -1,0 +1,512 @@
+--- a/src/net/ICE/RtpIceChannel.cs
++++ b/src/net/ICE/RtpIceChannel.cs
+@@ -69,6 +69,7 @@
+ using System.Collections.Generic;
+ using System.Linq;
+ using System.Net;
++using System.Net.Security;
+ using System.Net.Sockets;
+ using System.Runtime.CompilerServices;
+ using System.Security.Cryptography;
+@@ -181,11 +182,10 @@
+                 catch (Exception excp)
+                 {
+                     m_isRunningReceive = false;
+-                    // From https://github.com/dotnet/corefx/blob/e99ec129cfd594d53f4390bf97d1d736cff6f860/src/System.Net.Sockets/src/System/Net/Sockets/Socket.cs#L3262
+-                    // the BeginReceiveFrom will only throw if there is an problem with the arguments or the socket has been disposed of. In that
+-                    // case the socket can be considered to be unusable and there's no point trying another receive.
++                    // BeginReceiveFrom only throws for bad arguments here (a disposed socket is handled above). The receiver is
++                    // not closed: buffered bytes are dropped and the next send to the server starts a new receive.
+                     logger.LogError(excp, "Exception IceTcpReceiver.BeginReceiveFrom. {ErrorMessage}", excp.Message);
+-                    Close(excp.Message);
++                    m_recvOffset = 0;
+                 }
+             }
+ 
+@@ -207,6 +207,12 @@
+                         {
+                             ProcessRawBuffer(bytesRead + m_recvOffset, remoteEP as IPEndPoint);
+                         }
++                        else
++                        {
++                            // The server closed the connection. Receiving again would complete immediately, forever.
++                            logger.LogWarning("IceTcpReceiver connection to {RemoteEndPoint} was closed by the remote end.", remoteEP);
++                            Close("closed by the remote end");
++                        }
+                     }
+ 
+                     // If there is still data available it should be read now. This is more efficient than calling
+@@ -237,6 +243,8 @@
+                             }
+                             else
+                             {
++                                logger.LogWarning("IceTcpReceiver connection to {RemoteEndPoint} was closed by the remote end.", remoteEP);
++                                Close("closed by the remote end");
+                                 break;
+                             }
+                         }
+@@ -263,8 +271,9 @@
+                 { }
+                 catch (Exception excp)
+                 {
+-                    logger.LogError(excp, "Exception IceTcpReceiver.EndReceiveFrom. {ErrorMessage}", excp.Message);
+-                    Close(excp.Message);
++                    // Not a socket failure: drop the buffered bytes and keep receiving rather than closing for good.
++                    logger.LogError(excp, "Exception IceTcpReceiver.EndReceiveFrom, dropping {BufferedBytes} buffered bytes. {ErrorMessage}", m_recvOffset, excp.Message);
++                    m_recvOffset = 0;
+                 }
+                 finally
+                 {
+@@ -326,7 +335,15 @@
+                                 byte[] packetBuffer = new byte[stunMsgBytes];
+                                 Buffer.BlockCopy(recvRemainingSegment.Array, recvRemainingSegment.Offset, packetBuffer, 0, stunMsgBytes);
+ 
+-                                CallOnPacketReceivedCallback(m_localEndPoint.Port, remoteEP, packetBuffer);
++                                try
++                                {
++                                    CallOnPacketReceivedCallback(m_localEndPoint.Port, remoteEP, packetBuffer);
++                                }
++                                catch (Exception excp)
++                                {
++                                    // Log and drop: a packet that cannot be processed must not end the receive path.
++                                    logger.LogWarning(excp, "IceTcpReceiver dropped a packet from {RemoteEndPoint} that could not be processed. {ErrorMessage}", remoteEP, excp.Message);
++                                }
+ 
+                                 var newOffset = recvRemainingSegment.Offset + stunMsgBytes;
+                                 var newCount = recvRemainingSegment.Count - stunMsgBytes;
+@@ -356,10 +373,13 @@
+                                 break;
+                             }
+                         }
+-                        //Save Remaining Buffer in start of m_recvBuffer
++                        // Not a STUN message (the header is only parsed with more than 20 bytes buffered): the stream framing is lost.
++                        // Drop the bytes rather than keep them at the start of the buffer, where they would hold up every later message.
+                         else
+                         {
+-                            isFragmented = true;
++                            logger.LogWarning("IceTcpReceiver dropped {ByteCount} bytes from {RemoteEndPoint} that did not start a STUN message.", recvRemainingSegment.Count, remoteEP);
++                            recvRemainingSegment = new ArraySegment<byte>();
++                            isFragmented = false;
+                             break;
+                         }
+                     }
+@@ -599,6 +619,43 @@
+ 
+         private bool m_tcpRtpReceiverStarted = false;
+ 
++        /// <summary>
++        /// The TLS connections to TURN servers given as "turns:" URIs, keyed like <see cref="RtpTcpSocketByUri"/>
++        /// whose sockets they use. Only filled in the constructor.
++        /// </summary>
++        private readonly Dictionary<STUNUri, TurnTlsConnection> m_turnTlsConnectionByUri = new Dictionary<STUNUri, TurnTlsConnection>();
++
++        private bool m_unsupportedIceServerWarned;
++
++        private long m_droppedPacketCount;
++
++        /// <summary>
++        /// The time in seconds allowed to connect to a TURN server over TLS ("turns:" URI), including the TLS handshake.
++        /// </summary>
++        public static int TURN_TLS_CONNECT_TIMEOUT_SECONDS = 10;
++
++        /// <summary>
++        /// The most bytes that may wait to be written to the TLS connection of a TURN server. Further messages are
++        /// dropped, as datagrams would be, until the connection catches up.
++        /// </summary>
++        public static int TURN_TLS_MAX_SEND_QUEUE_BYTES = 1024 * 1024;
++
++        /// <summary>
++        /// Optional. Validates the certificates of TURN servers reached over TLS ("turns:" URIs) by every ICE channel
++        /// that has no <see cref="TurnTlsCertificateValidation"/> of its own. When null (the default) a certificate is
++        /// accepted only if it chains to a trusted root and matches the host of the URI (no SslPolicyErrors). Set it
++        /// only to trust a private CA or a pinned certificate; it is called when the certificate arrives, so it also
++        /// covers channels created by <see cref="RTCPeerConnection"/>, which starts gathering in its constructor.
++        /// </summary>
++        public static RemoteCertificateValidationCallback DefaultTurnTlsCertificateValidation { get; set; }
++
++        /// <summary>
++        /// Optional. Validates the certificates of TURN servers reached over TLS ("turns:" URIs) by this channel,
++        /// in place of <see cref="DefaultTurnTlsCertificateValidation"/>. Null (the default) leaves the choice to
++        /// that property. Read when the certificate arrives; set it before <see cref="StartGathering"/>.
++        /// </summary>
++        public RemoteCertificateValidationCallback TurnTlsCertificateValidation { get; set; }
++
+         /// <summary>
+         /// Creates a new instance of an RTP ICE channel to provide RTP channel functions 
+         /// with ICE connectivity checks.
+@@ -663,41 +720,72 @@
+             // Create TCP Socket to implement TURN Control
+             // Take a note that TURN Control will only use TCP for CreatePermissions/Allocate/BindRequests/Data
+             // Ice Candidates returned by relay will always be UDP based.
+-            var tcpIceServers = _iceServers != null ?
+-                                    _iceServers.FindAll(a =>
+-                                       a != null &&
+-                                       (a.urls.Contains(STUNUri.SCHEME_TRANSPORT_TCP) ||
+-                                       a.urls.Contains(STUNUri.SCHEME_TRANSPORT_TLS))) :
+-                                    new List<RTCIceServer>();
+-            var supportTcp = tcpIceServers != null && tcpIceServers.Count > 0;
+-            if (supportTcp)
++            // Servers over TLS ("turns:", TLS over TCP) use the same kind of socket, wrapped in a TLS connection.
++            if (_iceServers != null)
+             {
+                 // Init one TCP Socket per IceServer as we need to connect to properly use a TcpSocket (unfortunately).
+-                RtpTcpSocketByUri = new Dictionary<STUNUri, Socket>();
+-                foreach (var tcpIceServer in tcpIceServers)
++                foreach (var tcpIceServer in _iceServers)
+                 {
+-                    var serverUrl = tcpIceServer.urls;
+-                    STUNUri.TryParse(serverUrl, out STUNUri uri);
+-                    if (uri != null && !RtpTcpSocketByUri.ContainsKey(uri))
++                    foreach (var serverUrl in tcpIceServer?.urls?.Split(',') ?? Array.Empty<string>())
+                     {
+-
+-                        if (uri != null)
++                        if (string.IsNullOrWhiteSpace(serverUrl) ||
++                            !TryParseIceServerUrl(serverUrl, out STUNUri uri) ||
++                            uri.Protocol != ProtocolType.Tcp ||
++                            uri.Scheme == STUNSchemesEnum.stuns ||
++                            RtpTcpSocketByUri.ContainsKey(uri))
+                         {
+-                            NetServices.CreateRtpSocket(false, ProtocolType.Tcp, bindAddress, bindPort, rtpPortRange, true, true, out var rtpTcpSocket, out _);
++                            continue;
++                        }
+ 
+-                            if (rtpTcpSocket == null)
+-                            {
+-                                throw new ApplicationException("The RTP channel was not able to create an RTP socket.");
+-                            }
++                        NetServices.CreateRtpSocket(false, ProtocolType.Tcp, bindAddress, bindPort, rtpPortRange, true, true, out var rtpTcpSocket, out _);
++
++                        if (rtpTcpSocket == null)
++                        {
++                            throw new ApplicationException("The RTP channel was not able to create an RTP socket.");
++                        }
+ 
++                        RtpTcpSocketByUri.Add(uri, rtpTcpSocket);
+ 
+-                            RtpTcpSocketByUri.Add(uri, rtpTcpSocket);
++                        if (IsTurnTls(uri))
++                        {
++                            m_turnTlsConnectionByUri.Add(uri, new TurnTlsConnection(uri, rtpTcpSocket,
++                                () => TurnTlsCertificateValidation ?? DefaultTurnTlsCertificateValidation,
++                                OnTurnTlsStunMessage, TURN_TLS_MAX_SEND_QUEUE_BYTES));
+                         }
+                     }
+                 }
+             }
+         }
+ 
++        /// <summary>
++        /// Parses an ICE server URL. A "turns:" URL without a transport parameter is TLS over TCP (RFC 7065
++        /// section 3), whereas <see cref="STUNUri"/> defaults every URL without one to UDP.
++        /// </summary>
++        internal static bool TryParseIceServerUrl(string url, out STUNUri uri)
++        {
++            if (!STUNUri.TryParse(url, out uri) || uri == null)
++            {
++                return false;
++            }
++
++            if ((uri.Scheme == STUNSchemesEnum.turns || uri.Scheme == STUNSchemesEnum.stuns) &&
++                uri.Transport == STUNProtocolsEnum.udp &&
++                url.IndexOf(STUNUri.SCHEME_TRANSPORT_SEPARATOR[0], StringComparison.Ordinal) < 0)
++            {
++                uri.Transport = STUNProtocolsEnum.tcp;
++            }
++
++            return true;
++        }
++
++        /// <summary>
++        /// True for a TURN server reached over TLS over TCP. "turns:" with transport udp (DTLS) is not supported.
++        /// </summary>
++        internal static bool IsTurnTls(STUNUri uri)
++        {
++            return uri != null && uri.Scheme == STUNSchemesEnum.turns && uri.Protocol == ProtocolType.Tcp;
++        }
++
+         /// <summary>
+         /// We've been given the green light to start the ICE candidate gathering process.
+         /// This could include contacting external STUN and TURN servers. Events will 
+@@ -775,7 +863,8 @@
+                     var stunUri = pair.Key;
+                     var tcpSocket = pair.Value;
+ 
+-                    if (stunUri != null && !m_rtpTcpReceiverByUri.ContainsKey(stunUri) && tcpSocket != null)
++                    // A TLS connection reads its own socket.
++                    if (stunUri != null && !m_rtpTcpReceiverByUri.ContainsKey(stunUri) && tcpSocket != null && !m_turnTlsConnectionByUri.ContainsKey(stunUri))
+                     {
+                         var rtpTcpReceiver = new IceTcpReceiver(tcpSocket);
+ 
+@@ -807,6 +896,12 @@
+                     CloseTcp(pair.Value, reason);
+                 }
+             }
++
++            // Closing the connection is what makes the TURN server delete a TCP or TLS allocation.
++            foreach (var turnTlsConnection in m_turnTlsConnectionByUri.Values)
++            {
++                turnTlsConnection.Close(reason ?? "RTP channel closed");
++            }
+         }
+ 
+         protected void CloseTcp(IceTcpReceiver target, string reason)
+@@ -1081,11 +1176,16 @@
+                 {
+                     if (!String.IsNullOrWhiteSpace(url))
+                     {
+-                        if (STUNUri.TryParse(url, out var stunUri))
++                        if (TryParseIceServerUrl(url, out var stunUri))
+                         {
+-                            if (stunUri.Scheme == STUNSchemesEnum.stuns || stunUri.Scheme == STUNSchemesEnum.turns)
++                            if (stunUri.Scheme == STUNSchemesEnum.stuns || (stunUri.Scheme == STUNSchemesEnum.turns && !IsTurnTls(stunUri)))
+                             {
+-                                logger.LogWarning("ICE channel does not currently support TLS for STUN and TURN servers, not checking {stunUri}.", stunUri);
++                                // TURN over TLS is supported; STUN over TLS and DTLS for STUN or TURN are not.
++                                if (!m_unsupportedIceServerWarned)
++                                {
++                                    m_unsupportedIceServerWarned = true;
++                                    logger.LogWarning("ICE channel does not support {Scheme} servers over {Transport}, not checking {stunUri}.", stunUri.Scheme, stunUri.Transport, stunUri);
++                                }
+                             }
+                             else if (_policy == RTCIceTransportPolicy.relay && stunUri.Scheme == STUNSchemesEnum.stun)
+                             {
+@@ -1136,7 +1236,7 @@
+                 {
+                     return;
+                 }
+-                if (_activeIceServer._uri.Scheme != STUNSchemesEnum.turn || NominatedEntry.LocalCandidate.IceServer is null)
++                if ((_activeIceServer._uri.Scheme != STUNSchemesEnum.turn && _activeIceServer._uri.Scheme != STUNSchemesEnum.turns) || NominatedEntry.LocalCandidate.IceServer is null)
+                 {
+                     _refreshTurnTimer?.Dispose();
+                     return;
+@@ -1192,6 +1292,17 @@
+                 {
+                     if (_activeIceServer == null || _activeIceServer.Error != SocketError.Success)
+                     {
++                        // A failed server is not checked again, so its TLS connection is no longer needed, unless it
++                        // carries the relay candidate already in use (the checks after an ICE restart fail on it).
++                        if (_activeIceServer != null &&
++                            m_turnTlsConnectionByUri.TryGetValue(_activeIceServer._uri, out var failedTlsConnection) &&
++                            !(_relayChecklistCandidate?.IceServer?._uri != null &&
++                              m_turnTlsConnectionByUri.TryGetValue(_relayChecklistCandidate.IceServer._uri, out var relayTlsConnection) &&
++                              ReferenceEquals(relayTlsConnection, failedTlsConnection)))
++                        {
++                            failedTlsConnection.Close($"ICE server check failed ({_activeIceServer.Error})");
++                        }
++
+                         if (_iceServerConnections.Count(x => x.Value.Error == SocketError.Success) == 0)
+                         {
+                             logger.LogDebug("RTP ICE Channel all ICE server connection checks failed, stopping ICE servers timer.");
+@@ -1225,7 +1336,7 @@
+                         logger.LogDebug("RTP ICE Channel was not able to acquire an active ICE server, stopping ICE servers timer.");
+                         _processIceServersTimer.Dispose();
+                     }
+-                    else if ((_activeIceServer._uri.Scheme == STUNSchemesEnum.turn && _activeIceServer.RelayEndPoint != null) ||
++                    else if (((_activeIceServer._uri.Scheme == STUNSchemesEnum.turn || _activeIceServer._uri.Scheme == STUNSchemesEnum.turns) && _activeIceServer.RelayEndPoint != null) ||
+                         (_activeIceServer._uri.Scheme == STUNSchemesEnum.stun && _activeIceServer.ServerReflexiveEndPoint != null))
+                     {
+                         // Successfully set up the ICE server. Do nothing.
+@@ -1266,6 +1377,11 @@
+                         logger.LogWarning("ICE server DNS resolution failed for {Uri}.", _activeIceServer._uri);
+                         _activeIceServer.Error = SocketError.TimedOut;
+                     }
++                    // TURN over TLS: requests can only be sent once the TLS connection to the server is up.
++                    else if (IsTurnTls(_activeIceServer._uri) && !IsTurnTlsConnectionReady(_activeIceServer))
++                    {
++                        // Connecting, or the connection failed and the server's error has been set.
++                    }
+                     // Maximum number of requests have been sent to the ICE server without a response.
+                     else if (_activeIceServer.OutstandingRequestsSent >= IceServer.MAX_REQUESTS && _activeIceServer.LastResponseReceivedAt == DateTime.MinValue)
+                     {
+@@ -1285,7 +1401,7 @@
+                         _activeIceServer.Error = SendStunBindingRequest(_activeIceServer);
+                     }
+                     // Send TURN binding request.
+-                    else if (_activeIceServer.ServerReflexiveEndPoint == null && _activeIceServer._uri.Scheme == STUNSchemesEnum.turn)
++                    else if (_activeIceServer.ServerReflexiveEndPoint == null && (_activeIceServer._uri.Scheme == STUNSchemesEnum.turn || _activeIceServer._uri.Scheme == STUNSchemesEnum.turns))
+                     {
+                         logger.LogDebug("Sending TURN allocate request to ICE server {Uri} with address {EndPoint}.", _activeIceServer._uri, _activeIceServer.ServerEndPoint);
+                         _activeIceServer.Error = SendTurnAllocateRequest(_activeIceServer);
+@@ -2463,8 +2579,98 @@
+             return sendResult;
+         }
+ 
++        /// <summary>
++        /// Checks the TLS connection of a TURN server reached over TLS, starting it on first use.
++        /// </summary>
++        /// <returns>True if requests can be sent. False while connecting or, with the server's error set, if the connection failed.</returns>
++        private bool IsTurnTlsConnectionReady(IceServer iceServer)
++        {
++            if (!m_turnTlsConnectionByUri.TryGetValue(iceServer._uri, out var connection))
++            {
++                logger.LogWarning("No TLS connection is available for TURN server {Uri}.", iceServer._uri);
++                iceServer.Error = SocketError.NotConnected;
++                return false;
++            }
++
++            switch (connection.State)
++            {
++                case TurnTlsConnection.ConnectionState.New:
++                    logger.LogDebug("Connecting to TURN server {Uri} over TLS at {EndPoint}.", iceServer._uri, iceServer.ServerEndPoint);
++                    connection.Connect(iceServer.ServerEndPoint, TimeSpan.FromSeconds(Math.Max(1, TURN_TLS_CONNECT_TIMEOUT_SECONDS)));
++                    return false;
++
++                case TurnTlsConnection.ConnectionState.Connecting:
++                    return false;
++
++                case TurnTlsConnection.ConnectionState.Connected:
++                    if (IsSameEndPoint(connection.ServerEndPoint, iceServer.ServerEndPoint))
++                    {
++                        return true;
++                    }
++
++                    // An ALTERNATE-SERVER response changed the end point. The TLS session was authenticated for the
++                    // original server, so the redirect is not followed and the next ICE server is tried instead.
++                    logger.LogWarning("TURN server {Uri} redirected to {EndPoint}, which is not supported over TLS.", iceServer._uri, iceServer.ServerEndPoint);
++                    connection.Close("alternate server not supported over TLS");
++                    iceServer.Error = SocketError.ConnectionRefused;
++                    return false;
++
++                default:
++                    iceServer.Error = connection.Error != SocketError.Success ? connection.Error : SocketError.NotConnected;
++                    return false;
++            }
++        }
++
++        /// <summary>
++        /// Sends a STUN message (request or Send indication) to a TURN server over its TLS connection.
++        /// </summary>
++        private SocketError SendOverTls(IceServer iceServer, TurnTlsConnection connection, byte[] buffer)
++        {
++            if (IsClosed)
++            {
++                return SocketError.Disconnecting;
++            }
++            else if (connection.State != TurnTlsConnection.ConnectionState.Connected)
++            {
++                return SocketError.NotConnected;
++            }
++            else if (!IsSameEndPoint(connection.ServerEndPoint, iceServer.ServerEndPoint))
++            {
++                return SocketError.ConnectionRefused;
++            }
++
++            return connection.Send(buffer);
++        }
++
++        /// <summary>
++        /// Handles a STUN message read from the TLS connection of a TURN server: responses to TURN requests and
++        /// Data indications carrying relayed packets, exactly as if they had arrived on the RTP or TCP sockets.
++        /// </summary>
++        private void OnTurnTlsStunMessage(TurnTlsConnection connection, byte[] message)
++        {
++            OnRTPPacketReceived(null, connection.LocalPort, connection.ServerEndPoint, message);
++        }
++
++        private static bool IsSameEndPoint(IPEndPoint endPoint1, IPEndPoint endPoint2)
++        {
++            if (endPoint1 == null || endPoint2 == null || endPoint1.Port != endPoint2.Port)
++            {
++                return false;
++            }
++
++            var address1 = endPoint1.Address.IsIPv4MappedToIPv6 ? endPoint1.Address.MapToIPv4() : endPoint1.Address;
++            var address2 = endPoint2.Address.IsIPv4MappedToIPv6 ? endPoint2.Address.MapToIPv4() : endPoint2.Address;
++            return address1.Equals(address2);
++        }
++
+         protected virtual SocketError SendOverTCP(IceServer iceServer, byte[] buffer)
+         {
++            // TURN servers reached over TLS have the TCP protocol too, their messages go over the TLS connection.
++            if (iceServer?._uri != null && m_turnTlsConnectionByUri.TryGetValue(iceServer._uri, out var turnTlsConnection))
++            {
++                return SendOverTls(iceServer, turnTlsConnection, buffer);
++            }
++
+             IPEndPoint dstEndPoint = iceServer?.ServerEndPoint;
+             if (IsClosed)
+             {
+@@ -2604,26 +2810,54 @@
+             if (packet?.Length > 0)
+             {
+                 bool wasRelayed = false;
++                STUNMessage stunMessage = null;
+ 
+-                if (packet[0] == 0x00 && packet[1] == 0x17)
++                // A malformed packet is logged and dropped here so that it can never end a receive loop (UDP, TCP or TLS).
++                // Exceptions from the handlers of well formed packets are left to the receiver as before.
++                try
+                 {
+-                    wasRelayed = true;
++                    if (packet.Length >= STUNHeader.STUN_HEADER_LENGTH && packet[0] == 0x00 && packet[1] == 0x17)
++                    {
++                        wasRelayed = true;
++
++                        // TURN data indication. Extract the data payload and adjust the end point.
++                        var dataIndication = STUNMessage.ParseSTUNMessage(packet, packet.Length);
++                        var dataAttribute = dataIndication?.Attributes.Where(x => x.AttributeType == STUNAttributeTypesEnum.Data).FirstOrDefault();
++                        var peerAddrAttribute = dataIndication?.Attributes.Where(x => x.AttributeType == STUNAttributeTypesEnum.XORPeerAddress).FirstOrDefault();
++                        var peerEndPoint = (peerAddrAttribute as STUNXORAddressAttribute)?.GetIPEndPoint();
++
++                        if (dataAttribute?.Value == null || dataAttribute.Value.Length == 0 || peerEndPoint == null)
++                        {
++                            LogDroppedPacket(remoteEndPoint, "TURN Data indication without DATA or XOR-PEER-ADDRESS");
++                            return;
++                        }
+ 
+-                    // TURN data indication. Extract the data payload and adjust the end point.
+-                    var dataIndication = STUNMessage.ParseSTUNMessage(packet, packet.Length);
+-                    var dataAttribute = dataIndication.Attributes.Where(x => x.AttributeType == STUNAttributeTypesEnum.Data).FirstOrDefault();
+-                    packet = dataAttribute?.Value;
++                        packet = dataAttribute.Value;
++                        remoteEndPoint = peerEndPoint;
++                    }
++
++                    if (packet[0] == 0x00 || packet[0] == 0x01)
++                    {
++                        // STUN packet.
++                        stunMessage = packet.Length >= STUNHeader.STUN_HEADER_LENGTH ? STUNMessage.ParseSTUNMessage(packet, packet.Length) : null;
+ 
+-                    var peerAddrAttribute = dataIndication.Attributes.Where(x => x.AttributeType == STUNAttributeTypesEnum.XORPeerAddress).FirstOrDefault();
+-                    remoteEndPoint = (peerAddrAttribute as STUNXORAddressAttribute)?.GetIPEndPoint();
++                        if (stunMessage?.Header == null)
++                        {
++                            LogDroppedPacket(remoteEndPoint, $"{packet.Length} byte STUN packet");
++                            return;
++                        }
++                    }
++                }
++                catch (Exception excp)
++                {
++                    LogDroppedPacket(remoteEndPoint, excp.Message, excp);
++                    return;
+                 }
+ 
+                 base.LastRtpDestination = remoteEndPoint;
+ 
+-                if (packet[0] == 0x00 || packet[0] == 0x01)
++                if (stunMessage != null)
+                 {
+-                    // STUN packet.
+-                    var stunMessage = STUNMessage.ParseSTUNMessage(packet, packet.Length);
+                     _ = ProcessStunMessage(stunMessage, remoteEndPoint, wasRelayed);
+                 }
+                 else
+@@ -2633,6 +2867,16 @@
+             }
+         }
+ 
++        private void LogDroppedPacket(IPEndPoint remoteEndPoint, string reason, Exception excp = null)
++        {
++            // Rate limited: whoever can reach the socket can send any number of malformed packets.
++            long dropped = Interlocked.Increment(ref m_droppedPacketCount);
++            if (dropped <= 10 || dropped % 1000 == 0)
++            {
++                logger.LogWarning(excp, "RTP ICE channel dropped a malformed packet from {RemoteEndPoint}: {Reason} ({DroppedCount} dropped so far).", remoteEndPoint, reason, dropped);
++            }
++        }
++
+         /// <summary>
+         /// Sends a packet via a TURN relay server.
+         /// </summary>

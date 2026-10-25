@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <PeerOnQSipsorceryPackageVersion>10.0.17.6</PeerOnQSipsorceryPackageVersion>
+    <PeerOnQSipsorceryPackageVersion>8.0.14.1</PeerOnQSipsorceryPackageVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,8 +41,8 @@
 
     <!-- Real-time media (WebRTC) -->
     <PackageVersion Include="PeerOnQ.SIPSorcery" Version="$(PeerOnQSipsorceryPackageVersion)" />
-    <PackageVersion Include="SIPSorceryMedia.Abstractions" Version="10.0.17" />
-    <PackageVersion Include="SIPSorceryMedia.Encoders" Version="10.0.4" />
+    <PackageVersion Include="SIPSorceryMedia.Abstractions" Version="8.0.10" />
+    <PackageVersion Include="SIPSorceryMedia.Encoders" Version="8.0.7" />
     <!-- Managed Opus (BSD-3-Clause port of libopus) for two-way voice; no native payload. -->
     <PackageVersion Include="Concentus" Version="2.2.2" />
 

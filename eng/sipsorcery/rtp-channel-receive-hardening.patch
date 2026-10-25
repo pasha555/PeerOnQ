@@ -1,0 +1,210 @@
+--- a/src/net/RTP/RTPChannel.cs
++++ b/src/net/RTP/RTPChannel.cs
+@@ -20,6 +20,7 @@
+ using System;
+ using System.Net;
+ using System.Net.Sockets;
++using System.Threading;
+ using Microsoft.Extensions.Logging;
+ using SIPSorcery.Sys;
+ 
+@@ -49,12 +50,28 @@
+         /// </summary>
+         protected const int RECEIVE_BUFFER_SIZE = 3000;
+ 
++        /// <summary>
++        /// A receive that completes synchronously invokes EndReceiveFrom inline on the thread that started it. A burst of
++        /// such completions (for example queued receive errors) would otherwise nest re-arms on one stack without bound,
++        /// so beyond this depth the re-arm continues on a thread pool thread.
++        /// </summary>
++        private const int MAX_INLINE_RECEIVE_REARM_DEPTH = 8;
++
++        [ThreadStatic]
++        private static int t_inlineReceiveRearmDepth;
++
+         protected static ILogger logger = Log.Logger;
+ 
+         protected readonly Socket m_socket;
+         protected byte[] m_recvBuffer;
+         protected bool m_isClosed, m_isClosing;
+         protected bool m_isRunningReceive;
++
++        /// <summary>
++        /// Serialises receive admission and close. Exactly one receive may own m_recvBuffer at a time; the
++        /// EndReceiveFrom re-arm, RTPChannel.Send's recovery path and application restarts all race to start one.
++        /// </summary>
++        private readonly object m_receiveAdmissionGate = new object();
+         protected IPEndPoint m_localEndPoint;
+         protected AddressFamily m_addressFamily;
+ 
+@@ -114,40 +131,51 @@
+         /// </summary>
+         public virtual void BeginReceiveFrom()
+         {
+-            //Prevent call BeginReceiveFrom if it is already running
+-            if(m_isClosed && m_isRunningReceive)
+-            {
+-                m_isRunningReceive = false;
+-            }
+-            if (m_isRunningReceive || m_isClosed || m_isClosing)
++            // Single-owner admission: the check and the claim must be atomic, otherwise two callers can both post a
++            // receive into the shared m_recvBuffer.
++            lock (m_receiveAdmissionGate)
+             {
+-                return;
++                if (m_isRunningReceive || m_isClosed || m_isClosing)
++                {
++                    return;
++                }
++                m_isRunningReceive = true;
+             }
+ 
+             try
+             {
+-                m_isRunningReceive = true;
+                 EndPoint recvEndPoint = m_addressFamily == AddressFamily.InterNetwork ? new IPEndPoint(IPAddress.Any, 0) : new IPEndPoint(IPAddress.IPv6Any, 0);
+                 m_socket.BeginReceiveFrom(m_recvBuffer, 0, m_recvBuffer.Length, SocketFlags.None, ref recvEndPoint, EndReceiveFrom, null);
+             }
+             catch (ObjectDisposedException) 
+             {
+                 // Thrown when socket is closed. Can be safely ignored.
+-                m_isRunningReceive = false;
++                ReleaseReceiveAdmission();
+             } 
++            catch (SocketException resetSockExcp) when (resetSockExcp.SocketErrorCode == SocketError.ConnectionReset)
++            {
++                // Some runtimes (.NET Framework) report the ICMP port unreachable of an earlier send synchronously here
++                // instead of through EndReceiveFrom. The socket is still usable, so the receive is posted again.
++                ReleaseReceiveAdmission();
++                logger.LogDebug("UdpReceiver.BeginReceiveFrom ignored {SocketErrorCode} on {LocalEndPoint}.", resetSockExcp.SocketErrorCode, m_localEndPoint);
++                if (!m_isClosed)
++                {
++                    RearmReceive();
++                }
++            }
+             catch (SocketException sockExcp)
+             {
+                 // This exception can be thrown in response to an ICMP packet. The problem is the ICMP packet can be a false positive.
+                 // For example if the remote RTP socket has not yet been opened the remote host could generate an ICMP packet for the 
+                 // initial RTP packets. Experience has shown that it's not safe to close an RTP connection based solely on ICMP packets.
+ 
+-                m_isRunningReceive = false;
++                ReleaseReceiveAdmission();
+                 logger.LogWarning("Socket error {SocketErrorCode} in UdpReceiver.BeginReceiveFrom. {Message}", sockExcp.SocketErrorCode, sockExcp.Message);
+                 //Close(sockExcp.Message);
+             }
+             catch (Exception excp)
+             {
+-                m_isRunningReceive = false;
++                ReleaseReceiveAdmission();
+                 // From https://github.com/dotnet/corefx/blob/e99ec129cfd594d53f4390bf97d1d736cff6f860/src/System.Net.Sockets/src/System/Net/Sockets/Socket.cs#L3262
+                 // the BeginReceiveFrom will only throw if there is an problem with the arguments or the socket has been disposed of. In that
+                 // case the socket can be considered to be unusable and there's no point trying another receive.
+@@ -215,8 +243,16 @@
+             }
+             catch (SocketException resetSockExcp) when (resetSockExcp.SocketErrorCode == SocketError.ConnectionReset)
+             {
+-                // Thrown when close is called on a socket
+-                m_isClosing = true;
++                // On Windows an ICMP port unreachable, triggered by an earlier send or spoofed by anyone, is reported on the
++                // next receive as ConnectionReset. The local socket is still usable, so the receive is re-armed below rather
++                // than stopping it for good. A local close is detected through m_isClosed and ObjectDisposedException.
++                logger.LogDebug("UdpReceiver.EndReceiveFrom ignored {SocketErrorCode} on {LocalEndPoint}.", resetSockExcp.SocketErrorCode, m_localEndPoint);
++            }
++            catch (SocketException shutdownSockExcp) when (shutdownSockExcp.SocketErrorCode == SocketError.Shutdown || shutdownSockExcp.SocketErrorCode == SocketError.NotSocket)
++            {
++                // The socket can never receive again; re-arming would only fail again immediately.
++                logger.LogWarning("UdpReceiver.EndReceiveFrom socket on {LocalEndPoint} is no longer usable ({SocketErrorCode}).", m_localEndPoint, shutdownSockExcp.SocketErrorCode);
++                Close(shutdownSockExcp.Message);
+             }
+             catch (SocketException sockExcp)
+             {
+@@ -235,15 +271,17 @@
+             { }
+             catch (Exception excp)
+             {
++                // Packet handler failures are contained in CallOnPacketReceivedCallback, so anything reaching here came
++                // from the socket API itself and the socket is treated as unusable.
+                 logger.LogError(excp, "Exception UdpReceiver.EndReceiveFrom. {ErrorMessage}", excp.Message);
+                 Close(excp.Message);
+             }
+             finally
+             {
+-                m_isRunningReceive = false;
++                ReleaseReceiveAdmission();
+                 if (!m_isClosed)
+                 {
+-                    BeginReceiveFrom();
++                    RearmReceive();
+                 }
+             }
+         }
+@@ -253,18 +291,63 @@
+         /// </summary>
+         public virtual void Close(string reason)
+         {
+-            if (!m_isClosed)
++            lock (m_receiveAdmissionGate)
+             {
++                if (m_isClosed)
++                {
++                    return;
++                }
+                 m_isClosed = true;
+-                m_socket?.Close();
+-
+-                OnClosed?.Invoke(reason);
+             }
++
++            m_socket?.Close();
++
++            OnClosed?.Invoke(reason);
+         }
+ 
++        /// <summary>
++        /// Hands a received datagram to the subscribers. A failure while handling one datagram, for example a malformed
++        /// packet reaching a parser before any authentication, must not stop the receive loop or close the channel, so the
++        /// datagram is logged and dropped.
++        /// </summary>
+         protected virtual void CallOnPacketReceivedCallback(int localPort, IPEndPoint remoteEndPoint, byte[] packet)
+         {
+-            OnPacketReceived?.Invoke(this, localPort, remoteEndPoint, packet);
++            try
++            {
++                OnPacketReceived?.Invoke(this, localPort, remoteEndPoint, packet);
++            }
++            catch (Exception excp)
++            {
++                logger.LogWarning(excp, "UdpReceiver on port {LocalPort} dropped a {PacketLength} byte packet from {RemoteEndPoint} after its handler failed. {ErrorMessage}",
++                    localPort, packet?.Length ?? 0, remoteEndPoint, excp.Message);
++            }
++        }
++
++        private void ReleaseReceiveAdmission()
++        {
++            lock (m_receiveAdmissionGate)
++            {
++                m_isRunningReceive = false;
++            }
++        }
++
++        private void RearmReceive()
++        {
++            if (t_inlineReceiveRearmDepth >= MAX_INLINE_RECEIVE_REARM_DEPTH)
++            {
++                ThreadPool.QueueUserWorkItem(_ => BeginReceiveFrom());
++                return;
++            }
++
++            t_inlineReceiveRearmDepth++;
++            try
++            {
++                BeginReceiveFrom();
++            }
++            finally
++            {
++                t_inlineReceiveRearmDepth--;
++            }
+         }
+     }
+ 
