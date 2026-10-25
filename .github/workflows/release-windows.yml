@@ -5,8 +5,9 @@ name: Windows release (SignPath)
 # SHA-256 checksums to a draft GitHub Release. See CODE_SIGNING_POLICY.md and docs/signing/APPLY.md.
 #
 # Tags v* use the release-signing policy (SignPath Foundation certificate, manual approval in
-# SignPath). Manual runs use test-signing (SignPath test certificate). Without the repository
-# variable SIGNPATH_ORGANIZATION_ID the workflow stops after the unsigned build.
+# SignPath). Manual runs use test-signing (SignPath test certificate) and never publish a release.
+# Without the repository variable SIGNPATH_ORGANIZATION_ID the signing job is skipped and a tag
+# publishes the unsigned MSIs with SHA-256 checksums as a GitHub pre-release.
 #
 # Required configuration (never committed):
 #   secret   SIGNPATH_API_TOKEN
@@ -138,29 +139,85 @@ jobs:
           retention-days: 30
 
   release:
-    name: Attach to the GitHub Release
+    name: Publish the GitHub Release
     needs: [build, sign]
-    if: ${{ github.ref_type == 'tag' }}
+    # Runs for tags after a successful build: with the signed MSIs when signing ran, otherwise
+    # (no SignPath configuration yet) with the unsigned MSIs as a pre-release.
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.build.result == 'success' && needs.sign.result != 'failure' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    env:
+      SIGNED: ${{ needs.sign.result == 'success' }}
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      - name: Download the signed MSIs
+        if: ${{ needs.sign.result == 'success' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: peeronq-${{ needs.build.outputs.version }}-signed
           path: release
-      - name: Create or update the draft release
+      - name: Download the unsigned MSIs
+        if: ${{ needs.sign.result != 'success' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: peeronq-${{ needs.build.outputs.version }}-unsigned
+          path: release
+      - name: Checksums and release notes
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          find release -type f -name 'PeerOnQ-*.msi' -exec cp {} assets/ \;
+          count=$(find assets -name 'PeerOnQ-*.msi' | wc -l)
+          [ "$count" -eq 2 ] || { echo "Expected the x64 and ARM64 MSIs, found $count." >&2; exit 1; }
+          (cd assets && sha256sum PeerOnQ-*.msi > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          repo="https://github.com/$GITHUB_REPOSITORY"
+          {
+            if [ "$SIGNED" != "true" ]; then
+              echo "**Unsigned.** Code signing via SignPath Foundation is pending."
+              echo
+            fi
+            echo "Windows installers (x64, ARM64) built by GitHub Actions from \`$TAG\`. Verify downloads with \`SHA256SUMS.txt\`."
+            echo
+            echo "Windows installers are code-signed through SignPath.io with a certificate by SignPath Foundation (free code signing for open source). Until the application is accepted, installers are published unsigned. [Code signing policy →](https://peeronq.com/code-signing)"
+            echo
+            echo "## Changes"
+            echo
+            awk -v version="$VERSION" '
+              $0 ~ "^## " version "( |$)" { found = 1; next }
+              found && /^## / { exit }
+              found { print }
+            ' CHANGELOG.md
+            echo
+            echo "## Links"
+            echo
+            echo "- [Release notes and upgrade steps]($repo/blob/$TAG/src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md)"
+            echo "- [Code signing policy]($repo/blob/$TAG/CODE_SIGNING_POLICY.md)"
+            echo "- [Privacy policy](https://peeronq.com/privacy) ([source]($repo/blob/$TAG/docs/PRIVACY.md))"
+            echo "- [Known limitations]($repo/blob/$TAG/docs/KNOWN_LIMITATIONS.md)"
+          } > notes.md
+          cat notes.md
+      - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
-          mapfile -t files < <(find release -type f \( -name 'PeerOnQ-*.msi' -o -name 'SHA256SUMS.txt' \) | sort)
+          mapfile -t files < <(find assets -type f | sort)
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-          else
+            gh release edit "$TAG" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
+          elif [ "$SIGNED" = "true" ]; then
             gh release create "$TAG" "${files[@]}" --draft --verify-tag --repo "$GITHUB_REPOSITORY" \
-              --title "PeerOnQ $VERSION" \
-              --notes "Signed Windows installers (x64, ARM64) built by GitHub Actions from $TAG and signed through SignPath. Verify downloads with SHA256SUMS.txt. Code signing policy: https://github.com/$GITHUB_REPOSITORY/blob/main/CODE_SIGNING_POLICY.md"
+              --title "PeerOnQ $VERSION" --notes-file notes.md
+          else
+            gh release create "$TAG" "${files[@]}" --prerelease --verify-tag --repo "$GITHUB_REPOSITORY" \
+              --title "PeerOnQ $VERSION (unsigned)" --notes-file notes.md
           fi
