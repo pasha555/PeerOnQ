@@ -37,7 +37,7 @@ concurrency:
 jobs:
   build:
     name: Build unsigned MSIs
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 120
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -98,7 +98,7 @@ jobs:
     name: Sign with SignPath and verify
     needs: build
     if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-    runs-on: windows-latest
+    runs-on: windows-2025
     # Release signing waits for a manual approval in SignPath.
     timeout-minutes: 360
     permissions:
@@ -141,7 +141,7 @@ jobs:
     name: Attach to the GitHub Release
     needs: [build, sign]
     if: ${{ github.ref_type == 'tag' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
