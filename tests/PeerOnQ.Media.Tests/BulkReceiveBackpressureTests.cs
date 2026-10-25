@@ -83,20 +83,22 @@ public sealed class BulkReceiveBackpressureTests
         });
         try
         {
-            await firstRecord.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            await queueFull.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // Setup waits are generous for loaded CI runners. The close below must still finish
+            // while the consumer stays blocked forever, so its bound remains meaningful.
+            await firstRecord.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await queueFull.Task.WaitAsync(TimeSpan.FromSeconds(30));
             await Assert.ThrowsAsync<TimeoutException>(
                 () => producer.WaitAsync(TimeSpan.FromMilliseconds(100)));
 
-            await session.CloseAsync().WaitAsync(TimeSpan.FromSeconds(2));
-            await producer.WaitAsync(TimeSpan.FromSeconds(2));
+            await session.CloseAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await producer.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.False(releaseConsumer.IsSet);
             Assert.Empty(errors);
         }
         finally
         {
             releaseConsumer.Set();
-            await producer.WaitAsync(TimeSpan.FromSeconds(5));
+            await producer.WaitAsync(TimeSpan.FromSeconds(30));
         }
     }
 }

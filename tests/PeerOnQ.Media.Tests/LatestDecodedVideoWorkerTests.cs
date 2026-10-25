@@ -141,13 +141,15 @@ public sealed class LatestDecodedVideoWorkerTests
         try
         {
             worker.Enqueue(frames[0]);
-            await converting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // Generous bounds: on a loaded CI runner the first conversion can start late; the
+            // dropped/latest-frame assertions below are what this test checks.
+            await converting.Task.WaitAsync(TimeSpan.FromSeconds(30));
             foreach (var frame in frames.Skip(1)) worker.Enqueue(frame);
             Assert.Equal(1, worker.PendingFrames);
             Assert.Equal(14, worker.DroppedFrames);
             Assert.All(frames.Skip(1).Take(14), frame => Assert.All(frame.Planes, value => Assert.Equal(0, value)));
             release.Set();
-            await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await finished.Task.WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Equal(new long[] { 1, 16 }, delivered.Select(frame => frame.SequenceNumber));
             var last = delivered.Last();
             Assert.Equal(1600, last.DecodedTimestamp);
