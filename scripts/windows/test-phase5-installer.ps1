@@ -145,7 +145,9 @@ try {
     $licenseText = Get-Content -Raw -LiteralPath $licensePath
     $embeddedLicense = @(Read-Rows $database `
         "SELECT ``Text`` FROM ``Control`` WHERE ``Dialog_``='LicenseAgreementDlg' AND ``Control``='LicenseText'")
-    if ($embeddedLicense.Count -ne 1 -or $embeddedLicense[0][0] -ne $licenseText) {
+    # A Windows checkout (core.autocrlf) embeds CRLF; compare the text, not the line endings.
+    if ($embeddedLicense.Count -ne 1 -or
+        ($embeddedLicense[0][0] -replace "`r`n", "`n") -ne ($licenseText -replace "`r`n", "`n")) {
         throw 'The MSI license dialog does not contain the repository installer license text.'
     }
     foreach ($requiredText in @(
