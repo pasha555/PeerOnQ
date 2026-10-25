@@ -24,7 +24,7 @@ name: Windows release (SignPath)
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

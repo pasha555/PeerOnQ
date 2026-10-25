@@ -164,3 +164,5 @@ jobs:
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Matches the publication gate; .gitleaks.toml uses [[allowlists]] (gitleaks 8.25+).
+          GITLEAKS_VERSION: 8.28.0
