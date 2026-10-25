@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "library": {
+    "name": "libvpx",
+    "license": "BSD-3-Clause",
+    "outputFileName": "vpxmd.dll",
+    "managedInterop": {
+      "comment": "SIPSorceryMedia.Encoders' generated bindings target libvpx 1.9.0 (encoder ABI 23, 384-byte vpx_codec_enc_cfg_t). libvpx 1.17.0 keeps every 1.9.0 field offset and appends 120 bytes; src/PeerOnQ.Media/Codecs/Vp8ScreenEncoder.cs must accept this version before a bump.",
+      "versionNumber": "0x011100",
+      "encoderAbiVersion": 39,
+      "decoderAbiVersion": 12,
+      "encoderConfigBytes": 504
+    }
+  },
+  "source": {
+    "tag": "v1.17.0",
+    "version": "1.17.0",
+    "releaseDate": "2026-08-07",
+    "commit": "6df3ec34557879fff673706f4a1d9fbd0f3a6f0e",
+    "tagObject": "82615ff0733cd4063838c352bc2e2ab225f37ade",
+    "canonicalRepositoryUrl": "https://chromium.googlesource.com/webm/libvpx",
+    "mirrorRepositoryUrl": "https://github.com/webmproject/libvpx",
+    "archiveUrl": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.17.0.tar.gz",
+    "archiveSha256": "1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a",
+    "archiveRoot": "libvpx-1.17.0",
+    "licenseFiles": [
+      { "path": "LICENSE", "sha256": "8267348d5af1262c11d1a08de2f5afc77457755f1ac658627dd9acf71011d615" },
+      { "path": "PATENTS", "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c" },
+      { "path": "AUTHORS", "sha256": "8a98b560e5314713550e6d3ba2d8acf3ef54dfc870fc448bef08a7c57648a0bd" }
+    ]
+  },
+  "tools": {
+    "nasm": {
+      "comment": "x86-64 SIMD assembler; build-time only, not shipped. nasm.us publishes no checksum file, so the pin is the SHA-256 of the reviewed download.",
+      "version": "3.02",
+      "license": "BSD-2-Clause",
+      "architectures": ["x64"],
+      "url": "https://www.nasm.us/pub/nasm/releasebuilds/3.02/win64/nasm-3.02-win64.zip",
+      "sha256": "161d0bfaff53c2f9e9f3e69fd0672323ebabafd1268976a5cec11be92a19aee7",
+      "executable": "nasm-3.02/nasm.exe"
+    },
+    "make": {
+      "comment": "GNU make for libvpx's configure-generated makefiles (Visual Studio project generation only); runs under Git for Windows' MSYS2 runtime. Build-time only, not shipped.",
+      "version": "4.4.1-3",
+      "license": "GPL-3.0-or-later",
+      "architectures": ["x64", "arm64"],
+      "url": "https://repo.msys2.org/msys/x86_64/make-4.4.1-3-x86_64.pkg.tar.zst",
+      "sha256": "af0bdba17f06fe037f0194069adaa31a8fe45f1a11381501896aea1fae37bd5d",
+      "executable": "usr/bin/make.exe"
+    }
+  },
+  "build": {
+    "configureArguments": {
+      "common": [
+        "--enable-vp8",
+        "--enable-vp9",
+        "--disable-vp9-highbitdepth",
+        "--enable-multithread",
+        "--enable-runtime-cpu-detect",
+        "--disable-static-msvcrt",
+        "--disable-debug",
+        "--disable-debug-libs",
+        "--disable-examples",
+        "--disable-tools",
+        "--disable-docs",
+        "--disable-unit-tests",
+        "--disable-decode-perf-tests",
+        "--disable-encode-perf-tests",
+        "--disable-webm-io",
+        "--disable-libyuv",
+        "--disable-install-bins",
+        "--disable-install-docs"
+      ],
+      "x64": ["--as=nasm"],
+      "arm64": ["--disable-sve", "--disable-sve2"]
+    },
+    "targets": {
+      "x64": "x86_64-win64-vs{vs}",
+      "arm64": "arm64-win64-vs{vs}"
+    },
+    "msbuildPlatforms": {
+      "x64": "x64",
+      "arm64": "ARM64"
+    }
+  }
+}

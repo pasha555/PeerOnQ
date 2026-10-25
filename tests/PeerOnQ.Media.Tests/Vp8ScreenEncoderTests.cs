@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using PeerOnQ.Media.Codecs;
 using SIPSorceryMedia.Abstractions;
@@ -13,14 +14,42 @@ public sealed class Vp8ScreenEncoderTests(ITestOutputHelper output)
 {
     [Theory]
     [InlineData(0x010900, true)]
+    [InlineData(0x011100, true)]
     [InlineData(0x010901, false)]
     [InlineData(0x010800, false)]
     [InlineData(0x010a00, false)]
     [InlineData(0x010e00, false)]
+    [InlineData(0x011000, false)]
+    [InlineData(0x011101, false)]
     [InlineData(0, false)]
     [InlineData(-1, false)]
     public void Only_the_reviewed_native_encoder_layout_version_is_accepted(int version, bool expected) =>
         Assert.Equal(expected, Vp8ScreenEncoder.IsSupportedEncoderVersion(version));
+
+    [Theory]
+    [InlineData(0x010900, 23)]
+    [InlineData(0x011100, 39)]
+    [InlineData(0x010e00, 0)]
+    public void Each_reviewed_native_version_uses_its_encoder_abi(int version, int expected) =>
+        Assert.Equal(expected, Vp8ScreenEncoder.EncoderAbiVersionFor(version));
+
+    [Fact]
+    public void Native_encoder_configuration_holds_the_complete_loaded_libvpx_layout()
+    {
+        using var configuration = new Vp8ScreenEncoder.NativeEncoderConfiguration();
+        Assert.Equal(VpxCodecErrT.VPX_CODEC_OK,
+            vpx_encoder.VpxCodecEncConfigDefault(vp8cx.VpxCodecVp8Cx(), configuration, 0));
+        Assert.Equal(320u, configuration.GW);
+        Assert.Equal(240u, configuration.GH);
+        if (vpx_codec.VpxCodecVersion() == 0x011100)
+        {
+            // After temporal_layering_mode (offset 376), the last field the 1.9.0 binding knows,
+            // libvpx 1.17.0 writes use_vizier_rc_params (0) and fifteen {1, 1} rationals.
+            Assert.Equal(0, Marshal.ReadInt32(configuration.__Instance, 380));
+            for (var offset = 384; offset < Vp8ScreenEncoder.EncoderConfigurationBytes; offset += 4)
+                Assert.Equal(1, Marshal.ReadInt32(configuration.__Instance, offset));
+        }
+    }
 
     [Theory]
     [InlineData(0)]
@@ -46,7 +75,8 @@ public sealed class Vp8ScreenEncoderTests(ITestOutputHelper output)
         Assert.Equal(2_000, encoder.TargetKbps);
         Assert.Equal((uint)0, encoder.LastSubmittedDuration);
 
-        nativeVersion = 0x010900;
+        // The loaded, reviewed native library: its real layout and ABI must be used.
+        nativeVersion = vpx_codec.VpxCodecVersion();
         var first = encoder.EncodeI420(160, 90, source);
         AssertKeyFrame(first);
         Assert.Single(decoder.DecodeVideo(first, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8));

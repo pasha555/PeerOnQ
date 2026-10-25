@@ -26,7 +26,8 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
     [DllImport("vpxmd", CallingConvention = CallingConvention.Cdecl, EntryPoint = "vpx_codec_control_")]
     private static extern VpxCodecErrT VpxCodecControlInt(nint codec, int controlId, int value);
 
-    private const int EncoderAbiVersion = 23;
+    // sizeof(vpx_codec_enc_cfg_t): 384 bytes in libvpx 1.9.0 (the generated binding), 504 in 1.17.0.
+    internal const int EncoderConfigurationBytes = 504;
     private const int RealtimeDeadline = 1;
     private const int ClockRate = 90_000;
     private const int ForceKeyFrameFlag = 1;
@@ -268,7 +269,19 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
     private static double Percentile(double[] sorted, double percentile) =>
         sorted[Math.Clamp((int)Math.Ceiling(percentile * sorted.Length) - 1, 0, sorted.Length - 1)];
 
-    internal static bool IsSupportedEncoderVersion(int version) => version == 0x010900;
+    internal static bool IsSupportedEncoderVersion(int version) => EncoderAbiVersionFor(version) != 0;
+
+    /// <summary>
+    /// The encoder ABI each reviewed libvpx release checks in vpx_codec_enc_init_ver, or 0. Both
+    /// releases share every vpx_codec_enc_cfg_t field the generated binding knows; 1.17.0 appends
+    /// rate-control fields (see <see cref="NativeEncoderConfiguration"/>).
+    /// </summary>
+    internal static int EncoderAbiVersionFor(int version) => version switch
+    {
+        0x010900 => 23, // libvpx 1.9.0, the prebuilt SIPSorceryMedia.Encoders binary
+        0x011100 => 39, // libvpx 1.17.0, built from eng/libvpx/libvpx.json
+        _ => 0,
+    };
 
     private static void EnsureSuccess(VpxCodecErrT result, string operation)
     {
@@ -290,6 +303,24 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
         Interlocked.Exchange(ref _native, null)?.Shutdown(DisposeWait);
+    }
+
+    /// <summary>
+    /// vpx_codec_enc_cfg_t allocated at the largest reviewed native size. The generated binding
+    /// allocates libvpx 1.9.0's 384 bytes, but vpx_codec_enc_config_default of libvpx 1.17.0
+    /// writes 504: the same offsets for every bound field plus appended rate-control fields.
+    /// Zeroed, owned memory that the base Dispose releases with Marshal.FreeHGlobal.
+    /// </summary>
+    internal sealed unsafe class NativeEncoderConfiguration : VpxCodecEncCfg
+    {
+        internal NativeEncoderConfiguration() : base(AllocateZeroed(), false) => __ownsNativeInstance = true;
+
+        private static void* AllocateZeroed()
+        {
+            var native = (void*)Marshal.AllocHGlobal(EncoderConfigurationBytes);
+            NativeMemory.Clear(native, EncoderConfigurationBytes);
+            return native;
+        }
     }
 
     /// <summary>
@@ -569,9 +600,10 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
         private void Initialise(uint width, uint height, int kbps, int fps)
         {
             var nativeVersion = _owner._getNativeVersion();
-            if (!IsSupportedEncoderVersion(nativeVersion))
+            var encoderAbiVersion = EncoderAbiVersionFor(nativeVersion);
+            if (encoderAbiVersion == 0)
                 throw new PlatformNotSupportedException(
-                    $"VP8 encoding requires the reviewed libvpx 1.9.0 configuration layout (ABI 23); native version {nativeVersion} is unsupported.");
+                    $"VP8 encoding requires a reviewed libvpx configuration layout (1.9.0 ABI 23 or 1.17.0 ABI 39); native version {nativeVersion} is unsupported.");
 
             VpxCodecCtx? candidateContext = new();
             VpxImage? candidateImage = null;
@@ -580,7 +612,7 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
 
             try
             {
-                var configuration = candidateConfiguration = new VpxCodecEncCfg();
+                var configuration = candidateConfiguration = new NativeEncoderConfiguration();
                 var codecInterface = vp8cx.VpxCodecVp8Cx();
 
                 EnsureSuccess(
@@ -621,7 +653,7 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
                             codecInterface,
                             configuration,
                             0,
-                            EncoderAbiVersion),
+                            encoderAbiVersion),
                         "initialise the VP8 encoder");
                 }
                 finally

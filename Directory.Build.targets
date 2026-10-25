@@ -1,4 +1,6 @@
 <Project>
+  <!-- vpxmd.dll from libvpx built from pinned source instead of the prebuilt package binary. -->
+  <Import Project="$(MSBuildThisFileDirectory)eng/libvpx/PeerOnQ.Libvpx.targets" />
   <!-- Deterministic NuGet entries share timestamps. Different maintained revisions
        can also have equal DLL lengths, so MSBuild's time/length copy check is insufficient. -->
   <Target Name="CopyVerifiedMaintainedSipsorcery" AfterTargets="_CopyFilesMarkedCopyLocal">

@@ -12,13 +12,22 @@ permissions:
   security-events: write
 
 jobs:
+  libvpx:
+    uses: ./.github/workflows/native-libvpx.yml
+
   analyze-csharp:
+    needs: libvpx
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           global-json-file: global.json
+      - name: Download libvpx built from pinned source (x64)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: libvpx-win-x64
+          path: artifacts/native/libvpx/x64
       - uses: github/codeql-action/init@f116a11b3d2ec2f382b4a6530d51b8f4cf136fee # v4.32.1
         with:
           languages: csharp

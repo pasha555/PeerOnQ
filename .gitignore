@@ -63,6 +63,8 @@ Thumbs.db
 /backups/
 /.obsidian/
 /artifacts/test-results/
+# Native binaries rebuilt from pinned source (scripts/windows/build-libvpx.ps1); never commit them.
+/artifacts/native/
 artifacts/peeronq/public/downloads/
 src/PeerOnQ.Signaling.Server/data/
 

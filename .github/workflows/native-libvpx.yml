@@ -1,0 +1,77 @@
+name: Native libvpx
+
+# Builds vpxmd.dll (libvpx, BSD-3-Clause) for win-x64 and win-arm64 from the source pinned in
+# eng/libvpx/libvpx.json with scripts/windows/build-libvpx.ps1. Every input is SHA-256 verified;
+# each artifact holds the DLL, its PDB, the .def, libvpx's LICENSE/PATENTS/AUTHORS, exports.txt,
+# build.log, provenance.json and SHA256SUMS.txt.
+#
+# Consumers call this workflow and download each artifact into the layout that
+# eng/libvpx/PeerOnQ.Libvpx.targets expects before building PeerOnQ:
+#
+#   jobs:
+#     libvpx:
+#       uses: ./.github/workflows/native-libvpx.yml
+#     build:
+#       needs: libvpx
+#       steps:
+#         - uses: actions/download-artifact@<sha> # v8.x
+#           with:
+#             name: libvpx-win-x64
+#             path: artifacts/native/libvpx/x64
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: libvpx win-${{ matrix.architecture }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, arm64]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Build vpxmd.dll from pinned source
+        shell: pwsh
+        run: |
+          ./scripts/windows/build-libvpx.ps1 -Architecture '${{ matrix.architecture }}' `
+            -WorkRoot (Join-Path $env:RUNNER_TEMP 'libvpx-work') `
+            -DownloadCache (Join-Path $env:RUNNER_TEMP 'libvpx-downloads')
+      - name: Summarize provenance
+        shell: pwsh
+        run: |
+          $directory = 'artifacts/native/libvpx/${{ matrix.architecture }}'
+          $provenance = Get-Content -LiteralPath "$directory/provenance.json" -Raw | ConvertFrom-Json
+          @(
+            "### libvpx $($provenance.source.tag) win-${{ matrix.architecture }}",
+            '',
+            "- Source commit: ``$($provenance.source.commit)``",
+            "- Archive SHA-256: ``$($provenance.source.archiveSha256)``",
+            "- vpxmd.dll SHA-256: ``$($provenance.artifact.sha256)``",
+            "- Exports: $($provenance.artifact.exports.Count); imports: $($provenance.artifact.imports -join ', ')",
+            "- Toolchain: $($provenance.toolchain.compiler); $($provenance.toolchain.visualStudio)",
+            "- Configure: ``$($provenance.build.libvpxBuildConfig)``"
+          ) -join "`n" >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload vpxmd.dll and provenance
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: libvpx-win-${{ matrix.architecture }}
+          path: artifacts/native/libvpx/${{ matrix.architecture }}/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload the build log of a failed build
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: libvpx-win-${{ matrix.architecture }}-failed-build-log
+          path: artifacts/native/libvpx/${{ matrix.architecture }}/build.log
+          if-no-files-found: ignore
+          retention-days: 7

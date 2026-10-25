@@ -1,0 +1,90 @@
+<Project>
+  <!--
+    vpxmd.dll comes from libvpx built from pinned source (eng/libvpx/libvpx.json,
+    scripts/windows/build-libvpx.ps1, .github/workflows/native-libvpx.yml), never from the
+    prebuilt, unverified build/x64 or build/x86 DLL of SIPSorceryMedia.Encoders.
+
+    1. Wherever the package's build/ targets add their DLL (PeerOnQ.Media), it is removed, so it
+       no longer flows into referencing projects.
+    2. Every Windows application or test project that copies SIPSorceryMedia.Encoders.dll gets
+       artifacts/native/libvpx/<arch>/vpxmd.dll for its own architecture: win-x64/win-arm64 from
+       RuntimeIdentifier, else PlatformTarget, else the build process architecture (AnyCPU tests).
+       A missing DLL, or one that does not match its SHA256SUMS.txt, fails the build.
+    Android, Apple and Linux heads are not Windows targets here and keep their own removals.
+  -->
+  <PropertyGroup>
+    <PeerOnQLibvpxRoot Condition="'$(PeerOnQLibvpxRoot)' == ''">$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', 'artifacts', 'native', 'libvpx'))</PeerOnQLibvpxRoot>
+  </PropertyGroup>
+
+  <Target Name="PeerOnQRemovePrebuiltLibvpx" BeforeTargets="AssignTargetPaths;GetCopyToOutputDirectoryItems"
+          Condition="'@(NativeLibs)' != ''">
+    <ItemGroup>
+      <_PeerOnQPrebuiltLibvpx Include="@(NativeLibs)" Condition="'%(Filename)%(Extension)' == 'vpxmd.dll'" />
+      <ContentWithTargetPath Remove="@(_PeerOnQPrebuiltLibvpx)" />
+      <NativeLibs Remove="@(_PeerOnQPrebuiltLibvpx)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="PeerOnQResolveSourceBuiltLibvpx">
+    <PropertyGroup>
+      <_PeerOnQLibvpxWindowsTarget>false</_PeerOnQLibvpxWindowsTarget>
+      <_PeerOnQLibvpxWindowsTarget Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('win'))">true</_PeerOnQLibvpxWindowsTarget>
+      <_PeerOnQLibvpxWindowsTarget Condition="'$(RuntimeIdentifier)' == '' and '$(TargetPlatformIdentifier)' == 'windows'">true</_PeerOnQLibvpxWindowsTarget>
+      <_PeerOnQLibvpxWindowsTarget Condition="'$(RuntimeIdentifier)' == '' and '$(TargetPlatformIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</_PeerOnQLibvpxWindowsTarget>
+      <_PeerOnQCopiesVpxBindings>@(ReferenceCopyLocalPaths->AnyHaveMetadataValue('NuGetPackageId', 'SIPSorceryMedia.Encoders'))</_PeerOnQCopiesVpxBindings>
+      <PeerOnQUsesSourceBuiltLibvpx>false</PeerOnQUsesSourceBuiltLibvpx>
+      <PeerOnQUsesSourceBuiltLibvpx Condition="'$(_PeerOnQLibvpxWindowsTarget)' == 'true' and '$(_PeerOnQCopiesVpxBindings)' == 'true'">true</PeerOnQUsesSourceBuiltLibvpx>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true' and '$(PeerOnQLibvpxArchitecture)' == ''">
+      <PeerOnQLibvpxArchitecture Condition="'$(RuntimeIdentifier)' == 'win-x64'">x64</PeerOnQLibvpxArchitecture>
+      <PeerOnQLibvpxArchitecture Condition="'$(RuntimeIdentifier)' == 'win-arm64'">arm64</PeerOnQLibvpxArchitecture>
+      <PeerOnQLibvpxArchitecture Condition="'$(RuntimeIdentifier)' == '' and '$(PlatformTarget)' == 'x64'">x64</PeerOnQLibvpxArchitecture>
+      <PeerOnQLibvpxArchitecture Condition="'$(RuntimeIdentifier)' == '' and '$(PlatformTarget)' == 'ARM64'">arm64</PeerOnQLibvpxArchitecture>
+      <PeerOnQLibvpxArchitecture Condition="'$(RuntimeIdentifier)' == '' and '$(PeerOnQLibvpxArchitecture)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'X64'">x64</PeerOnQLibvpxArchitecture>
+      <PeerOnQLibvpxArchitecture Condition="'$(RuntimeIdentifier)' == '' and '$(PeerOnQLibvpxArchitecture)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'Arm64'">arm64</PeerOnQLibvpxArchitecture>
+    </PropertyGroup>
+    <Error Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true' and '$(PeerOnQLibvpxArchitecture)' != 'x64' and '$(PeerOnQLibvpxArchitecture)' != 'arm64'"
+           Text="vpxmd.dll is built only for win-x64 and win-arm64; '$(MSBuildProjectName)' targets RuntimeIdentifier '$(RuntimeIdentifier)', PlatformTarget '$(PlatformTarget)'." />
+    <PropertyGroup Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true'">
+      <PeerOnQLibvpxDirectory>$([MSBuild]::NormalizeDirectory('$(PeerOnQLibvpxRoot)', '$(PeerOnQLibvpxArchitecture)'))</PeerOnQLibvpxDirectory>
+      <PeerOnQLibvpxPath>$(PeerOnQLibvpxDirectory)vpxmd.dll</PeerOnQLibvpxPath>
+      <_PeerOnQLibvpxBuildHint>Build it from the pinned libvpx source with: powershell -ExecutionPolicy Bypass -File scripts/windows/build-libvpx.ps1 -Architecture $(PeerOnQLibvpxArchitecture) (or download the libvpx-win-$(PeerOnQLibvpxArchitecture) artifact of the Native libvpx workflow into $(PeerOnQLibvpxDirectory)).</_PeerOnQLibvpxBuildHint>
+    </PropertyGroup>
+    <Error Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true' and (!Exists('$(PeerOnQLibvpxPath)') or !Exists('$(PeerOnQLibvpxDirectory)SHA256SUMS.txt'))"
+           Text="'$(MSBuildProjectName)' needs the source-built vpxmd.dll for win-$(PeerOnQLibvpxArchitecture), which is missing at $(PeerOnQLibvpxPath). $(_PeerOnQLibvpxBuildHint)" />
+    <ReadLinesFromFile File="$(PeerOnQLibvpxDirectory)SHA256SUMS.txt" Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true'">
+      <Output TaskParameter="Lines" ItemName="_PeerOnQLibvpxChecksumLine" />
+    </ReadLinesFromFile>
+    <GetFileHash Files="$(PeerOnQLibvpxPath)" Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true'">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQLibvpxHash" />
+    </GetFileHash>
+    <ItemGroup Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true'">
+      <_PeerOnQLibvpxExpectedChecksum Include="@(_PeerOnQLibvpxChecksumLine)"
+          Condition="'%(Identity)' == '$(_PeerOnQLibvpxHash.ToLowerInvariant())  vpxmd.dll'" />
+    </ItemGroup>
+    <Error Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true' and '@(_PeerOnQLibvpxExpectedChecksum)' == ''"
+           Text="$(PeerOnQLibvpxPath) does not match its SHA256SUMS.txt; it is not the output of scripts/windows/build-libvpx.ps1. $(_PeerOnQLibvpxBuildHint)" />
+    <ItemGroup Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true'">
+      <_PeerOnQLibvpxFile Include="$(PeerOnQLibvpxPath)" RelativePath="vpxmd.dll" />
+      <!-- BSD-3-Clause: binary redistribution carries the notice; PATENTS is libvpx's patent grant. -->
+      <_PeerOnQLibvpxFile Include="$(PeerOnQLibvpxDirectory)libvpx-LICENSE.txt" RelativePath="ThirdParty/libvpx/LICENSE" />
+      <_PeerOnQLibvpxFile Include="$(PeerOnQLibvpxDirectory)libvpx-PATENTS.txt" RelativePath="ThirdParty/libvpx/PATENTS" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="PeerOnQCopySourceBuiltLibvpx" AfterTargets="CopyFilesToOutputDirectory"
+          DependsOnTargets="PeerOnQResolveSourceBuiltLibvpx">
+    <Copy SourceFiles="@(_PeerOnQLibvpxFile)" DestinationFiles="@(_PeerOnQLibvpxFile->'$(OutDir)%(RelativePath)')"
+          SkipUnchangedFiles="true" Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true'">
+      <Output TaskParameter="DestinationFiles" ItemName="FileWrites" />
+    </Copy>
+  </Target>
+
+  <Target Name="PeerOnQPublishSourceBuiltLibvpx" AfterTargets="ComputeResolvedFilesToPublishList"
+          DependsOnTargets="PeerOnQResolveSourceBuiltLibvpx">
+    <ItemGroup Condition="'$(PeerOnQUsesSourceBuiltLibvpx)' == 'true'">
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.RelativePath)' == 'vpxmd.dll'" />
+      <ResolvedFileToPublish Include="@(_PeerOnQLibvpxFile)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>
