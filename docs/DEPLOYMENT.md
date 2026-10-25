@@ -383,7 +383,7 @@ volumetric-abuse protection.
 ## Development startup
 
 1. Install Docker Desktop with Linux containers and Compose.
-2. On Windows, let `peeronq-start.bat` create and trust the repository-scoped local CA and
+2. On Windows, let `scripts\windows\peeronq-workspace-dev.ps1 -Action start` create and trust the repository-scoped local CA and
    `*.dev.localhost` leaf under ignored `.peeronq-phase6/`. Other development hosts must provide
    equivalent locally trusted material without committing its private key.
 3. Create two owner-only `.pgpass` files. Backup uses
@@ -398,7 +398,7 @@ volumetric-abuse protection.
    unique password of at least 14 characters, a Base32 TOTP secret decoding to at least 20 bytes, and
    eight independent recovery codes of at least 12 normalized characters. Remove these values after
    the first owner exists.
-6. On Windows, run `.\peeronq-start.bat`. It validates configuration, starts the state stores,
+6. On Windows, run `.\scripts\windows\peeronq-workspace-dev.ps1 -Action start`. It validates configuration, starts the state stores,
    applies migrations and least-privilege runtime grants, rebuilds the services, waits for the real
    Admin console and Account Portal, and opens the Admin UI together with the offline preview. The database remains on the private
    control network; do not publish PostgreSQL merely to run migrations. The equivalent manual flow is:
@@ -427,7 +427,7 @@ The reserved `.localhost` names resolve to loopback without a hosts-file edit. O
 `https://admin.dev.localhost:8443`, `https://portal.dev.localhost:8443`, and
 `https://grafana.dev.localhost:8443`; the generated CurrentUser-trusted certificate matches every
 `*.dev.localhost` management host. Prometheus and Grafana direct ports bind to loopback only. A container is not
-ready merely because it is running; verify the health endpoints below or run `peeronq-status.bat`.
+ready merely because it is running; verify the health endpoints below or run `scripts\windows\peeronq-workspace-dev.ps1 -Action status`.
 
 `peeronq-phase6-dev.ps1` creates stable random Grafana and Alertmanager credentials plus separate
 backup/restore `.pgpass` files below the gitignored `.peeronq-phase6` state directory. It never puts

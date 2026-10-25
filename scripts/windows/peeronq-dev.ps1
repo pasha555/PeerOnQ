@@ -356,7 +356,7 @@ function Invoke-Start {
                         [Text.UTF8Encoding]::new($false))
                 }
                 if (-not $NoBrowser) { Start-Process -FilePath $Url | Out-Null }
-                Write-Host 'Stop it with peeronq-stop.bat, restart with peeronq-restart.bat.'
+                Write-Host 'Stop it with scripts\windows\peeronq-workspace-dev.ps1 -Action stop (or -Action restart).'
                 return 0
             }
             Show-ForeignOwner $ownerId

@@ -459,7 +459,7 @@ function Invoke-Start {
     Sync-GrafanaAdminPassword
 
     if (-not (Wait-ForUrl 'Admin console' $AdminUrl)) {
-        Write-Host 'Run peeronq-status.bat for container and endpoint status.' -ForegroundColor Yellow
+        Write-Host 'Run scripts\windows\peeronq-workspace-dev.ps1 -Action status for container and endpoint status.' -ForegroundColor Yellow
         return 1
     }
     if (-not (Wait-ForUrl 'Cloud API' $CloudHealthUrl 30)) { return 1 }

@@ -79,8 +79,8 @@ values, and keep the resulting file ignored:
 ```powershell
 Copy-Item src/PeerOnQ.Infrastructure.Deployment/.env.example `
   src/PeerOnQ.Infrastructure.Deployment/.env
-./peeronq-start.bat
-./peeronq-status.bat
+.\scripts\windows\peeronq-workspace-dev.ps1 -Action start
+.\scripts\windows\peeronq-workspace-dev.ps1 -Action status
 ```
 
 The template names every required database, Redis, HMAC, token, TURN, TLS, diagnostics, bootstrap,
@@ -91,7 +91,7 @@ these values outside local development.
 Stop without deleting PostgreSQL/Redis volumes or native user data:
 
 ```powershell
-./peeronq-stop.bat
+.\scripts\windows\peeronq-workspace-dev.ps1 -Action stop
 ```
 
 Volume deletion is intentionally not wrapped by a convenience command. If a developer explicitly
@@ -108,25 +108,23 @@ Physical/public acceptance must record two devices, Windows builds, networks/NAT
 pair, permissions, media correctness, reconnect behavior and measurements. Mocks and loopback cannot
 close that gate.
 
-## Workspace control scripts (Windows)
+## Workspace controller (Windows development)
 
-Run these from the repository root with the `.\` prefix (for example `.\peeronq-start.bat`), or
-double-click them in Explorer. The prefix matters on systems that set
-`NoDefaultCurrentDirectoryInExePath`.
+PeerOnQ runs in production on a Linux server (see [Deployment](DEPLOYMENT.md)). For local development
+on Windows, [`scripts/windows/peeronq-workspace-dev.ps1`](../scripts/windows/peeronq-workspace-dev.ps1)
+starts and stops the complete workspace. Run it from the repository root:
 
-| Script | What it does |
+| Command | What it does |
 | --- | --- |
-| `peeronq-start.bat` | Starts or rebuilds the configured LAN stack and the control plane, applies migrations and grants, starts the web preview on <http://localhost:5555> and opens the development interfaces |
-| `peeronq-stop.bat` | Stops the preview and control-plane containers while keeping the PostgreSQL and Redis volumes |
-| `peeronq-restart.bat` | Restarts and rebuilds the complete development workspace |
-| `peeronq-status.bat` | Shows preview ownership, Admin/API and observability readiness, and the control-plane containers |
+| `-Action start` | Starts or rebuilds the configured LAN stack and the control plane, applies migrations and grants, starts the web preview on <http://localhost:5555> and opens the development interfaces |
+| `-Action stop` | Stops the preview and control-plane containers while keeping the PostgreSQL and Redis volumes |
+| `-Action restart` | Restarts and rebuilds the complete development workspace |
+| `-Action status` | Shows preview ownership, Admin/API and observability readiness, and the control-plane containers |
 
-All four call [`scripts/windows/peeronq-workspace-dev.ps1`](../scripts/windows/peeronq-workspace-dev.ps1),
-which keeps the web preview controller and the control-plane Compose controller separate. Use
+The controller keeps the web preview controller and the control-plane Compose controller separate. Use
 `scripts/windows/peeronq-dev.ps1` directly only for the offline web preview without Docker. After a
 successful start, the website, desktop UI preview (`/desktop-preview`), Admin console, account
-portal, Grafana and Prometheus open in the default browser. If startup fails, the window stays open
-so the error can be read.
+portal, Grafana and Prometheus open in the default browser.
 
 The scripts act only inside this repository:
 
