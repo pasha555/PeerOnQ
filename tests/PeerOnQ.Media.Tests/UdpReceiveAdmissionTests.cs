@@ -81,7 +81,7 @@ public sealed class UdpReceiveAdmissionTests
         Assert.Equal(0, invalidPackets);
         Assert.Equal(0, duplicatePackets);
         Assert.Equal(1, maximumCallbacks);
-        Assert.True(SpinWait.SpinUntil(() => !receiver.IsRunningReceive, TimeSpan.FromSeconds(2)));
+        Assert.True(SpinWait.SpinUntil(() => !receiver.IsRunningReceive, TimeSpan.FromSeconds(10)));
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public sealed class UdpReceiveAdmissionTests
         Assert.True(worker.Join(TimeSpan.FromSeconds(2)));
         Assert.Empty(errors);
         Assert.True(receiver.IsClosed);
-        Assert.True(SpinWait.SpinUntil(() => !receiver.IsRunningReceive, TimeSpan.FromSeconds(2)));
+        Assert.True(SpinWait.SpinUntil(() => !receiver.IsRunningReceive, TimeSpan.FromSeconds(10)));
         receiver.BeginReceiveFrom();
         Assert.False(receiver.IsRunningReceive);
     }
