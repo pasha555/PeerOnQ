@@ -1,0 +1,128 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Four-part release version
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        options: [beta, stable]
+      rollout_percentage:
+        description: Initial staged rollout percentage
+        required: true
+        default: "10"
+        type: string
+      security_emergency:
+        description: Bypass staged rollout and require update
+        required: true
+        default: false
+        type: boolean
+      promote:
+        description: Create a draft release after production approval
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build-sign-stage:
+    runs-on: windows-latest
+    environment: release-signing
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          global-json-file: global.json
+      - name: Materialize ephemeral signing inputs
+        id: signing
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.PEERONQ_SIGNING_PFX_BASE64 }}
+          UPDATE_KEY_PEM: ${{ secrets.PEERONQ_UPDATE_SIGNING_PRIVATE_KEY_PEM }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'peeronq-signing.pfx'
+          $pem = Join-Path $env:RUNNER_TEMP 'peeronq-update-signing.pem'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+          [IO.File]::WriteAllText($pem, $env:UPDATE_KEY_PEM, [Text.UTF8Encoding]::new($false))
+          "pfx=$pfx" >> $env:GITHUB_OUTPUT
+          "pem=$pem" >> $env:GITHUB_OUTPUT
+      - name: Build, test, sign, inventory and manifest
+        shell: pwsh
+        env:
+          PEERONQ_SIGNING_PFX_PASSWORD: ${{ secrets.PEERONQ_SIGNING_PFX_PASSWORD }}
+        run: |
+          $emergency = [Convert]::ToBoolean('${{ inputs.security_emergency }}')
+          ./scripts/windows/build-phase5-release.ps1 `
+            -Version '${{ inputs.version }}' `
+            -MinimumSupportedVersion '${{ vars.PEERONQ_MINIMUM_SUPPORTED_VERSION }}' `
+            -Channel '${{ inputs.channel }}' `
+            -UpdateBaseUrl '${{ vars.PEERONQ_UPDATE_BASE_URL }}' `
+            -SignalingUrl '${{ vars.PEERONQ_SIGNALING_URL }}' `
+            -ApiBaseUrl '${{ vars.PEERONQ_API_BASE_URL }}' `
+            -PresenceUrl '${{ vars.PEERONQ_PRESENCE_URL }}' `
+            -DownloadsBaseUrl '${{ vars.PEERONQ_DOWNLOADS_BASE_URL }}' `
+            -DiagnosticsBaseUrl '${{ vars.PEERONQ_DIAGNOSTICS_BASE_URL }}' `
+            -Region '${{ vars.PEERONQ_RELEASE_REGION }}' `
+            -UpdatePublicKeySpkiBase64 '${{ vars.PEERONQ_UPDATE_PUBLIC_KEY_SPKI }}' `
+            -UpdateKeyId '${{ vars.PEERONQ_UPDATE_KEY_ID }}' `
+            -UpdatePrivateKeyPemPath '${{ steps.signing.outputs.pem }}' `
+            -PublisherCertificateSha256 '${{ vars.PEERONQ_PUBLISHER_CERTIFICATE_SHA256 }}' `
+            -SigningCertificatePath '${{ steps.signing.outputs.pfx }}' `
+            -TimestampUrl '${{ vars.PEERONQ_TIMESTAMP_URL }}' `
+            -RolloutSeed '${{ github.run_id }}-${{ github.run_attempt }}' `
+            -RolloutPercentage ${{ inputs.rollout_percentage }} `
+            -SecurityEmergency:$emergency
+      - name: Administrative extraction smoke test
+        shell: pwsh
+        run: |
+          foreach ($architecture in 'x64', 'arm64') {
+            $msi = Get-ChildItem "dist/release/${{ inputs.version }}/$architecture" -Filter '*.msi' | Select-Object -First 1
+            $target = Join-Path $env:RUNNER_TEMP "msi-$architecture"
+            $process = Start-Process msiexec.exe -ArgumentList @('/a', $msi.FullName, '/qn', "TARGETDIR=$target") -Wait -PassThru
+            if ($process.ExitCode -ne 0 -or -not (Get-ChildItem $target -Recurse -Filter PeerOnQ.exe)) {
+              throw "MSI administrative extraction failed for $architecture."
+            }
+          }
+      - name: Remove ephemeral signing inputs
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath '${{ steps.signing.outputs.pfx }}' -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath '${{ steps.signing.outputs.pem }}' -Force -ErrorAction SilentlyContinue
+      - uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
+        with:
+          subject-path: dist/release/${{ inputs.version }}/x64/*.msi
+          sbom-path: dist/release/${{ inputs.version }}/x64/_manifest/spdx_2.2/manifest.spdx.json
+      - uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
+        with:
+          subject-path: dist/release/${{ inputs.version }}/arm64/*.msi
+          sbom-path: dist/release/${{ inputs.version }}/arm64/_manifest/spdx_2.2/manifest.spdx.json
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: peeronq-${{ inputs.version }}-${{ inputs.channel }}-staging
+          path: dist/release/${{ inputs.version }}
+          if-no-files-found: error
+          retention-days: 14
+
+  production-approval:
+    if: inputs.promote
+    needs: build-sign-stage
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+    steps:
+      - name: Record approved promotion boundary
+        run: |
+          echo "Release candidate ${{ inputs.version }} approved."
+          echo "CDN publication and health-gated rollout follow docs/RELEASE_CHECKLIST.md."
+          echo "No automatic public upload occurs without the configured distribution provider."

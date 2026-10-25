@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PeerOnQ.Cloud.Infrastructure</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Cloud.Application\PeerOnQ.Cloud.Application.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Cloud.Domain\PeerOnQ.Cloud.Domain.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Shared.Contracts\PeerOnQ.Shared.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+</Project>

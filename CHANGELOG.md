@@ -1,0 +1,97 @@
+# Changelog
+
+All notable changes to PeerOnQ are listed here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and version numbers follow
+`Directory.Build.props`. The server and all clients share one version and should be upgraded
+together. Detailed notes for each release, including upgrade steps, are in the
+[release notes](src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md).
+
+## 0.9.88 - 2026-10-25
+
+### Added
+
+- Frame rate follows the viewer's display. Automatic quality runs at 60 fps with a 10 Mbps ceiling
+  and can rise to the display's refresh rate, up to 120 fps, on a healthy link with hardware H.264.
+- Either side can turn on its microphone during a session, and both sides show sound, microphone
+  and talking indicators.
+- Network Doctor sends real STUN and TURN (UDP, TCP and TLS) probes, measures latency without DNS
+  time, and reports results in plain language.
+- A Windows release pipeline that signs installers through SignPath, with a published
+  [code signing policy](CODE_SIGNING_POLICY.md). The signing program application is pending.
+
+### Changed
+
+- Sound is automatic: system sound starts when the session connects and the host can stop it.
+  Where an organization policy forbids audio, sound is removed from the request instead of the
+  session being refused.
+- The Connect panel no longer shows the support-invitation switch or the system-sound request;
+  `peeronq://support` links still work.
+- A device that is already sharing its screen declines new sharing requests as busy.
+- Session heartbeats start only after the cloud has accepted the session as connected.
+- VP8 safety-net key frames are sent every 5 seconds and their size is bounded, which removes
+  periodic bursts on Wi-Fi links.
+
+### Fixed
+
+- Sharing could freeze, and closing the session could hang, when a VP8 encoder call stalled. Each
+  encoder now runs on its own thread with a stall watchdog, and every teardown step is time-bounded.
+- Windows N editions without the Media Feature Pack share and view through software video.
+- A resumed session with connected media no longer restarts ICE, and remote input keeps working
+  after the sharer restarts ICE.
+- Log messages for codec negotiation, request timeouts and software rendering are consistent.
+
+## 0.9.87 - 2026-10-24
+
+### Fixed
+
+- Sessions can be resumed after the signaling service restarts.
+- Closing a session releases its TURN connections.
+- Quality changes report their reason, and jitter is measured against the real frame interval.
+- A device can no longer connect to itself.
+- Server upgrades keep the previous release online until the new one is healthy.
+
+## 0.9.86 - 2026-10-24
+
+### Fixed
+
+- A signaling outage no longer ends a session whose peer-to-peer media is still connected.
+- Quality is lowered only after viewer-side signals persist.
+- Session telemetry recovers events the cloud has not yet recorded.
+- Faster server redeployment.
+
+## 0.9.85 - 2026-10-24
+
+### Fixed
+
+- An unanswered permission dialog could crash the app.
+- Only one permission dialog is shown at a time.
+- Session telemetry uses the correct device identifiers.
+- The Direct3D 11 viewer is the default on machines with one hardware GPU.
+- Messages to a peer that went offline are held and retried.
+
+## 0.9.84 - 2026-10-24
+
+### Fixed
+
+- Presence reconnects, stalled viewers, ICE candidates from virtual network adapters, the quality
+  ladder and diagnostics.
+
+## 0.9.83 - 2026-10-24
+
+### Added
+
+- Each remote monitor can be shown in its own window.
+
+## 0.9.82 - 2026-10-24
+
+### Fixed
+
+- Presence reconnect loop, heartbeat limits and the TURN relay address.
+
+## 0.9.81 - 2026-10-24
+
+### Fixed
+
+- Multiple-monitor selection, time to first picture, the quality floor and log detail.
+
+Earlier versions are described in the [release notes](src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md).

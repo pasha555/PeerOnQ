@@ -1,0 +1,6 @@
+.env
+secrets/
+certificates/
+backups/
+alertmanager.yml
+restore-work/

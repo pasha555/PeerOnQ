@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="peeronq_background">#08111F</color>
+  <color name="peeronq_surface">#101D2E</color>
+  <color name="peeronq_surface_alt">#17263A</color>
+  <color name="peeronq_primary">#35D39A</color>
+  <color name="peeronq_on_primary">#04110D</color>
+  <color name="peeronq_text">#F4F8FC</color>
+  <color name="peeronq_text_muted">#B9C7D8</color>
+  <color name="peeronq_error">#FF9A9A</color>
+  <color name="peeronq_viewport">#03070D</color>
+  <color name="peeronq_focus">#78E8BF</color>
+  <color name="peeronq_brand_navy">#0F2E46</color>
+  <color name="peeronq_brand_green">#198754</color>
+  <color name="peeronq_brand_white">#FFFFFF</color>
+</resources>

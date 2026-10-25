@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "requiredSdkVersion": "10.0.402",
+  "package": {
+    "id": "PeerOnQ.SIPSorcery",
+    "version": "10.0.17.6",
+    "assemblyName": "SIPSorcery",
+    "assemblyVersion": "10.0.17.0"
+  },
+  "upstream": {
+    "packageId": "SIPSorcery",
+    "packageVersion": "10.0.17",
+    "repositoryUrl": "https://github.com/sipsorcery-org/sipsorcery",
+    "commit": "08c2ed0ad72c423ca06950dee2e842488a219884",
+    "archiveUrl": "https://codeload.github.com/sipsorcery-org/sipsorcery/tar.gz/08c2ed0ad72c423ca06950dee2e842488a219884",
+    "archiveSha256": "b25b9e182a11a14f6919a0d0e153b8ddb4537894b116d9103b1b1791f4a8b4aa",
+    "archiveRoot": "sipsorcery-08c2ed0ad72c423ca06950dee2e842488a219884",
+    "licensePath": "LICENSE.md",
+    "licenseSha256": "6675c4a1e6ecda95cfc1d55540d264a08ebb61ef3ec5c0dfa2076d112f60c042"
+  },
+  "patch": {
+    "file": "dtls-receive-wakeup.patch",
+    "sha256": "307a8161fde581f37529fbc7f996c7ee10d5e08bf65adaa9b3d2018e864f5485",
+    "targetPath": "src/SIPSorcery/net/DtlsSrtp/DtlsSrtpTransport.cs",
+    "upstreamFileSha256": "2118faf4b51c95f0bf7e3a1e62619b7c64d944945461b755ec46de8fdf988729",
+    "patchedFileSha256": "9166f2c02923cd4826ccea665c85513d21b965f84161dc85be981e82ce157e9a"
+  },
+  "additionalPatches": [
+    {
+      "file": "sctp-sack-duplicate-reset.patch",
+      "sha256": "666771f9cbfdda5af83d2f1991a77000aacaea800cf3bca02509991b552dbf49",
+      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataReceiver.cs",
+      "upstreamFileSha256": "29040f8e9fd978d29baa52d2ecf724c64f025c9d9b284110458c749dbf954b37",
+      "patchedFileSha256": "4825922e32279673892004153103ecf13f71d1cf73c43f4339da8037b1db01b7"
+    },
+    {
+      "file": "sctp-gap-counter-bound.patch",
+      "sha256": "8eab5985d7aa6d012b0c0bf2644bcb1a559f8785e450d94ff74b51a2fc67a225",
+      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataSender.cs",
+      "upstreamFileSha256": "c0722a2417e71c969427a05d0babfa3de0f46074d57f72f88e94eef47014e003",
+      "patchedFileSha256": "64176da269629f039be2700c71ff2c7cc9292aac8504a7744795264591c01a33"
+    },
+    {
+      "file": "sctp-sender-flow-control.patch",
+      "sha256": "ed82e5e82e0643c0ab6843b8723d7a80e45f2ef9e37508b016258b9bb6644a3f",
+      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataSender.cs",
+      "upstreamFileSha256": "64176da269629f039be2700c71ff2c7cc9292aac8504a7744795264591c01a33",
+      "patchedFileSha256": "1d806ba67071efaef4ab8146ee08f41a97057d15d379abdb2ecb82d9ac03d338"
+    },
+    {
+      "file": "sctp-receiver-window-credit.patch",
+      "sha256": "dae03a96182d421f4afd5ac5d6e3a0e3273e6b464736b968a89cf722738df9ae",
+      "targetPath": "src/SIPSorcery/net/SCTP/SctpDataReceiver.cs",
+      "upstreamFileSha256": "4825922e32279673892004153103ecf13f71d1cf73c43f4339da8037b1db01b7",
+      "patchedFileSha256": "9d22c47759ddea1d8012acc8d883200c27eb51721035f8bd9e55fb988e165050"
+    },
+    {
+      "file": "udp-receive-admission.patch",
+      "sha256": "c27e06f71333550f1262deaad8ad368907b5d68235cc12b12aad800e29173494",
+      "targetPath": "src/SIPSorcery/net/RTP/UdpReceiver.cs",
+      "upstreamFileSha256": "335c8aa5934a9bf0d24a1df27ef8ef9e2c9d5b9f4f6b237099bddc407227e8fc",
+      "patchedFileSha256": "b6400df4eca1787ee3fcaffdcdb4df70038b72d018139b7f9ec7d96f499371f3"
+    },
+    {
+      "file": "rtcp-first-transit-initialization.patch",
+      "sha256": "c63ebdefc7d2482e8dfee6cf2ff68ede72583e22bb9d43a50ffd29a5e1c8472e",
+      "targetPath": "src/SIPSorcery/net/RTCP/ReceptionReport.cs",
+      "upstreamFileSha256": "55e540f576b426efdc6a63643cb858464e2eb27721ec485e20ff7ae62669637b",
+      "patchedFileSha256": "e7f733a000e4feffa2778d72c552c9b5832efe2a29c952ad162448a4da9ce494"
+    }
+  ],
+  "reviewEvidence": {
+    "priorCrLfPatchSha256": "191db7d6e7211c9bcfdd371a415715799d9d47e6dc61ae934ef10258ea349b10",
+    "sourceEquivalentAfterLfNormalization": true,
+    "priorCandidateAssemblySha256": "e079407059823e7be17b46f2a4c2a7ec25a55a2fe64a797c2fec6538024fc4e1",
+    "priorLoopbackCasesPassed": 6,
+    "inputP95GateMs": 35,
+    "requiresActualSdk402PackageConsumerRetest": true
+  }
+}

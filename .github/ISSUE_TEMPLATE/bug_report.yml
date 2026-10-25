@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a problem with a PeerOnQ client, server or website.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the report. Do not report security vulnerabilities here; follow SECURITY.md instead.
+        Remove passwords, tokens, private keys, device IDs you do not want to share, and any screen, clipboard or file content from logs.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The PeerOnQ version on each device (Settings > About), or the commit you built.
+      placeholder: 0.9.88
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Windows client
+        - Linux client
+        - Android client
+        - Apple client
+        - Server (signaling, TURN or control plane)
+        - Website
+        - Build or packaging
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system and build on each device, network type (same LAN, different networks, VPN), and whether the session was direct or relayed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. On device A ...
+        2. On device B ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant, sanitized lines from %LOCALAPPDATA%\PeerOnQ\logs (Windows) or the client log on other platforms.
+      render: text

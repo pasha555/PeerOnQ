@@ -1,0 +1,4 @@
+# Repository-relative path or directory prefix | evidence-backed reason
+artifacts/peeronq/src/compatibility/legacyBrandStorageMigration.ts | browser storage compatibility adapter
+artifacts/peeronq/src/test/storageMigration.test.ts | browser migration fixtures
+tests/PeerOnQ.Infrastructure.Tests/SecretStorageTests.cs | filesystem and secret migration fixtures

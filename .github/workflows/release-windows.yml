@@ -1,0 +1,166 @@
+name: Windows release (SignPath)
+
+# Builds the x64 and ARM64 MSIs from a tagged commit on GitHub-hosted runners, sends them to
+# SignPath (SignPath Foundation open-source program) and attaches the verified, signed MSIs with
+# SHA-256 checksums to a draft GitHub Release. See CODE_SIGNING_POLICY.md and docs/signing/APPLY.md.
+#
+# Tags v* use the release-signing policy (SignPath Foundation certificate, manual approval in
+# SignPath). Manual runs use test-signing (SignPath test certificate). Without the repository
+# variable SIGNPATH_ORGANIZATION_ID the workflow stops after the unsigned build.
+#
+# Required configuration (never committed):
+#   secret   SIGNPATH_API_TOKEN
+#   variable SIGNPATH_ORGANIZATION_ID
+# Optional:
+#   variables PEERONQ_SIGNALING_URL, PEERONQ_API_BASE_URL, PEERONQ_PRESENCE_URL,
+#             PEERONQ_UPDATE_BASE_URL, PEERONQ_DOWNLOADS_BASE_URL, PEERONQ_DIAGNOSTICS_BASE_URL,
+#             PEERONQ_RELEASE_REGION (endpoints compiled into the client; default: the public
+#             peeronq.com endpoints used by scripts/windows/build-peeronq-public-pilot.ps1)
+#   variable SIGNPATH_PROJECT_SLUG (default PeerOnQ),
+#            SIGNPATH_ARTIFACT_CONFIGURATION_SLUG (default windows-msi-pair),
+#            PEERONQ_PUBLISHER_CERTIFICATE_SHA256 (";"-separated signer fingerprints embedded in the
+#            client; updates stay disabled until the manifest URL, key ID and public key exist),
+#            PEERONQ_EXPECTED_PUBLISHER (default SignPath Foundation)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned MSIs
+    runs-on: windows-latest
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          global-json-file: global.json
+      - name: Resolve the canonical version
+        id: version
+        shell: pwsh
+        run: |
+          . ./scripts/windows/PeerOnQ.ClientVersion.ps1
+          $version = (Get-PeerOnQClientVersion -RepositoryRoot $PWD).ToString()
+          if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne "v$version") {
+            throw "Tag ${{ github.ref_name }} does not match Directory.Build.props version $version."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Build the maintained SIPSorcery derivative from pinned source
+        shell: pwsh
+        run: dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release -- --output eng/sipsorcery/packages
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          foreach ($project in 'Domain', 'Application', 'Transport', 'Media', 'Infrastructure', 'Signaling') {
+            dotnet test "tests/PeerOnQ.$project.Tests" -c Release --nologo
+            if ($LASTEXITCODE -ne 0) { throw "PeerOnQ.$project.Tests failed." }
+          }
+      - name: Build MSIs (signing candidates, unsigned)
+        shell: pwsh
+        run: |
+          $arguments = @{
+            SigningCandidate = $true
+            SkipWebsitePublish = $true
+            SignalingUrl = '${{ vars.PEERONQ_SIGNALING_URL || 'wss://signal.peeronq.com/ws' }}'
+            ApiBaseUrl = '${{ vars.PEERONQ_API_BASE_URL || 'https://api.peeronq.com/' }}'
+            PresenceUrl = '${{ vars.PEERONQ_PRESENCE_URL || 'https://presence.peeronq.com/' }}'
+            UpdateBaseUrl = '${{ vars.PEERONQ_UPDATE_BASE_URL || 'https://updates.peeronq.com/' }}'
+            DownloadsBaseUrl = '${{ vars.PEERONQ_DOWNLOADS_BASE_URL || 'https://download.peeronq.com/' }}'
+            DiagnosticsBaseUrl = '${{ vars.PEERONQ_DIAGNOSTICS_BASE_URL || 'https://api.peeronq.com/' }}'
+            Region = '${{ vars.PEERONQ_RELEASE_REGION || 'az-1' }}'
+          }
+          if ('${{ vars.PEERONQ_PUBLISHER_CERTIFICATE_SHA256 }}') {
+            $arguments.PublisherCertificateSha256 = '${{ vars.PEERONQ_PUBLISHER_CERTIFICATE_SHA256 }}'
+          }
+          ./scripts/windows/build-phase5-development.ps1 @arguments
+      - name: Upload unsigned MSIs for SignPath
+        id: upload
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: peeronq-${{ steps.version.outputs.version }}-unsigned
+          path: dist/signing-candidate/${{ steps.version.outputs.version }}/PeerOnQ-*.msi
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    name: Sign with SignPath and verify
+    needs: build
+    if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    runs-on: windows-latest
+    # Release signing waits for a manual approval in SignPath.
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Submit the signing request
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'PeerOnQ' }}
+          signing-policy-slug: ${{ github.ref_type == 'tag' && 'release-signing' || 'test-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || 'windows-msi-pair' }}
+          github-artifact-id: ${{ needs.build.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 21000
+          output-artifact-directory: signed
+      - name: Verify signatures and write checksums
+        shell: pwsh
+        run: |
+          ./scripts/windows/verify-signed-release.ps1 `
+            -Directory signed `
+            -Policy '${{ github.ref_type == 'tag' && 'release' || 'test' }}' `
+            -ExpectedPublisher '${{ vars.PEERONQ_EXPECTED_PUBLISHER || 'SignPath Foundation' }}' `
+            -AllowedPublisherSha256 '${{ vars.PEERONQ_PUBLISHER_CERTIFICATE_SHA256 }}' `
+            -SummaryPath $env:GITHUB_STEP_SUMMARY
+      - name: Upload signed MSIs
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: peeronq-${{ needs.build.outputs.version }}-signed
+          path: |
+            signed/**/PeerOnQ-*.msi
+            signed/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Attach to the GitHub Release
+    needs: [build, sign]
+    if: ${{ github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: peeronq-${{ needs.build.outputs.version }}-signed
+          path: release
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find release -type f \( -name 'PeerOnQ-*.msi' -o -name 'SHA256SUMS.txt' \) | sort)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${files[@]}" --draft --verify-tag --repo "$GITHUB_REPOSITORY" \
+              --title "PeerOnQ $VERSION" \
+              --notes "Signed Windows installers (x64, ARM64) built by GitHub Actions from $TAG and signed through SignPath. Verify downloads with SHA256SUMS.txt. Code signing policy: https://github.com/$GITHUB_REPOSITORY/blob/main/CODE_SIGNING_POLICY.md"
+          fi

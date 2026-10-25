@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>25</SupportedOSPlatformVersion>
+    <RuntimeIdentifiers Condition="'$(PeerOnQAndroidBlueStacksX86)' != 'true'">android-arm64;android-x64</RuntimeIdentifiers>
+    <RuntimeIdentifiers Condition="'$(PeerOnQAndroidBlueStacksX86)' == 'true'">android-x86</RuntimeIdentifiers>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>PeerOnQ.Android</AssemblyName>
+    <RootNamespace>PeerOnQ.App.Android</RootNamespace>
+    <ApplicationId>io.peeronq.android</ApplicationId>
+    <ApplicationVersion>$(PeerOnQAndroidClientVersionCode)</ApplicationVersion>
+    <ApplicationDisplayVersion>$(PeerOnQAndroidClientVersion)</ApplicationDisplayVersion>
+    <Version>$(PeerOnQAndroidClientVersion)</Version>
+    <AssemblyVersion>$(PeerOnQAndroidClientVersion).0</AssemblyVersion>
+    <FileVersion>$(PeerOnQAndroidClientVersion).0</FileVersion>
+    <InformationalVersion>$(PeerOnQAndroidClientVersion)-android-viewer-development-signed-preview</InformationalVersion>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <PublishTrimmed>false</PublishTrimmed>
+    <RunAOTCompilation>false</RunAOTCompilation>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Application\PeerOnQ.Application.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Domain\PeerOnQ.Domain.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Media\PeerOnQ.Media.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Platform.Android\PeerOnQ.Platform.Android.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Transport\PeerOnQ.Transport.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="PeerOnQSignalingUrl" Value="$(PeerOnQSignalingUrl)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(PeerOnQDevelopmentRootCertificate)' != ''">
+    <EmbeddedResource Include="$(PeerOnQDevelopmentRootCertificate)"
+                      LogicalName="PeerOnQ.DevelopmentRoot.cer" />
+  </ItemGroup>
+  <Target Name="ValidatePeerOnQAndroidClientVersion" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(PeerOnQAndroidClientVersion)' == ''"
+           Text="PeerOnQAndroidClientVersion must be defined in Directory.Build.props." />
+    <Error Condition="'$(PeerOnQAndroidClientVersionCode)' == ''"
+           Text="PeerOnQAndroidClientVersionCode must be defined in Directory.Build.props." />
+  </Target>
+  <Target Name="RemoveDesktopVp8NativeLibrary"
+          BeforeTargets="GetCopyToOutputDirectoryItems;CopyFilesToOutputDirectory;_BuildApkEmbed">
+    <ItemGroup>
+      <NativeLibs Remove="@(NativeLibs)" Condition="'%(Filename)%(Extension)' == 'vpxmd.dll'" />
+      <ContentWithTargetPath Remove="@(ContentWithTargetPath)"
+                             Condition="'%(Filename)%(Extension)' == 'vpxmd.dll'" />
+    </ItemGroup>
+  </Target>
+</Project>

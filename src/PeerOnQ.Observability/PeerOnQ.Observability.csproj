@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Cloud.Application\PeerOnQ.Cloud.Application.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Cloud.Infrastructure\PeerOnQ.Cloud.Infrastructure.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+</Project>

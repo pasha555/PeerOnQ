@@ -1,0 +1,186 @@
+<Window
+    x:Class="PeerOnQ.App.ViewerWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="PeerOnQ viewer">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <CommandBar x:Name="ViewerCommandBar" Grid.Row="0" DefaultLabelPosition="Right" IsOpen="False">
+            <CommandBar.PrimaryCommands>
+                <AppBarButton x:Name="FullScreenButton" Icon="FullScreen" Label="Fullscreen" Click="OnFullScreen"
+                              ToolTipService.ToolTip="Fullscreen (F11 exits during Full Control)" />
+                <AppBarButton x:Name="SystemSoundButton" Icon="Volume" Label="Play system sound" Visibility="Collapsed"
+                              Click="OnSystemSound" ToolTipService.ToolTip="Play or mute the system sound explicitly allowed by the host" />
+                <AppBarToggleButton x:Name="VoiceButton" Icon="Microphone" Label="Microphone" Visibility="Collapsed"
+                                    Click="OnVoiceToggled" AutomationProperties.Name="Turn your microphone on or off"
+                                    ToolTipService.ToolTip="Talk with the remote side. Your microphone stays off until you turn it on; you hear the remote side automatically." />
+                <AppBarElementContainer x:Name="AudioStatusContainer" Visibility="Collapsed" VerticalAlignment="Center">
+                    <TextBlock x:Name="AudioStatusText" Margin="4,0,8,0" FontSize="12" VerticalAlignment="Center"
+                               AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Sound and voice status" />
+                </AppBarElementContainer>
+                <AppBarButton x:Name="FileTransferButton" Icon="OpenFile" Label="File Transfer"
+                              Click="OnChooseFiles" IsEnabled="False" Visibility="Collapsed"
+                              AutomationProperties.Name="Choose files to send to the remote device"
+                              ToolTipService.ToolTip="Choose one or more files to send" />
+                <AppBarElementContainer x:Name="TransferProgressContainer" Visibility="Collapsed"
+                                        VerticalAlignment="Center">
+                    <Border Width="184" Margin="4,0,8,0" Padding="8,4"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            CornerRadius="4">
+                        <StackPanel Spacing="2">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBlock x:Name="TransferStatusText" Text="Preparing file transfer"
+                                           FontSize="12" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <TextBlock x:Name="TransferPercentText" Grid.Column="1" Text="0%"
+                                           FontSize="12" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                            </Grid>
+                            <ProgressBar x:Name="TransferProgressBar" Minimum="0" Maximum="100" Value="0"
+                                         Height="3" FlowDirection="LeftToRight"
+                                         AutomationProperties.Name="File transfer progress" />
+                        </StackPanel>
+                    </Border>
+                </AppBarElementContainer>
+                <AppBarSeparator />
+                <AppBarElementContainer x:Name="MonitorContainer" Visibility="Collapsed" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0">
+                        <TextBlock Text="Monitor" VerticalAlignment="Center" />
+                        <Button x:Name="PreviousMonitorButton" IsEnabled="False"
+                                Content="&#xE76B;" FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                ToolTipService.ToolTip="Previous monitor (Ctrl+Alt+Shift+Left)"
+                                AutomationProperties.Name="Previous remote monitor"
+                                Click="OnPreviousMonitor" />
+                        <ComboBox x:Name="MonitorPicker" MinWidth="200" IsEnabled="False"
+                                  AutomationProperties.Name="Remote monitor"
+                                  SelectionChanged="OnMonitorSelected" />
+                        <Button x:Name="NextMonitorButton" IsEnabled="False"
+                                Content="&#xE76C;" FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                ToolTipService.ToolTip="Next monitor (Ctrl+Alt+Shift+Right)"
+                                AutomationProperties.Name="Next remote monitor"
+                                Click="OnNextMonitor" />
+                        <!-- Shown when the sharer publishes display positions (0.9.83+): every
+                             remote display of the combined view opens in its own window. -->
+                        <ToggleButton x:Name="SeparateWindowsButton" Visibility="Collapsed"
+                                      Content="Separate windows"
+                                      ToolTipService.ToolTip="Show each remote monitor in its own window"
+                                      AutomationProperties.Name="Show each remote monitor in its own window"
+                                      Click="OnSeparateWindowsClicked" />
+                    </StackPanel>
+                </AppBarElementContainer>
+                <AppBarSeparator />
+                <AppBarButton x:Name="EndButton" Icon="Cancel" Label="End session" Click="OnEnd" />
+            </CommandBar.PrimaryCommands>
+            <CommandBar.SecondaryCommands>
+                <AppBarButton x:Name="ScaleButton" Icon="Zoom" Label="Fit to window"
+                              AutomationProperties.Name="Display scaling: Fit to window"
+                              ToolTipService.ToolTip="Choose how the remote screen fits this window">
+                    <AppBarButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                            <ToggleMenuFlyoutItem x:Name="FitScaleItem" Text="Fit to window"
+                                                  IsChecked="True" Click="OnFit" />
+                            <ToggleMenuFlyoutItem x:Name="FillScaleItem" Text="Fill window (crop edges)"
+                                                  Click="OnFillWindow" />
+                            <ToggleMenuFlyoutItem x:Name="StretchScaleItem" Text="Stretch to window"
+                                                  Click="OnStretchWindow" />
+                            <MenuFlyoutSeparator />
+                            <ToggleMenuFlyoutItem x:Name="ActualScaleItem" Text="Actual size (100%)"
+                                                  Click="OnActualSize" />
+                        </MenuFlyout>
+                    </AppBarButton.Flyout>
+                </AppBarButton>
+                <AppBarButton Icon="Copy" Label="Copy connection details" Click="OnCopyDiagnostics"
+                              AutomationProperties.HelpText="Copies sanitized technical session details for troubleshooting. This does not affect the connection." />
+            </CommandBar.SecondaryCommands>
+        </CommandBar>
+
+        <Grid Grid.Row="1">
+            <ScrollViewer x:Name="Scroller" ZoomMode="Disabled"
+                          HorizontalScrollMode="Disabled" VerticalScrollMode="Disabled"
+                          HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"
+                          SizeChanged="OnScrollerSizeChanged"
+                          Background="{StaticResource RemoteCanvasBackgroundBrush}">
+                <!-- ScrollViewer measures direct children with an unconstrained extent. The
+                     explicit viewport keeps window-based scale modes tied to the visible area. -->
+                <Grid x:Name="RemoteImageViewport"
+                      HorizontalAlignment="Left" VerticalAlignment="Top">
+                    <Image x:Name="RemoteImage" Stretch="Uniform"
+                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                           AutomationProperties.Name="Remote desktop image"
+                           Loaded="OnRemoteImageLoaded" Unloaded="OnRemoteImageUnloaded"
+                           PointerEntered="OnRemoteImagePointerEntered" />
+                    <!-- GPU presentation surface. It replaces the Image only after a Direct3D
+                         swap chain is attached; any failure returns to the bitmap path. -->
+                    <SwapChainPanel x:Name="RemoteSwapChainPanel" Visibility="Collapsed"
+                                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                    AutomationProperties.Name="Remote desktop image"
+                                    SizeChanged="OnRemoteSwapChainPanelSizeChanged"
+                                    CompositionScaleChanged="OnRemoteSwapChainPanelCompositionScaleChanged">
+                        <!-- SwapChainPanel rejects Background at runtime (the XAML compiler accepts
+                             it). A transparent child above the swap chain keeps pointer entry
+                             hit-testable over the whole surface. -->
+                        <Border Background="Transparent" PointerEntered="OnRemoteImagePointerEntered" />
+                    </SwapChainPanel>
+                </Grid>
+            </ScrollViewer>
+
+            <!-- ButtonBase consumes PointerPressed for Click. A focusable, neutral content
+                 surface keeps raw mouse and keyboard events available for remote input. -->
+            <ContentControl x:Name="RemoteInputSurface" Visibility="Collapsed"
+                             IsTabStop="True" IsHitTestVisible="True"
+                             AllowDrop="True" DragOver="OnRemoteFilesDragOver" Drop="OnRemoteFilesDropped"
+                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                             AutomationProperties.Name="Remote keyboard and pointer control surface"
+                             KeyDown="OnRemoteKeyDown" KeyUp="OnRemoteKeyUp">
+                <Border x:Name="RemotePointerSurface" Background="Transparent"
+                        PointerPressed="OnRemotePointerPressed"
+                        PointerReleased="OnRemotePointerReleased"
+                        PointerCaptureLost="OnRemotePointerCaptureLost"
+                        PointerMoved="OnRemotePointerMoved"
+                        PointerWheelChanged="OnRemotePointerWheelChanged" />
+            </ContentControl>
+
+            <!-- Fullscreen retains a minimal top-edge target so exiting never requires a hidden
+                 keyboard shortcut. The actual control is transient and does not cover the view. -->
+            <Border x:Name="FullScreenRevealTarget" Height="12" VerticalAlignment="Top"
+                    HorizontalAlignment="Stretch" Background="Transparent" Visibility="Collapsed"
+                    PointerEntered="OnFullScreenRevealTargetEntered" />
+            <CommandBar x:Name="FullScreenRevealBar" VerticalAlignment="Top"
+                        HorizontalAlignment="Center" DefaultLabelPosition="Right" IsOpen="False"
+                        Visibility="Collapsed" PointerEntered="OnFullScreenRevealBarEntered"
+                        PointerExited="OnFullScreenRevealBarExited">
+                <CommandBar.PrimaryCommands>
+                    <AppBarButton Icon="Back" Label="Exit fullscreen" Click="OnFullScreen"
+                                  AutomationProperties.Name="Exit fullscreen" />
+                </CommandBar.PrimaryCommands>
+            </CommandBar>
+
+            <Border x:Name="ReconnectOverlay" Visibility="Collapsed"
+                    Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    CornerRadius="8" Padding="24">
+                <StackPanel Spacing="12" HorizontalAlignment="Center">
+                    <ProgressRing IsActive="True" />
+                    <TextBlock Text="Connection interrupted" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ReconnectText" Text="Reconnecting…" HorizontalAlignment="Center" />
+                    <Button Content="Cancel reconnect" HorizontalAlignment="Center" Click="OnEnd" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Visibility="Collapsed" Padding="12,8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                <TextBlock x:Name="PeerText" MaxWidth="360" FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                <TextBlock x:Name="ConnectionText" Grid.Column="1" Opacity="0.8"
+                           TextAlignment="Center" TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" />
+                <TextBlock x:Name="QualityText" Grid.Column="2" Opacity="0.8"
+                           VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

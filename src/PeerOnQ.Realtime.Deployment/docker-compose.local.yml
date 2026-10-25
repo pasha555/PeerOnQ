@@ -1,0 +1,175 @@
+name: peeronq-local-phase3
+
+services:
+  proxy:
+    image: nginx:1.28.3-alpine
+    depends_on:
+      signaling:
+        condition: service_healthy
+    ports:
+      - "${PEERONQ_LOCAL_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_LOCAL_TLS_PORT:-5443}:443/tcp"
+    volumes:
+      - ./nginx/production.conf:/etc/nginx/nginx.conf:ro
+      - ${PEERONQ_LOCAL_CERT_DIR:?set PEERONQ_LOCAL_CERT_DIR}:/certs:ro
+    networks:
+      backend:
+        ipv4_address: 172.31.0.10
+      proxy-public:
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=16m,mode=0755
+      - /var/run:size=4m,mode=0755
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --no-check-certificate --header='Host: ${PEERONQ_LOCAL_SIGNAL_HOST:-127.0.0.1}' --spider https://127.0.0.1/health/live"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  signaling:
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Signaling.Server/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      AllowedHosts: ${PEERONQ_LOCAL_SIGNAL_HOST:-127.0.0.1};peeronq-phase3-signaling;signaling
+      Signaling__ServerId: signal-local-1
+      Signaling__RequireTlsOutsideLoopback: "true"
+      Signaling__TrustedProxyIp: 172.31.0.10
+      Signaling__PinStorePath: /app/data/device-pins.json
+      Signaling__Turn__Realm: ${PEERONQ_LOCAL_TURN_HOST:-127.0.0.1}
+      Signaling__Turn__ServerId: turn-local-1
+      Signaling__Turn__Region: local
+      Signaling__Turn__SharedSecretFile: /run/secrets/peeronq_turn_shared_secret
+      Signaling__Turn__StunUrls__0: stun:${PEERONQ_LOCAL_TURN_HOST:-127.0.0.1}:${PEERONQ_LOCAL_TURN_PORT:-3478}
+      Signaling__Turn__TurnUrls__0: turn:${PEERONQ_LOCAL_TURN_HOST:-127.0.0.1}:${PEERONQ_LOCAL_TURN_PORT:-3478}?transport=udp
+      Signaling__Turn__TurnUrls__1: turn:${PEERONQ_LOCAL_TURN_HOST:-127.0.0.1}:${PEERONQ_LOCAL_TURN_PORT:-3478}?transport=tcp
+      Signaling__Turn__TurnUrls__2: turns:${PEERONQ_LOCAL_TURN_HOST:-127.0.0.1}:${PEERONQ_LOCAL_TURN_TLS_PORT:-5349}?transport=tcp
+      Signaling__Turn__RelayOnly: ${PEERONQ_TURN_RELAY_ONLY:-false}
+    depends_on:
+      turn:
+        condition: service_healthy
+    volumes:
+      - local-signaling-data:/app/data
+      - local-signaling-logs:/app/logs
+    secrets:
+      - peeronq_turn_shared_secret
+    networks:
+      backend:
+      local-observability:
+        aliases:
+          - peeronq-phase3-signaling
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 172.29.61.10:24224
+        fluentd-async: "true"
+        tag: peeronq.signaling.phase3
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--header", "Host: ${PEERONQ_LOCAL_SIGNAL_HOST:-127.0.0.1}", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+
+  signaling-metrics:
+    image: nginx:1.28.3-alpine
+    entrypoint: [nginx]
+    command: [-c, /etc/nginx/signaling-metrics.conf, -g, "daemon off;"]
+    user: "101:101"
+    volumes:
+      - ../PeerOnQ.Infrastructure.Deployment/nginx/signaling-metrics.conf:/etc/nginx/signaling-metrics.conf:ro
+    network_mode: service:signaling
+    depends_on:
+      signaling:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8081/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  turn:
+    build:
+      context: ../PeerOnQ.Turn.Configuration
+    environment:
+      PEERONQ_TURN_REALM: ${PEERONQ_LOCAL_TURN_HOST:-127.0.0.1}
+      PEERONQ_TURN_EXTERNAL_IP: ${PEERONQ_TURN_EXTERNAL_IP:-127.0.0.1}
+      PEERONQ_TURN_ALLOW_PRIVATE_PEERS: "true"
+      PEERONQ_TURN_REQUIRE_TLS: "true"
+      PEERONQ_TURN_MIN_PORT: ${PEERONQ_LOCAL_TURN_RELAY_MIN_PORT:-49160}
+      PEERONQ_TURN_MAX_PORT: ${PEERONQ_LOCAL_TURN_RELAY_MAX_PORT:-49200}
+    ports:
+      - "${PEERONQ_LOCAL_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_LOCAL_TURN_PORT:-3478}:3478/udp"
+      - "${PEERONQ_LOCAL_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_LOCAL_TURN_PORT:-3478}:3478/tcp"
+      - "${PEERONQ_LOCAL_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_LOCAL_TURN_TLS_PORT:-5349}:5349/udp"
+      - "${PEERONQ_LOCAL_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_LOCAL_TURN_TLS_PORT:-5349}:5349/tcp"
+      - "${PEERONQ_LOCAL_BIND_ADDRESS:-127.0.0.1}:${PEERONQ_LOCAL_TURN_RELAY_MIN_PORT:-49160}-${PEERONQ_LOCAL_TURN_RELAY_MAX_PORT:-49200}:${PEERONQ_LOCAL_TURN_RELAY_MIN_PORT:-49160}-${PEERONQ_LOCAL_TURN_RELAY_MAX_PORT:-49200}/udp"
+      - "127.0.0.1:9641:9641/tcp"
+    volumes:
+      - ${PEERONQ_LOCAL_CERT_DIR:?set PEERONQ_LOCAL_CERT_DIR}:/certs:ro
+    secrets:
+      - peeronq_turn_shared_secret
+    networks:
+      - turn-public
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/coturn:size=16m,mode=0700,uid=65534,gid=65534
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD-SHELL", "turnutils_stunclient -p 3478 127.0.0.1 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+secrets:
+  peeronq_turn_shared_secret:
+    file: ${PEERONQ_TURN_SHARED_SECRET_FILE:?set PEERONQ_TURN_SHARED_SECRET_FILE}
+
+networks:
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+  proxy-public:
+  turn-public:
+  local-observability:
+    external: true
+    name: peeronq-local-observability
+
+volumes:
+  local-signaling-data:
+  local-signaling-logs:

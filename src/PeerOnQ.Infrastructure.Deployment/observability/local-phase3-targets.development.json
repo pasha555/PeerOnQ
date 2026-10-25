@@ -1,0 +1,5 @@
+[
+  {
+    "targets": ["peeronq-phase3-signaling:8081"]
+  }
+]

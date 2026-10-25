@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+pnpm-lock.yaml
+attached_assets
+.local
+lib/api-client-react/src/generated
+lib/api-zod/src/generated
+artifacts/*/src/components/ui

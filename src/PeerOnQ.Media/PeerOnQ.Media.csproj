@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PeerOnQ.Media</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Domain\PeerOnQ.Domain.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Application\PeerOnQ.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="PeerOnQ.SIPSorcery" />
+    <PackageReference Include="SIPSorceryMedia.Abstractions" />
+    <PackageReference Include="SIPSorceryMedia.Encoders" />
+    <PackageReference Include="Concentus" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <!-- Opus/Concentus is BSD-3-Clause: every binary distribution carries its copyright notice,
+       conditions and disclaimer. The package's own LICENSE flows to each referencing app. -->
+  <ItemGroup Condition="'$(PkgConcentus)' != ''">
+    <Content Include="$(PkgConcentus)/LICENSE">
+      <Link>ThirdParty/Concentus/LICENSE</Link>
+      <TargetPath>ThirdParty/Concentus/LICENSE</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+  <Target Name="RequireConcentusLicenseNotice" BeforeTargets="CoreCompile">
+    <Error Condition="'$(PkgConcentus)' == '' or !Exists('$(PkgConcentus)/LICENSE')"
+           Text="The Concentus package LICENSE is missing; the Opus BSD-3-Clause notice must ship with every build." />
+  </Target>
+  <Target Name="RequireMaintainedSipsorceryPackage" BeforeTargets="CollectPackageReferences;ResolvePackageAssets">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../../eng/sipsorcery/packages/PeerOnQ.SIPSorcery.$(PeerOnQSipsorceryPackageVersion).nupkg')"
+           Text="The maintained SIPSorcery package is missing. Run: dotnet run --project eng/PeerOnQ.DependencyBuilder -c Release -- --output eng/sipsorcery/packages" />
+  </Target>
+  <Target Name="CheckMaintainedSipsorceryCache" BeforeTargets="CollectPackageReferences;ResolvePackageAssets"
+          DependsOnTargets="RequireMaintainedSipsorceryPackage">
+    <PropertyGroup>
+      <_PeerOnQSipsorceryFeedPackage>$(MSBuildThisFileDirectory)../../eng/sipsorcery/packages/PeerOnQ.SIPSorcery.$(PeerOnQSipsorceryPackageVersion).nupkg</_PeerOnQSipsorceryFeedPackage>
+      <_PeerOnQSipsorceryCacheRoot Condition="'$(RestorePackagesPath)' != ''">$(RestorePackagesPath)/peeronq.sipsorcery/$(PeerOnQSipsorceryPackageVersion)</_PeerOnQSipsorceryCacheRoot>
+      <_PeerOnQSipsorceryCacheRoot Condition="'$(_PeerOnQSipsorceryCacheRoot)' == '' and '$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)/peeronq.sipsorcery/$(PeerOnQSipsorceryPackageVersion)</_PeerOnQSipsorceryCacheRoot>
+      <_PeerOnQSipsorceryCacheRoot Condition="'$(_PeerOnQSipsorceryCacheRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)/peeronq.sipsorcery/$(PeerOnQSipsorceryPackageVersion)</_PeerOnQSipsorceryCacheRoot>
+      <_PeerOnQSipsorceryCachedPackage>$(_PeerOnQSipsorceryCacheRoot)/peeronq.sipsorcery.$(PeerOnQSipsorceryPackageVersion).nupkg</_PeerOnQSipsorceryCachedPackage>
+    </PropertyGroup>
+    <!-- A first restore may have no cache. Existing same-version bytes must never
+         silently shadow a newly rebuilt, verified local package. -->
+    <GetFileHash Files="$(_PeerOnQSipsorceryFeedPackage)" Condition="'$(_PeerOnQSipsorceryCacheRoot)' != '' and Exists('$(_PeerOnQSipsorceryCachedPackage)')">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQSipsorceryFeedHash" />
+    </GetFileHash>
+    <GetFileHash Files="$(_PeerOnQSipsorceryCachedPackage)" Condition="'$(_PeerOnQSipsorceryCacheRoot)' != '' and Exists('$(_PeerOnQSipsorceryCachedPackage)')">
+      <Output TaskParameter="Hash" PropertyName="_PeerOnQSipsorceryCachedHash" />
+    </GetFileHash>
+    <Error Condition="'$(_PeerOnQSipsorceryCachedHash)' != '' and '$(_PeerOnQSipsorceryCachedHash)' != '$(_PeerOnQSipsorceryFeedHash)'"
+           Text="The cached maintained SIPSorcery package differs from the verified local feed. Select a fresh NUGET_PACKAGES directory and restore again, or refresh only this verified custom package cache; do not reuse stale same-version binaries." />
+  </Target>
+</Project>

@@ -1,0 +1,113 @@
+--- a/src/SIPSorcery/net/RTP/UdpReceiver.cs
++++ b/src/SIPSorcery/net/RTP/UdpReceiver.cs
+@@ -52,6 +52,7 @@
+     protected byte[] m_recvBuffer;
+     protected bool m_isClosed;
+     protected bool m_isRunningReceive;
++    private readonly object _receiveAdmissionGate = new object();
+     protected IPEndPoint m_localEndPoint;
+     protected AddressFamily m_addressFamily;
+ 
+@@ -111,26 +112,22 @@
+     /// </summary>
+     public virtual void BeginReceiveFrom()
+     {
+-        //Prevent call BeginReceiveFrom if it is already running
+-        if (m_isClosed && m_isRunningReceive)
+-        {
+-            m_isRunningReceive = false;
+-        }
+-        if (m_isRunningReceive || m_isClosed)
+-        {
+-            return;
++        lock (_receiveAdmissionGate)
++        {
++            if (m_isRunningReceive || m_isClosed)
++                return;
++            m_isRunningReceive = true;
+         }
+ 
+         try
+         {
+-            m_isRunningReceive = true;
+             EndPoint recvEndPoint = m_addressFamily == AddressFamily.InterNetwork ? new IPEndPoint(IPAddress.Any, 0) : new IPEndPoint(IPAddress.IPv6Any, 0);
+             m_socket.BeginReceiveFrom(m_recvBuffer, 0, m_recvBuffer.Length, SocketFlags.None, ref recvEndPoint, EndReceiveFrom, null);
+         }
+         catch (ObjectDisposedException)
+         {
+             // Thrown when socket is closed. Can be safely ignored.
+-            m_isRunningReceive = false;
++            ReleaseReceiveAdmission();
+         }
+         catch (SocketException sockExcp)
+         {
+@@ -139,12 +136,12 @@
+             // has not been opened yet, or an endpoint change during hold/transfer left a stale route.
+             // The local socket remains usable, so we log and allow the next BeginReceiveFrom attempt
+             // from the EndReceiveFrom finally block rather than tearing down the receive loop.
+-            m_isRunningReceive = false;
++            ReleaseReceiveAdmission();
+             logger.LogWarning("Socket error {SocketErrorCode} in UdpReceiver.BeginReceiveFrom. {Message}", sockExcp.SocketErrorCode, sockExcp.Message);
+         }
+         catch (Exception excp)
+         {
+-            m_isRunningReceive = false;
++            ReleaseReceiveAdmission();
+             // From https://github.com/dotnet/corefx/blob/e99ec129cfd594d53f4390bf97d1d736cff6f860/src/System.Net.Sockets/src/System/Net/Sockets/Socket.cs#L3262
+             // the BeginReceiveFrom will only throw if there is an problem with the arguments or the socket has been disposed of. In that
+             // case the socket can be considered to be unusable and there's no point trying another receive.
+@@ -249,28 +246,33 @@
+         }
+         finally
+         {
++            ReleaseReceiveAdmission();
++            if (!m_isClosed)
++            {
++                BeginReceiveFrom();
++            }
++        }
++    }
++
++    /// <summary>
++    /// Closes the socket and stops any new receives from being initiated.
++    /// </summary>
++    public virtual void Close(string reason)
++    {
++        lock (_receiveAdmissionGate)
++        {
++            if (m_isClosed) return;
++            m_isClosed = true;
++        }
++        m_socket?.Close();
++        OnClosed?.Invoke(reason);
++    }
++
++    private void ReleaseReceiveAdmission()
++    {
++        lock (_receiveAdmissionGate)
+             m_isRunningReceive = false;
+-            if (!m_isClosed)
+-            {
+-                BeginReceiveFrom();
+-            }
+-        }
+-    }
+-
+-    /// <summary>
+-    /// Closes the socket and stops any new receives from being initiated.
+-    /// </summary>
+-    public virtual void Close(string reason)
+-    {
+-        if (!m_isClosed)
+-        {
+-            m_isClosed = true;
+-            m_socket?.Close();
+-
+-            OnClosed?.Invoke(reason);
+-        }
+-    }
+-
++    }
+     protected virtual void CallOnPacketReceivedCallback(int localPort, IPEndPoint remoteEndPoint, byte[] packet)
+     {
+         OnPacketReceived?.Invoke(this, localPort, remoteEndPoint, packet);

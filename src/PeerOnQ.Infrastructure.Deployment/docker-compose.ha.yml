@@ -1,0 +1,111 @@
+# Local single-region application HA validation overlay. Apply together with docker-compose.development.yml.
+# PostgreSQL and Redis remain external data-tier HA responsibilities; the signaling application tier
+# is active-active through its Redis-backed ownership/session store and routing backplane.
+services:
+  proxy:
+    depends_on:
+      cloud-api-ha-2: { condition: service_healthy }
+      presence-ha-2: { condition: service_healthy }
+      downloads-ha-2: { condition: service_healthy }
+      signaling-ha-2: { condition: service_healthy }
+    environment:
+      PEERONQ_CLOUD_API_UPSTREAMS: "server cloud-api:8080 resolve max_fails=1 fail_timeout=10s; server cloud-api-ha-2:8080 resolve max_fails=1 fail_timeout=10s backup;"
+      PEERONQ_PRESENCE_UPSTREAMS: "server presence:8080 resolve max_fails=1 fail_timeout=10s; server presence-ha-2:8080 resolve max_fails=1 fail_timeout=10s backup;"
+      PEERONQ_DOWNLOADS_UPSTREAMS: "server downloads:8080 resolve max_fails=1 fail_timeout=10s; server downloads-ha-2:8080 resolve max_fails=1 fail_timeout=10s backup;"
+      PEERONQ_SIGNALING_UPSTREAMS: "server signaling:8080 resolve max_fails=1 fail_timeout=10s; server signaling-ha-2:8080 resolve max_fails=1 fail_timeout=10s;"
+
+  cloud-api:
+    environment:
+      CloudWorkers__WorkerLeaseDuration: ${PEERONQ_CLOUD_WORKER_LEASE_DURATION:-00:02:00}
+
+  presence:
+    environment:
+      PeerOnQ__Presence__ServerId: presence-ha-1
+
+  signaling:
+    environment:
+      Signaling__Cluster__InstanceId: signaling-ha-1
+
+  prometheus:
+    volumes:
+      - ./observability/cloud-api-targets-ha.json:/etc/prometheus/targets/cloud-api.json:ro
+      - ./observability/presence-targets-ha.json:/etc/prometheus/targets/presence.json:ro
+      - ./observability/downloads-targets-ha.json:/etc/prometheus/targets/downloads.json:ro
+      - ./observability/signaling-targets-ha.json:/etc/prometheus/targets/signaling.json:ro
+
+  cloud-api-ha-2:
+    extends:
+      file: ./docker-compose.development.yml
+      service: cloud-api
+    environment:
+      CloudWorkers__WorkerLeaseDuration: ${PEERONQ_CLOUD_WORKER_LEASE_DURATION:-00:02:00}
+    networks:
+      control:
+      observability:
+
+  presence-ha-2:
+    extends:
+      file: ./docker-compose.development.yml
+      service: presence
+    environment:
+      PeerOnQ__Presence__ServerId: presence-ha-2
+    networks:
+      control:
+      observability:
+
+  downloads-ha-2:
+    extends:
+      file: ./docker-compose.development.yml
+      service: downloads
+    volumes:
+      - downloads-verified-cache-ha-2:/var/lib/peeronq/download-cache
+    networks:
+      control:
+      observability:
+
+  signaling-ha-2:
+    extends:
+      file: ./docker-compose.development.yml
+      service: signaling
+    environment:
+      Signaling__ServerId: signal-local-2
+      Signaling__Cluster__InstanceId: signaling-ha-2
+    volumes:
+      - signaling-data-ha-2:/app/data
+    networks:
+      control:
+      observability:
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 172.29.61.10:24224
+        fluentd-async: "true"
+        tag: peeronq.signaling.ha-2
+
+  signaling-metrics-ha-2:
+    image: nginx:1.28.3-alpine
+    entrypoint: [nginx]
+    command: [-c, /etc/nginx/signaling-metrics.conf, -g, "daemon off;"]
+    user: "101:101"
+    volumes:
+      - ./nginx/signaling-metrics.conf:/etc/nginx/signaling-metrics.conf:ro
+    network_mode: service:signaling-ha-2
+    depends_on:
+      signaling-ha-2:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, http://127.0.0.1:8081/metrics]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  downloads-verified-cache-ha-2:
+  signaling-data-ha-2:

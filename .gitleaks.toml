@@ -1,0 +1,32 @@
+# Gitleaks: the default rules plus reviewed false positives.
+# Each allowlist is bound to one file and one exact pattern, so any new finding still fails CI.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Admin metric descriptors: 'key' is a metric field name, not a credential"
+condition = "AND"
+paths = ['''^artifacts/peeronq-admin/src/pages/ResourcePage\.tsx$''']
+regexTarget = "line"
+regexes = ['''^\s*\{ key: '[A-Za-z0-9]+', label: '[^']+', icon: [A-Za-z0-9]+ \},?\s*$''']
+
+[[allowlists]]
+description = "ML-KEM private key class declaration, contains no key material"
+condition = "AND"
+paths = ['''^src/PeerOnQ\.Application/Security/PostQuantumCryptography\.cs$''']
+regexTarget = "line"
+regexes = ['''^\s*private sealed class MlKem768PrivateKey : IMlKem768PrivateKey\s*$''']
+
+[[allowlists]]
+description = "Empty TURN shared secret in the development template"
+condition = "AND"
+paths = ['''^src/PeerOnQ\.Realtime\.Deployment/\.env\.example$''']
+regexTarget = "match"
+regexes = ['''^PEERONQ_TURN_SHARED_SECRET=\r?\n''']
+
+[[allowlists]]
+description = "Fixed integration-test TURN secret"
+condition = "AND"
+paths = ['''^tests/PeerOnQ\.Signaling\.Tests/TurnAndResumeTests\.cs$''']
+regexes = ['''^integration-secret-with-at-least-32-characters$''']

@@ -1,0 +1,28 @@
+<Window
+    x:Class="PeerOnQ.App.RemoteMonitorWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="PeerOnQ remote monitor">
+
+    <Grid>
+        <Image x:Name="MonitorImage" Stretch="Uniform"
+               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+               AutomationProperties.Name="Remote monitor image" />
+
+        <!-- Same neutral, focusable surface as the viewer: raw pointer and key events reach the
+             session's approved input channel through the owning viewer window. -->
+        <ContentControl x:Name="InputSurface"
+                        IsTabStop="True" IsHitTestVisible="True"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                        AutomationProperties.Name="Remote monitor keyboard and pointer control surface"
+                        KeyDown="OnKeyDown" KeyUp="OnKeyUp">
+            <Border x:Name="PointerSurface" Background="Transparent"
+                    PointerPressed="OnPointerPressed"
+                    PointerReleased="OnPointerReleased"
+                    PointerCaptureLost="OnPointerCaptureLost"
+                    PointerMoved="OnPointerMoved"
+                    PointerWheelChanged="OnPointerWheelChanged" />
+        </ContentControl>
+    </Grid>
+</Window>

@@ -1,0 +1,3 @@
+# xUnit test names are executable specifications and intentionally use sentence-style underscores.
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none

@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: peeronq-signaling
+    static_configs:
+      - targets: ["signaling:8080"]
+    metrics_path: /metrics
+
+  - job_name: peeronq-turn
+    static_configs:
+      - targets: ["turn:9641"]

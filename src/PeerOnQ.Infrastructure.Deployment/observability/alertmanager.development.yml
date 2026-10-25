@@ -1,0 +1,23 @@
+route:
+  receiver: peeronq-admin
+  group_by: [alertname, region]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: peeronq-admin
+    webhook_configs:
+      - url: http://admin-api:8080/internal/v1/alerts/alertmanager
+        send_resolved: true
+        max_alerts: 100
+        http_config:
+          http_headers:
+            X-PeerOnQ-Alertmanager-Token:
+              files:
+                - /run/secrets/peeronq_alertmanager_webhook_token
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [alertname, region]

@@ -1,0 +1,147 @@
+name: peeronq-production
+
+services:
+  proxy:
+    image: nginx:1.28.3-alpine
+    depends_on:
+      signaling:
+        condition: service_healthy
+    ports:
+      - "443:443/tcp"
+    volumes:
+      - ./nginx/production.conf:/etc/nginx/nginx.conf:ro
+      - ${PEERONQ_SIGNAL_CERT_DIR:?set PEERONQ_SIGNAL_CERT_DIR}:/certs:ro
+    networks:
+      backend:
+        ipv4_address: 172.30.0.10
+      proxy-public:
+    restart: unless-stopped
+    stop_grace_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=16m,mode=0755
+      - /var/run:size=4m,mode=0755
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --no-check-certificate --header='Host: ${PEERONQ_SIGNAL_PUBLIC_HOST:?set PEERONQ_SIGNAL_PUBLIC_HOST}' --spider https://127.0.0.1/health/live"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  signaling:
+    build:
+      context: ../..
+      dockerfile: src/PeerOnQ.Signaling.Server/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      AllowedHosts: ${PEERONQ_SIGNAL_PUBLIC_HOST:?set PEERONQ_SIGNAL_PUBLIC_HOST}
+      Signaling__ServerId: ${PEERONQ_SIGNAL_SERVER_ID:?set PEERONQ_SIGNAL_SERVER_ID}
+      Signaling__RequireTlsOutsideLoopback: "true"
+      Signaling__TrustedProxyIp: 172.30.0.10
+      Signaling__PinStorePath: /app/data/device-pins.json
+      Signaling__Turn__Realm: ${PEERONQ_TURN_REALM:?set PEERONQ_TURN_REALM}
+      Signaling__Turn__ServerId: ${PEERONQ_TURN_SERVER_ID:?set PEERONQ_TURN_SERVER_ID}
+      Signaling__Turn__Region: ${PEERONQ_TURN_REGION:?set PEERONQ_TURN_REGION}
+      Signaling__Turn__SharedSecretFile: /run/secrets/peeronq_turn_shared_secret
+      Signaling__Turn__StunUrls__0: stun:${PEERONQ_TURN_PUBLIC_HOST:?set PEERONQ_TURN_PUBLIC_HOST}:3478
+      Signaling__Turn__TurnUrls__0: turn:${PEERONQ_TURN_PUBLIC_HOST}:3478?transport=udp
+      Signaling__Turn__TurnUrls__1: turn:${PEERONQ_TURN_PUBLIC_HOST}:3478?transport=tcp
+      Signaling__Turn__TurnUrls__2: turns:${PEERONQ_TURN_PUBLIC_HOST}:5349?transport=tcp
+      Signaling__Turn__RelayOnly: "false"
+    expose:
+      - "8080"
+    depends_on:
+      turn:
+        condition: service_healthy
+    volumes:
+      - signaling-data:/app/data
+      - signaling-logs:/app/logs
+    secrets:
+      - peeronq_turn_shared_secret
+    networks:
+      - backend
+      - monitoring
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    restart: unless-stopped
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--header", "Host: ${PEERONQ_SIGNAL_PUBLIC_HOST:?set PEERONQ_SIGNAL_PUBLIC_HOST}", "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+
+  turn:
+    build:
+      context: ../PeerOnQ.Turn.Configuration
+    environment:
+      PEERONQ_TURN_REALM: ${PEERONQ_TURN_REALM:?set PEERONQ_TURN_REALM}
+      PEERONQ_TURN_EXTERNAL_IP: ${PEERONQ_TURN_EXTERNAL_IP:?set PEERONQ_TURN_EXTERNAL_IP}
+      PEERONQ_TURN_ALLOW_PRIVATE_PEERS: "false"
+      PEERONQ_TURN_REQUIRE_TLS: "true"
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49160-49200:49160-49200/udp"
+    volumes:
+      - ${PEERONQ_TURN_CERT_DIR:?set PEERONQ_TURN_CERT_DIR}:/certs:ro
+    secrets:
+      - peeronq_turn_shared_secret
+    networks:
+      - turn-public
+      - monitoring
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/coturn:size=16m,mode=0700,uid=65534,gid=65534
+    restart: unless-stopped
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD-SHELL", "turnutils_stunclient -p 3478 127.0.0.1 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+secrets:
+  peeronq_turn_shared_secret:
+    file: ${PEERONQ_TURN_SHARED_SECRET_FILE:?set PEERONQ_TURN_SHARED_SECRET_FILE}
+
+networks:
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  proxy-public:
+  monitoring:
+    name: peeronq-monitoring
+    internal: true
+  turn-public:
+
+volumes:
+  signaling-data:
+  signaling-logs:

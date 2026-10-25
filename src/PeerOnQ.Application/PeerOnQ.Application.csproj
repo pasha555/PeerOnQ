@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PeerOnQ.Application</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Domain\PeerOnQ.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+</Project>

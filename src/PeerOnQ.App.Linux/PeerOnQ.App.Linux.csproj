@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PeerOnQ</AssemblyName>
+    <RootNamespace>PeerOnQ.App.Linux</RootNamespace>
+    <Version>$(PeerOnQLinuxClientVersion)</Version>
+    <AssemblyVersion>$(PeerOnQLinuxClientVersion).0</AssemblyVersion>
+    <FileVersion>$(PeerOnQLinuxClientVersion).0</FileVersion>
+    <InformationalVersion>$(PeerOnQLinuxClientVersion)-linux-viewer-unsigned-preview</InformationalVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="PeerOnQSignalingUrl" Value="$(PeerOnQSignalingUrl)" />
+    <AssemblyMetadata Include="PeerOnQApiBaseUrl" Value="$(PeerOnQApiBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQPresenceUrl" Value="$(PeerOnQPresenceUrl)" />
+    <AssemblyMetadata Include="PeerOnQUpdatesBaseUrl" Value="$(PeerOnQUpdatesBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDownloadsBaseUrl" Value="$(PeerOnQDownloadsBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDiagnosticsBaseUrl" Value="$(PeerOnQDiagnosticsBaseUrl)" />
+    <AssemblyMetadata Include="PeerOnQDeploymentEnvironment" Value="$(PeerOnQDeploymentEnvironment)" />
+    <AssemblyMetadata Include="PeerOnQRegion" Value="$(PeerOnQRegion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+    <Content Include="..\..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PeerOnQ.Application\PeerOnQ.Application.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Domain\PeerOnQ.Domain.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Infrastructure\PeerOnQ.Infrastructure.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Media\PeerOnQ.Media.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Platform.Linux\PeerOnQ.Platform.Linux.csproj" />
+    <ProjectReference Include="..\PeerOnQ.Transport\PeerOnQ.Transport.csproj" />
+  </ItemGroup>
+  <Target Name="ValidatePeerOnQLinuxClientVersion" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(PeerOnQLinuxClientVersion)' == ''"
+           Text="PeerOnQLinuxClientVersion must be defined in Directory.Build.props." />
+  </Target>
+  <Target Name="RemoveWindowsVp8FromLinuxPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(Filename)%(Extension)' == 'vpxmd.dll'" />
+    </ItemGroup>
+  </Target>
+</Project>

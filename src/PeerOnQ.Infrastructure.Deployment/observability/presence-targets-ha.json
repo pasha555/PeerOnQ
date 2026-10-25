@@ -1,0 +1,10 @@
+[
+  {
+    "targets": ["presence:8080"],
+    "labels": { "replica": "presence-ha-1" }
+  },
+  {
+    "targets": ["presence-ha-2:8080"],
+    "labels": { "replica": "presence-ha-2" }
+  }
+]

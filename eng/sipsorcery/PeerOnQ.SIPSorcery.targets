@@ -1,0 +1,89 @@
+<Project>
+  <PropertyGroup>
+    <_PeerOnQSipsorceryNoticePlatform Condition="'$(TargetFramework)' != ''">$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)'))</_PeerOnQSipsorceryNoticePlatform>
+  </PropertyGroup>
+  <!-- Only the final application adds these files. Android evaluates its app as
+       a library; referenced libraries must not contribute duplicate paths. -->
+  <ItemGroup Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe' or ('$(_PeerOnQSipsorceryNoticePlatform)' == 'android' and '$(AndroidApplication)' == 'true')">
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../LICENSE.md">
+      <NoticePath>ThirdParty/SIPSorcery/LICENSE.md</NoticePath>
+      <Link>ThirdParty/SIPSorcery/LICENSE.md</Link>
+      <TargetPath>ThirdParty/SIPSorcery/LICENSE.md</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/LICENSE.md</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/upstream.json">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/upstream.json</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/upstream.json</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/upstream.json</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/upstream.json</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/dtls-receive-wakeup.patch">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/dtls-receive-wakeup.patch</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/dtls-receive-wakeup.patch</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/dtls-receive-wakeup.patch</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/dtls-receive-wakeup.patch</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/provenance.json">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/provenance.json</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/provenance.json</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/provenance.json</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/provenance.json</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/sctp-sack-duplicate-reset.patch">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sack-duplicate-reset.patch</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sack-duplicate-reset.patch</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sack-duplicate-reset.patch</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sack-duplicate-reset.patch</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/sctp-gap-counter-bound.patch">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-gap-counter-bound.patch</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/sctp-gap-counter-bound.patch</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-gap-counter-bound.patch</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/sctp-gap-counter-bound.patch</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/sctp-sender-flow-control.patch">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sender-flow-control.patch</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sender-flow-control.patch</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sender-flow-control.patch</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/sctp-sender-flow-control.patch</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/sctp-receiver-window-credit.patch">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-receiver-window-credit.patch</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/sctp-receiver-window-credit.patch</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/sctp-receiver-window-credit.patch</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/sctp-receiver-window-credit.patch</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/udp-receive-admission.patch">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/udp-receive-admission.patch</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/udp-receive-admission.patch</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/udp-receive-admission.patch</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/udp-receive-admission.patch</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+    <_PeerOnQSipsorceryNotice Include="$(MSBuildThisFileDirectory)../_PeerOnQ/rtcp-first-transit-initialization.patch">
+      <NoticePath>ThirdParty/SIPSorcery/_PeerOnQ/rtcp-first-transit-initialization.patch</NoticePath>
+      <Link>ThirdParty/SIPSorcery/_PeerOnQ/rtcp-first-transit-initialization.patch</Link>
+      <TargetPath>ThirdParty/SIPSorcery/_PeerOnQ/rtcp-first-transit-initialization.patch</TargetPath>
+      <LogicalName>ThirdParty/SIPSorcery/_PeerOnQ/rtcp-first-transit-initialization.patch</LogicalName>
+    </_PeerOnQSipsorceryNotice>
+  </ItemGroup>
+  <ItemGroup Condition="'$(_PeerOnQSipsorceryNoticePlatform)' != 'android' and '$(_PeerOnQSipsorceryNoticePlatform)' != 'ios' and '$(_PeerOnQSipsorceryNoticePlatform)' != 'maccatalyst'">
+    <Content Include="@(_PeerOnQSipsorceryNotice)">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="'$(_PeerOnQSipsorceryNoticePlatform)' == 'android'">
+    <AndroidAsset Include="@(_PeerOnQSipsorceryNotice)">
+    </AndroidAsset>
+  </ItemGroup>
+  <ItemGroup Condition="'$(_PeerOnQSipsorceryNoticePlatform)' == 'ios' or '$(_PeerOnQSipsorceryNoticePlatform)' == 'maccatalyst'">
+    <BundleResource Include="@(_PeerOnQSipsorceryNotice)">
+    </BundleResource>
+  </ItemGroup>
+  <Target Name="ValidatePeerOnQSipsorceryNotices" BeforeTargets="PrepareForBuild;ComputeFilesToPublish"
+          Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe' or ('$(_PeerOnQSipsorceryNoticePlatform)' == 'android' and '$(AndroidApplication)' == 'true')">
+    <Error Condition="!Exists('%(_PeerOnQSipsorceryNotice.Identity)')"
+           Text="The maintained SIPSorcery package is missing an immutable license/provenance file: %(_PeerOnQSipsorceryNotice.NoticePath)" />
+  </Target>
+</Project>

@@ -1,0 +1,162 @@
+# Frontend Architecture
+
+## Overview
+
+This React 19/Vite workspace serves the public PeerOnQ website and a separate offline desktop UI
+preview. Public product/download content is static or build-configured; preview data lives in
+`localStorage`. The native clients are implemented under `src/`, and the API-backed customer portal
+is the separate `artifacts/peeronq-portal` workspace. Neither is implemented by this browser preview.
+
+## Directory Structure
+
+```text
+src/
+  App.tsx           Providers (QueryClient, Theme, Tooltip, Toaster) + router mount
+  app/router/       Route table + legacy redirects
+  layouts/          PublicLayout, DesktopPreviewLayout
+  main.tsx          Root render
+  index.css         Design tokens and utility classes (single source of truth)
+
+  components/       Shared components used across pages
+    ui/             shadcn/Radix primitives — vendored, do not edit
+  features/         Feature-sliced domain logic (repository + hooks per feature)
+    address-book/   contactRepository.ts
+    connections/    useConnectionState.ts
+    devices/        deviceRepository.ts, useDevices.ts
+    files/          useFileTransfer.ts
+    sessions/       sessionRepository.ts
+    settings/       useSettings.ts
+  pages/            Public and desktop-preview route components plus retained page aliases
+  repositories/     index.ts — barrel re-exporting the feature repositories
+  services/         apiClient.ts — stub client for the future backend
+  hooks/            useTheme, useLocalStorage, use-toast, use-mobile
+  lib/              utils.ts (cn helper), validation.ts (Zod schemas)
+  types/            index.ts — all domain types
+  test/             Vitest suites + setup.ts
+```
+
+`src/repositories/index.ts` deliberately contains no logic — it re-exports
+`features/*/xRepository.ts` so consumers have one import path while features stay self-contained.
+
+## State Management
+
+- **localStorage**: all persistent state (devices, sessions, contacts, groups, settings, theme)
+  goes through the repository pattern in `src/features/*` and the `useLocalStorage` hook.
+  Keys are defined next to each repository in `src/features/*`.
+- **Component state**: `useState` / `useReducer` for ephemeral UI state.
+- **Forms**: `react-hook-form` + `zod` via `@hookform/resolvers`; shared schemas in
+  `src/lib/validation.ts` (notably `deviceIdSchema`, which normalizes and validates
+  `XXX-XXX-XXX-XXX`, digits only).
+- **TanStack Query**: the provider is mounted in `App.tsx` for future server state; no queries
+  are issued today.
+
+## Routing
+
+`wouter`, with the route table in `src/app/router/index.tsx` and the base path taken from
+`import.meta.env.BASE_URL`.
+
+- Public routes use `PublicLayout` and never mount the desktop sidebar. The landing page owns
+  product, portal introduction, security, open-source, download and FAQ sections; legacy marketing
+  URLs redirect to the corresponding anchors. `#strategy` is retained for old links.
+- Sign in and Portal actions are ordinary HTTPS anchors to the separate customer portal. They do
+  not mount an account UI in this workspace; retired `/app…` paths remain not found.
+- `/desktop-preview…` routes use `DesktopPreviewLayout`, including its permanent development
+  banner, desktop sidebar, topbar, and `ErrorBoundary`.
+- Dashboard is the only desktop-preview connection entry. The retired Remote Access URLs redirect to
+  `/desktop-preview/dashboard` and are not shown in navigation.
+- Legacy desktop paths redirect into `/desktop-preview…`.
+
+Adding a page: create it under the matching `src/pages/<surface>/` directory, add a `<Route>` in
+`src/app/router/index.tsx`, update only that surface's navigation if needed, and add a route test in `src/test/`.
+
+`Phase6DevToolbar` is rendered only inside `DesktopPreviewLayout` in Vite development when the
+workspace controller supplies validated Admin, Cloud health, Grafana and Prometheus URLs. Public
+marketing routes never expose operational links. The preview links are ordinary user-clicked links,
+not background requests.
+
+## Theming
+
+- Tokens are CSS custom properties in `index.css` (`:root` and `.dark`), stored as
+  space-separated HSL triples without the `hsl()` wrapper, exposed to Tailwind v4 via
+  `@theme inline`.
+- `src/hooks/useTheme.ts` syncs the preference (`system | light | dark`) with the
+  `peeronq_theme` key and toggles the `.dark` class on `document.documentElement`.
+- Components must use tokens (`bg-card`, `text-muted-foreground`, …), never raw hex values.
+  See [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
+- Public overrides are scoped to `.public-site` and `.dark .public-site`; they do not alter desktop
+  preview tokens. Public and native-client illustrations retain the Segoe system font and canonical
+  Q-link assets. The illustration is visibly labeled and contains no simulated live-session data.
+
+## Network boundary
+
+The browser preview does not call control-plane APIs. `VITE_PEERONQ_TRACKED_DOWNLOAD_BASE_URL` may configure
+the user-clicked Windows download anchor to the production Downloads Service. Optional macOS,
+Linux x64/ARM64, Android and shared iOS/iPadOS install URLs may configure the same single action for
+the locally detected platform after that platform's release gates pass. Every remote destination must
+be absolute HTTPS and fails closed when absent or invalid; unknown devices never fall back to Windows.
+The hero mounts `DownloadsPage` once at `#client-download`; its optional `secondaryAction` slots the
+portal anchor beside the package action without changing release selection. Header/mobile download
+anchors return to that selector; `#download` retains platform status and legacy route compatibility.
+The selector preserves source selection/validation and automatically recommends the available
+installer using local browser platform/architecture information. Authoritative UA Client Hints
+take priority; explicit legacy Windows/Linux 64-bit compatibility information may recommend x64, clearly
+labeled as a recommendation rather than confirmed native CPU detection. Reduced user agents cannot
+reliably distinguish every ARM64 device. Explicit ARM64 information survives missing/failed hints;
+a bounded local lookup prevents indefinite waiting. Manual selection remains an optional override
+and wins over late hints. Unknown/32-bit devices without supported 64-bit information do not silently
+receive an installer. No detection request contacts a server. New server
+bundles provide both checksum-verified Windows architectures with matching classification.
+Version/classification appears only where supplied by the selected release source. Known
+unsigned builds are labeled for testing; server-owned or tracked sources never imply a signature
+or version from unrelated local metadata.
+
+`src/lib/accountPortal.ts` resolves `VITE_PEERONQ_ACCOUNT_PORTAL_URL` or the public default
+`https://portal.peeronq.com`. It requires HTTPS without URL credentials. The destination is used
+only for user-clicked navigation, never a public-site API request. The real portal owns account,
+organization, device and remote-session metadata; starting/approving remote control remains in
+the native client. The public site does not expose Admin or monitoring destinations.
+
+The API-backed production operator frontend is
+the separate `artifacts/peeronq-admin` workspace. In development, the desktop-preview-only development
+services toolbar links to that separately hosted SPA and loopback observability tools without weakening the
+no-network boundary.
+The managed Vite development server may independently report a real exact-version local MSI GET's
+start and completion state to the local Downloads Service. This is server-side, user-action-triggered,
+disabled without controller-provided settings, and does not add a browser fetch or background request.
+The controller exposes a local download only when `Directory.Build.props`' canonical Windows client
+version has one checksum-verified x64/ARM64 pair with a single explicit `unsigned-development` or
+`unsigned-public-pilot` classification. Version/classification metadata is injected together; the
+page fails closed instead of deriving a link from stale files.
+Non-HTTPS remote tool URLs and malformed URLs fail closed and are not rendered.
+
+## Testing
+
+Vitest with jsdom (`src/test/`):
+
+| Suite | Guards |
+| --- | --- |
+| `noNetworkRequest.test.ts` | The browser prototype makes no API/background network calls |
+| `accessibility.test.tsx` | Landmarks, labels, roles |
+| `demoMode.test.tsx` | `VITE_ENABLE_DEMO_DATA` behavior |
+| `deviceId.test.ts` | PeerOnQ ID parsing/validation |
+| `emptyState.test.tsx` | Zero-state rendering |
+| `permissionDialog.test.tsx` | Connect flow only opens the notice dialog; Escape closes it; focus stays trapped |
+| `routeSeparation.test.tsx` | Layout isolation, legacy redirects, native-app fallback, and safe development-service links |
+| `downloadSelection.test.tsx` | Automatic browser/platform selection, labeled legacy recommendations, ARM64 precedence, bounded hints and manual-override races |
+| `settings.test.ts` | Settings persistence |
+| `theme.test.ts` | Theme resolution and persistence |
+
+Run with `pnpm --filter @workspace/peeronq run test`.
+
+`src/test/setup.ts` loads jest-dom and installs an in-memory `localStorage` when the jsdom
+environment exposes an incomplete one, so persistence tests behave the same on every machine.
+
+## Linting
+
+`eslint.config.js` (flat config) runs `typescript-eslint` plus the React Hooks and React Refresh
+plugins. Vendored shadcn output (`src/components/ui/`, `src/hooks/use-toast.ts`,
+`src/hooks/use-mobile.tsx`) is ignored. The React Compiler rules
+(`react-hooks/set-state-in-effect`, `react-hooks/purity`) are warnings, since the prototype loads
+data inside effects by design.
+
+Run with `pnpm --filter @workspace/peeronq run lint`.

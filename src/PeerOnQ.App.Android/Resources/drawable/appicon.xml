@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+  <path android:fillColor="@color/peeronq_brand_navy" android:pathData="M13,2H35A11,11 0,0 1,46 13V35A11,11 0,0 1,35 46H13A11,11 0,0 1,2 35V13A11,11 0,0 1,13 2Z" />
+  <path android:fillColor="@android:color/transparent" android:pathData="M23,8A15,15 0,1 1,22.99 8" android:strokeColor="@color/peeronq_brand_white" android:strokeWidth="5" />
+  <path android:fillColor="@android:color/transparent" android:pathData="M29.5,29.5L39,39" android:strokeColor="@color/peeronq_brand_white" android:strokeLineCap="round" android:strokeWidth="5" />
+  <path android:fillColor="@color/peeronq_brand_green" android:pathData="M12.4,7.9A4.5,4.5 0,1 1,12.39 7.9" />
+  <path android:fillColor="@color/peeronq_brand_green" android:pathData="M39,34.5A4.5,4.5 0,1 1,38.99 34.5" />
+</vector>

@@ -1,0 +1,117 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Number of Prometheus scrape targets that are currently reachable.",
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(up)", "legendFormat": "ready targets", "range": true, "refId": "A" }],
+      "title": "Ready scrape targets",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "A value of 1 means every configured dependency probe is succeeding; 0 identifies an outage that needs investigation.",
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "mappings": [{ "options": { "0": { "color": "red", "text": "Probe failing" }, "1": { "color": "green", "text": "All probes ready" } }, "type": "value" }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "min(probe_success)", "legendFormat": "dependency probes", "range": true, "refId": "A" }],
+      "title": "Dependency probes",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Current authenticated online-device count reported by the cloud control plane.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "max(peeronq_online_devices)", "legendFormat": "online devices", "range": true, "refId": "A" }],
+      "title": "Online devices",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Current active remote sessions reported by the control plane.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "max(peeronq_active_sessions)", "legendFormat": "active sessions", "range": true, "refId": "A" }],
+      "title": "Active sessions",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Real API request and error rates across PeerOnQ services over a five-minute window.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "requests / second", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 4, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" } }, "min": 0, "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "id": 5,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(rate(peeronq_api_requests_total[5m]))", "legendFormat": "requests", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum(rate(peeronq_api_errors_total[5m]))", "legendFormat": "errors", "range": true, "refId": "B" }
+      ],
+      "title": "API traffic and errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Bounded control-plane load signals. Queue depth and database pool usage are shown with exact values in the legend.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 4, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" } }, "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "id": 6,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "max(peeronq_queue_depth)", "legendFormat": "queue depth", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "max(peeronq_database_pool_usage)", "legendFormat": "database pool usage", "range": true, "refId": "B" }
+      ],
+      "title": "Control-plane capacity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Cumulative TURN allocation and download completion outcomes emitted by PeerOnQ services.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 4, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" } }, "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 14 },
+      "id": 7,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(peeronq_turn_allocations_total)", "legendFormat": "TURN allocations", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum(peeronq_download_completed_total)", "legendFormat": "completed downloads", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "sum(peeronq_update_failures_total)", "legendFormat": "update failures", "range": true, "refId": "C" }
+      ],
+      "title": "Relay, downloads, and updates",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["peeronq", "operations"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "PeerOnQ Operations",
+  "uid": "peeronq-operations",
+  "version": 1,
+  "weekStart": ""
+}

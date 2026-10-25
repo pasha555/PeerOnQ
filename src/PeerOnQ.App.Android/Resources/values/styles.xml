@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="PeerOnQTheme" parent="android:style/Theme.Material.NoActionBar">
+    <item name="android:fontFamily">sans</item>
+    <item name="android:windowBackground">@color/peeronq_background</item>
+    <item name="android:colorAccent">@color/peeronq_primary</item>
+    <item name="android:navigationBarColor">@color/peeronq_background</item>
+    <item name="android:statusBarColor">@color/peeronq_background</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:windowActionModeOverlay">true</item>
+  </style>
+  <style name="PeerOnQLabel">
+    <item name="android:textColor">@color/peeronq_text_muted</item>
+    <item name="android:textSize">@dimen/label_text</item>
+  </style>
+  <style name="PeerOnQInput">
+    <item name="android:minHeight">@dimen/touch_target</item>
+    <item name="android:textColor">@color/peeronq_text</item>
+    <item name="android:textColorHint">@color/peeronq_text_muted</item>
+    <item name="android:backgroundTint">@color/peeronq_primary</item>
+  </style>
+</resources>

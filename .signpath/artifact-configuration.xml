@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for the PeerOnQ Windows release (slug: windows-msi-pair).
+  Input: the GitHub artifact uploaded by .github/workflows/release-windows.yml, a ZIP holding
+  PeerOnQ-<version>-public-pilot-x64.msi and PeerOnQ-<version>-public-pilot-arm64.msi.
+
+  Inside each MSI, PeerOnQ's own executables and assemblies are signed first; then the MSI itself.
+  Third-party files are left alone: the Windows App SDK runtime (including RestartAgent.exe) is
+  already signed by Microsoft, and unsigned third-party binaries (vpxmd.dll, e_sqlite3.dll) are
+  not ours to sign. SHA-256 file digests; SignPath adds an RFC 3161 timestamp to every
+  Authenticode signature it creates.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <msi-file-set>
+      <include path="PeerOnQ-*-x64.msi" />
+      <include path="PeerOnQ-*-arm64.msi" />
+      <for-each>
+        <pe-file-set>
+          <include path="**/PeerOnQ.exe" />
+          <include path="**/PeerOnQ.dll" />
+          <include path="**/PeerOnQ.*.dll" max-matches="unbounded" />
+          <include path="**/PeerOnQ.*.exe" min-matches="0" max-matches="unbounded" />
+          <for-each>
+            <authenticode-sign hash-algorithm="sha256"
+                               description="PeerOnQ"
+                               description-url="https://github.com/pasha555/PeerOnQ" />
+          </for-each>
+        </pe-file-set>
+        <authenticode-sign hash-algorithm="sha256"
+                           description="PeerOnQ installer"
+                           description-url="https://github.com/pasha555/PeerOnQ" />
+      </for-each>
+    </msi-file-set>
+  </zip-file>
+</artifact-configuration>

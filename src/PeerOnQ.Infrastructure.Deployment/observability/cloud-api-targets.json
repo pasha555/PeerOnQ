@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["cloud-api:8080"],
+    "labels": { "replica": "cloud-api-1" }
+  }
+]

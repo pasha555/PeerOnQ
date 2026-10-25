@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["downloads:8080"],
+    "labels": { "replica": "downloads-1" }
+  }
+]

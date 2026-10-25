@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Using Include="Xunit" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PeerOnQ.Presence.Server\PeerOnQ.Presence.Server.csproj" />
+  </ItemGroup>
+</Project>

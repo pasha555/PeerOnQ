@@ -1,0 +1,89 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  fluent_forward/signaling:
+    endpoint: 0.0.0.0:24224
+  fluent_forward/coturn:
+    endpoint: 0.0.0.0:24225
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+    spike_limit_mib: 96
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  resource/environment:
+    attributes:
+      - key: deployment.environment.name
+        value: ${env:PEERONQ_ENVIRONMENT}
+        action: upsert
+      - key: cloud.region
+        value: ${env:PEERONQ_REGION}
+        action: upsert
+  resource/signaling:
+    attributes:
+      - key: service.name
+        value: peeronq-signaling
+        action: upsert
+  resource/coturn:
+    attributes:
+      - key: service.name
+        value: coturn
+        action: upsert
+  transform/realtime-redaction:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - 'replace_pattern(body, "\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b", "[redacted-ipv4]") where IsString(body)'
+          - 'replace_pattern(body, "(?i)(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}", "[redacted-ipv6]") where IsString(body)'
+          - 'replace_pattern(body, "\\b[0-9]{3}(?:-[0-9]{3}){3}\\b", "[redacted-device-id]") where IsString(body)'
+          - 'replace_pattern(body, "\\b[0-9]{10,}:[A-Za-z0-9_-]+\\b", "[redacted-turn-username]") where IsString(body)'
+          - 'delete_key(attributes, "client.address")'
+          - 'delete_key(attributes, "network.peer.address")'
+          - 'delete_key(attributes, "network.peer.port")'
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    enable_open_metrics: true
+    resource_to_telemetry_conversion:
+      enabled: true
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/environment, batch]
+      exporters: [otlp_grpc/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/environment, batch]
+      exporters: [prometheus]
+    logs/otlp:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/realtime-redaction, resource/environment, batch]
+      exporters: [otlp_http/loki]
+    logs/signaling:
+      receivers: [fluent_forward/signaling]
+      processors: [memory_limiter, transform/realtime-redaction, resource/environment, resource/signaling, batch]
+      exporters: [otlp_http/loki]
+    logs/coturn:
+      receivers: [fluent_forward/coturn]
+      processors: [memory_limiter, transform/realtime-redaction, resource/environment, resource/coturn, batch]
+      exporters: [otlp_http/loki]
