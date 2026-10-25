@@ -46,8 +46,16 @@
     <!-- Managed Opus (BSD-3-Clause port of libopus) for two-way voice; no native payload. -->
     <PackageVersion Include="Concentus" Version="2.2.2" />
 
-    <!-- Windows app platform -->
-    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.8.251106002" />
+    <!-- Windows app platform: the Windows App SDK 1.8.251106002 component packages PeerOnQ uses.
+         The AI, ML (ONNX Runtime, DirectML) and Widgets components of the metapackage are not
+         referenced; RemoveUnusedWindowsAppRuntimeComponents in PeerOnQ.App.csproj also removes their
+         runtime binaries from the self-contained payload (about 44 MB). -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Base" Version="1.8.250831001" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Foundation" Version="1.8.251104000" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="1.8.251104001" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.251105000" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.DWrite" Version="1.8.25090401" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.251106002" />
     <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7175" />
 
     <!-- Linux app platform -->

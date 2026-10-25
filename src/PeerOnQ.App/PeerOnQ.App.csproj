@@ -36,7 +36,12 @@
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
     <Content Include="..\..\THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
@@ -84,6 +89,28 @@
     <Error Condition="'$(PeerOnQUpdatePublicKeySpki)' == ''" Text="Official releases require PeerOnQUpdatePublicKeySpki." />
     <Error Condition="'$(PeerOnQUpdateKeyId)' == ''" Text="Official releases require PeerOnQUpdateKeyId." />
     <Error Condition="'$(PeerOnQPublisherCertificateSha256)' == ''" Text="Official releases require PeerOnQPublisherCertificateSha256." />
+  </Target>
+
+  <!-- The self-contained Windows App Runtime MSIX also carries the AI, ML (ONNX Runtime, DirectML),
+       Imaging/Vision and Widgets components, which PeerOnQ never activates. Remove them right after
+       extraction: both the copied payload and the generated WinRT registration manifest are built from
+       the files left in MsixContent, so nothing references the removed binaries. -->
+  <Target Name="RemoveUnusedWindowsAppRuntimeComponents" AfterTargets="ExtractMicrosoftWindowsAppSDKMsixFiles"
+          Condition="'$(MicrosoftWindowsAppSDKMsixContent)' != ''">
+    <ItemGroup>
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\DirectML.dll" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\onnxruntime*.dll" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\Microsoft.Windows.AI.*" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\Microsoft.Windows.Widgets.*" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\Microsoft.Graphics.Imaging*" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\Microsoft.Graphics.Internal.Imaging.winmd" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\Microsoft.Windows.SemanticSearch.winmd" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\Microsoft.Windows.Vision*.winmd" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\Microsoft.Windows.Internal.Vision.winmd" />
+      <_PeerOnQUnusedRuntimeFile Include="$(MicrosoftWindowsAppSDKMsixContent)\NpuDetect\**" />
+    </ItemGroup>
+    <Delete Files="@(_PeerOnQUnusedRuntimeFile)" />
+    <Message Importance="normal" Text="Removed @(_PeerOnQUnusedRuntimeFile->Count()) unused Windows App Runtime files (AI, ML, Imaging/Vision, Widgets)." />
   </Target>
 
   <Target Name="ValidateSelfContainedWindowsRuntime" BeforeTargets="Publish">
