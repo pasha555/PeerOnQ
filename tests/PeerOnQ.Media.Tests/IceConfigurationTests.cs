@@ -1,4 +1,4 @@
-using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using PeerOnQ.Application.Abstractions;
 using PeerOnQ.Domain.Sessions;
@@ -11,37 +11,47 @@ namespace PeerOnQ.Media.Tests;
 public sealed class IceConfigurationTests
 {
     [Fact]
-    public async Task Turn_tls_packet_rejection_does_not_end_the_receive_loop()
+    public void Turn_tls_packet_rejection_does_not_end_the_receive_loop()
     {
-        var channel = new RejectOnePacketIceChannel();
-        try
-        {
-            var packet = new STUNMessage(STUNMessageTypesEnum.BindingRequest).ToByteBuffer(null, false);
-            await using var stream = new MemoryStream(packet.Concat(packet).Concat(packet).ToArray());
-            // The dependency's stream-framing loop is internal. Exercise it directly so a
-            // transport package update cannot silently reintroduce GHSA-6848-qmp4-652w.
-            var receive = typeof(RtpIceChannel).GetMethod("StartTlsReadLoop", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(receive);
-            var operation = Assert.IsAssignableFrom<Task>(receive.Invoke(channel,
-                [new STUNUri(STUNSchemesEnum.turns, "127.0.0.1", 5349), stream, new IPEndPoint(IPAddress.Loopback, 5349)]));
-            await operation.WaitAsync(TimeSpan.FromSeconds(5));
+        // The dependency's TURN TLS framing is internal. Exercise it directly so a transport package
+        // update cannot silently reintroduce GHSA-6848-qmp4-652w: a message the channel rejects
+        // is dropped and the connection keeps reading.
+        var assembly = typeof(RtpIceChannel).Assembly;
+        var connectionType = assembly.GetType("SIPSorcery.Net.TurnTlsConnection", throwOnError: true)!;
+        var framerType = assembly.GetType("SIPSorcery.Net.TurnStreamFramer", throwOnError: true)!;
+        var handler = new RejectFirstMessage();
+        var onMessage = Delegate.CreateDelegate(
+            typeof(Action<,>).MakeGenericType(connectionType, typeof(byte[])), handler,
+            typeof(RejectFirstMessage).GetMethod(nameof(RejectFirstMessage.OnMessage))!);
+        using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        var connection = Activator.CreateInstance(connectionType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+            [new STUNUri(STUNSchemesEnum.turns, "turn.example.test", 5349), socket, null, onMessage, 0], null)!;
+        connectionType.GetField("_state", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(connection, 2); // Connected
+        var framer = Activator.CreateInstance(framerType, nonPublic: true)!;
+        var packet = new STUNMessage(STUNMessageTypesEnum.BindingRequest).ToByteBuffer(null, false);
+        var stream = packet.Concat(packet).Concat(packet).ToArray();
+        framerType.GetMethod("Append", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(framer, [stream, 0, stream.Length]);
 
-            Assert.Equal(3, channel.PacketsDispatched);
-        }
-        finally
-        {
-            channel.Close("test complete");
-        }
+        var dispatch = connectionType.GetMethod("DispatchMessages", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(dispatch);
+        var stillConnected = Assert.IsType<bool>(dispatch.Invoke(connection, [framer]));
+
+        Assert.True(stillConnected);
+        Assert.Equal(3, handler.Dispatched);
+        Assert.Equal("Connected", connectionType.GetProperty("State", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(connection)!.ToString());
     }
 
-    private sealed class RejectOnePacketIceChannel : RtpIceChannel
+    private sealed class RejectFirstMessage
     {
-        public int PacketsDispatched { get; private set; }
+        public int Dispatched { get; private set; }
 
-        protected override void OnRTPPacketReceived(UdpReceiver receiver, int localPort, IPEndPoint remoteEndPoint, byte[] packet)
+        public void OnMessage(object connection, byte[] message)
         {
-            PacketsDispatched++;
-            if (PacketsDispatched == 1) throw new InvalidDataException("Rejected malformed packet.");
+            Dispatched++;
+            if (Dispatched == 1) throw new InvalidDataException("Rejected malformed packet.");
         }
     }
 
