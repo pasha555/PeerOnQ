@@ -6,6 +6,39 @@ All notable changes to PeerOnQ are listed here. The format follows
 together. Detailed notes for each release, including upgrade steps, are in the
 [release notes](src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md).
 
+## 0.9.89 - 2026-10-25
+
+### Changed
+
+- The WebRTC stack is now a maintained derivative of SIPSorcery 8.0.14, the last release published
+  under plain BSD-3-Clause, with SIPSorceryMedia.Abstractions 8.0.10 and SIPSorceryMedia.Encoders 8.0.7.
+  Later SIPSorcery releases add a non-OSI use restriction to their license. Every shipped component is
+  now under an OSI-approved license.
+- `vpxmd.dll` (libvpx 1.17.0) is built from pinned source in CI for x64 and ARM64 instead of using the
+  prebuilt binary from SIPSorceryMedia.Encoders; libvpx's LICENSE and PATENTS ship with the app.
+- The Windows installers no longer carry the unused Windows App SDK AI, ML (ONNX Runtime, DirectML) and
+  Widgets binaries (about 44 MB smaller).
+- Tag builds publish the installers as a GitHub pre-release with SHA-256 checksums until code signing
+  through SignPath Foundation is in place.
+
+### Added
+
+- TURN over TLS (`turns:`, port 5349) in the maintained stack, with full certificate validation
+  against the TURN host name and the system trust store.
+
+### Security
+
+- A malformed UDP, STUN, RTP or RTCP packet is dropped instead of ending the media session, and an ICMP
+  "connection reset" no longer stops receiving (GHSA-28gm-jrmw-xx93 class).
+- SCTP: a zero-length chunk can no longer loop the parser, oversized SACK reports are rejected, and the
+  data-channel receive loop survives malformed packets (GHSA-qmvg-569h-hqrh, GHSA-jwjp-4649-v8jp).
+- DTLS handshakes run on their own thread instead of holding thread-pool workers
+  (GHSA-mc26-5x96-8x52); an oversized datagram no longer aborts the handshake, and closing a session
+  ends a pending handshake at once.
+- SRTP/SRTCP replay protection and rollover-counter handling follow RFC 3711: unauthenticated packets
+  can no longer change receiver state, and packets after a sequence-number rollover decrypt correctly.
+- The ICE-over-TCP receiver no longer closes on a single malformed packet (GHSA-mwf8-6m4x-pgmm class).
+
 ## 0.9.88 - 2026-10-25
 
 ### Added

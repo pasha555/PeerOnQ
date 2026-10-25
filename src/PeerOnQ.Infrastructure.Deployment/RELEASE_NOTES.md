@@ -1,3 +1,45 @@
+# PeerOnQ 0.9.89 - license-clean WebRTC stack, source-built libvpx, TURN over TLS
+
+This synchronized server/client release replaces 0.9.88. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.89 and the
+Android/Apple bundle codes advance to 9089. Signaling messages are unchanged.
+
+Upgrade the server and every client together. The WebRTC transport moved from SIPSorcery 10.0.17 to
+the 8.0.14-based derivative, so mixed 0.9.88/0.9.89 media sessions have not been tested.
+
+## Changed in 0.9.89
+
+- License: SIPSorcery added a non-OSI "Additional Restriction" to its license on 2025-05-18. The
+  maintained derivative is now built from SIPSorcery 8.0.14 (tag v8.0.14, commit
+  08d3a0271dded6aaebc3183f963bc820b099c552), the last release without it, with
+  SIPSorceryMedia.Abstractions 8.0.10 and SIPSorceryMedia.Encoders 8.0.7. The 23 PeerOnQ patches and
+  one added file are listed with their hashes in eng/sipsorcery/upstream.json and ship beside the
+  license in ThirdParty/SIPSorcery.
+- Ported from the 10.0.17 derivative: SCTP sender flow control and receiver credit, bounded SACK
+  history, single-owner UDP receive admission and first-packet RTCP transit initialization. The
+  DTLS receive wakeup patch is not needed: the 8.0.14 DTLS receive path already blocks on its queue.
+- Security fixes written by PeerOnQ for advisories that affect 8.0.14: malformed UDP/STUN/RTP/RTCP
+  packets are dropped (GHSA-28gm-jrmw-xx93 class), SCTP zero-length chunks and oversized SACK counts
+  are rejected (GHSA-qmvg-569h-hqrh, GHSA-jwjp-4649-v8jp), DTLS handshakes run on a dedicated thread
+  (GHSA-mc26-5x96-8x52) and the ICE-over-TCP receiver survives bad packets (GHSA-mwf8-6m4x-pgmm class).
+- Also fixed in 8.0.14: SRTP/SRTCP replay window and rollover counter (a forged packet could make
+  genuine packets fail; packets after a rollover were decrypted with the wrong counter), DTLS
+  datagrams larger than the record buffer aborted the handshake, one ICMP "connection reset" stopped
+  receiving for good, and the SCTP receive loop ended on a single malformed packet.
+- TURN over TLS: 8.0.14 skipped `turns:` servers. PeerOnQ's patch adds TLS 1.2/1.3 to the TURN
+  server on 5349 with full certificate validation (trusted chain and host name); TLS connections
+  close with the session so coturn frees the allocation.
+- libvpx: vpxmd.dll is built in CI from libvpx 1.17.0 (commit
+  6df3ec34557879fff673706f4a1d9fbd0f3a6f0e) for x64 and ARM64. libvpx 1.17 raised the encoder ABI;
+  the VP8 encoder supports both the old and the new layout.
+- Windows installers: the unused Windows App SDK AI, ML (ONNX Runtime, DirectML), Imaging/Vision and
+  Widgets binaries are removed (x64 app payload 235.8 MB to 191.6 MB).
+- Known limitation: the 8.0.14 DTLS code depends on Portable.BouncyCastle 1.9.0, which is no longer
+  maintained; see docs/KNOWN_LIMITATIONS.md.
+
+Not verified in the field yet: a two-device session across networks on the 8.0.14 stack (direct,
+UDP relay and TLS relay), and long sessions across an SRTP sequence-number rollover.
+
 # PeerOnQ 0.9.88 - private unsigned candidate
 
 This synchronized full-server/client candidate replaces 0.9.87. Directory.Build.props is the sole
