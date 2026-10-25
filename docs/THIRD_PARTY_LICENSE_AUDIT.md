@@ -1,10 +1,45 @@
 # Third-party license audit: media/security scope
 
-Initial audit: 2026-08-18. Archive/source revalidation: 2026-09-27; source remediation: 2026-10-18.
-The release SBOM remains authoritative for a concrete artifact. Historical archive hashes below
-describe the reviewed versions and must not be reused as evidence for a new release.
+Initial audit: 2026-08-18. Archive/source revalidation: 2026-09-27; source remediation: 2026-10-18;
+license remediation: 2026-10-25. The release SBOM remains authoritative for a concrete artifact.
+Historical archive hashes below describe the reviewed versions and must not be reused as evidence for
+a new release.
 
-## 2026-10-18 remediation and remaining decisions
+## 2026-10-25 license remediation (current)
+
+Every shipped SIPSorcery component is now under an OSI-approved license:
+
+| Component | Version | Upstream commit | License file (upstream git, release commit) |
+| --- | --- | --- | --- |
+| SIPSorcery (maintained derivative `PeerOnQ.SIPSorcery` 8.0.14.1) | 8.0.14, released 2025-05-08 | `08d3a0271dded6aaebc3183f963bc820b099c552` | `LICENSE.md` SHA-256 `522136acbe9c1d7978dfe3b2e8590815b46e93ca4594b26d720b8fa38f7a382f`: BSD-3-Clause plus an informational DTLS & SRTP notice; no use restriction |
+| SIPSorceryMedia.Abstractions | 8.0.10, released 2025-03-11 | `8a27b7f8ad4fcc9ab0c64e7c22e77d05d811c09c` | `LICENSE`: BSD-3-Clause |
+| SIPSorceryMedia.Encoders | 8.0.7, released 2025-01-04 | `a12d06a05c4e4e9d588b7597e4ef1c1e82f6e445` | `LICENSE`: BSD-3-Clause (managed bindings only; the package DLL is not shipped) |
+| libvpx (`vpxmd.dll`) | 1.17.0 | `6df3ec34557879fff673706f4a1d9fbd0f3a6f0e` | `LICENSE` SHA-256 `8267348d5af1262c11d1a08de2f5afc77457755f1ac658627dd9acf71011d615`: BSD-3-Clause; `PATENTS` grant shipped |
+| Portable.BouncyCastle | 1.9.0 | tag `release-1.9.0` of bcgit/bc-csharp | `crypto/License.html`: Bouncy Castle License (MIT text) |
+
+How the versions were chosen: SIPSorcery's `LICENSE.md` history shows the "Additional Restriction:
+Boycott, Divestment, Sanctions" section added on 2025-05-18 (commit `004f72024151`). The `v8.0.14` and
+`v8.0.15-pre` tags still have the earlier file; `v8.0.22` and every 10.x release have the restriction.
+SIPSorceryMedia.Abstractions added the same section between `v8.0.10` and `v8.0.12`. SIPSorceryMedia.Encoders
+has never changed its BSD-3-Clause `LICENSE`, but 10.0.4 requires Abstractions 8.0.12 or later, so 8.0.7
+is used. NuGet packages up to SIPSorcery 10.0.12 contain no license file, only the `BSD-3-Clause`
+expression, so the git history at the release commits is the evidence. No restricted license text was
+removed or edited: PeerOnQ only uses releases that were published without the restriction.
+
+The 8.0.14 license file's DTLS & SRTP notice says that parts of that code derive from Jitsi SRTP
+(Apache-2.0), Minisip (LGPL) and RestComm media-core (AGPL-3.0), and that users should assume GPL-style
+obligations such as source availability. These are OSI-approved licenses. PeerOnQ publishes the pinned
+upstream archive and every patch (the complete corresponding source of the shipped assembly), and ships
+the license file with every application.
+
+Upstream advisories that affect 8.0.14 (GHSA-28gm-jrmw-xx93, GHSA-qmvg-569h-hqrh, GHSA-jwjp-4649-v8jp,
+GHSA-mc26-5x96-8x52 and the IceTcpReceiver class GHSA-mwf8-6m4x-pgmm) are fixed by PeerOnQ patches
+written from the published problem descriptions; `eng/sipsorcery/upstream.json` maps each advisory to its
+patch. The SRTP AES-GCM advisory GHSA-vgjc-mh6q-fwcf does not apply: 8.0.14 has no AES-GCM SRTP. The
+SIP-only advisories do not apply because PeerOnQ does not use SIPSorcery's SIP channels. 8.0.14 also
+lacked TURN over TLS, which PeerOnQ implemented in its own patch.
+
+## 2026-10-18 remediation (superseded by the 2026-10-25 license remediation)
 
 `Directory.Packages.props` now pins maintained PeerOnQ.SIPSorcery 10.0.17.6 (upstream 10.0.17),
 Abstractions 10.0.17 and BouncyCastle 2.7.0.
@@ -90,7 +125,10 @@ Fee does not apply. The WiX UI extension contributes only installer dialog resou
 adds no executable code to the installed application. If PeerOnQ ever becomes revenue-generating,
 the fee must be paid or the WiX binaries rebuilt from their MS-RL source before the next release.
 
-## Native libvpx provenance
+## Native libvpx provenance (historical; resolved 2026-10-25)
+
+Since 2026-10-25 PeerOnQ builds `vpxmd.dll` from pinned libvpx 1.17.0 source in CI (see
+[DEPENDENCIES](../DEPENDENCIES.md)); the findings below describe the prebuilt binary it replaced.
 
 The Encoders archive contains `build/x64/vpxmd.dll` and `build/x86/vpxmd.dll`, but no separate
 libvpx `LICENSE`, `PATENTS`, copyright or notice entry. Both binaries contain the string `v1.9.0`.

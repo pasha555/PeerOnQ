@@ -19,9 +19,10 @@ current release blockers; it is not a substitute for the exact-artifact SPDX SBO
 | Purpose | Dependency | Pinned version | Current disposition |
 | --- | --- | --- | --- |
 | Hybrid/session cryptography | BouncyCastle.Cryptography | 2.7.0 | MIT; retained with platform FIPS ML-KEM/ML-DSA primitives |
-| WebRTC transport | PeerOnQ.SIPSorcery | 10.0.17.6 (upstream 10.0.17) | User-approved maintained source derivative; seven pinned wakeup/acknowledgement/flow-control/UDP-admission/RTCP-transit patches and native-app notices; unchanged upstream license restrictions and original advisory identity |
-| Media abstractions | SIPSorceryMedia.Abstractions | 10.0.17 | Same distribution blocker as SIPSorcery |
-| VP8 software codec | SIPSorceryMedia.Encoders | 10.0.4 | Native binaries match upstream checked-in files and carry a `v1.9.0` string; exact libvpx source/build, security patch status and bundled notices remain unverified |
+| WebRTC transport | PeerOnQ.SIPSorcery | 8.0.14.1 (upstream 8.0.14) | Maintained source derivative of the last BSD-3-Clause release without the upstream use restriction; built in CI from the pinned archive plus reviewed PeerOnQ patches listed in `eng/sipsorcery/upstream.json`; license, patches and provenance ship with every app |
+| Media abstractions | SIPSorceryMedia.Abstractions | 8.0.10 | BSD-3-Clause; last release before the restriction |
+| VP8 software codec | SIPSorceryMedia.Encoders + libvpx | 8.0.7 + libvpx 1.17.0 | Managed bindings BSD-3-Clause; `vpxmd.dll` is built in CI from libvpx v1.17.0 (`eng/libvpx/libvpx.json`); the package's prebuilt DLL is never shipped |
+| DTLS cryptography (via SIPSorcery) | Portable.BouncyCastle | 1.9.0 | Bouncy Castle License (MIT); required by the 8.0.14 DTLS code; unmaintained, see below |
 | Windows capture/GPU interop | Vortice.Direct3D11 / Vortice.DXGI | 3.8.3 | MIT; retain notices |
 | Windows hardware video | Vortice.MediaFoundation | 3.8.3 | User-approved on 2026-10-18; MIT interop, installed Windows codecs/drivers remain platform components |
 | Windows system sound | NAudio.Wasapi | 3.2.0 | User-approved on 2026-10-18; MIT; exact transitive inventory belongs in the release SBOM; also opens the communications microphone for opt-in two-way voice |
@@ -38,6 +39,41 @@ current release blockers; it is not a substitute for the exact-artifact SPDX SBO
 The full central .NET inventory is intentionally kept in `Directory.Packages.props`; duplicating
 all packages here would create a stale second lockfile. The full production JavaScript license
 inventory is obtained with `pnpm licenses list --prod --json`.
+
+## 2026-10-25 SIPSorcery 8.0.14 rebase and source-built libvpx
+
+SIPSorcery added a non-OSI "Additional Restriction" to its license on 2025-05-18 (upstream commit
+`004f72024151`). The maintained derivative therefore moved from 10.0.17 to SIPSorcery 8.0.14
+(tag `v8.0.14`, commit `08d3a0271dded6aaebc3183f963bc820b099c552`, archive SHA-256
+`e2544850def7e7c7bda0b64928b4bbe339e21b0d63e91e7f55d0d10d95353916`), the last release under plain
+BSD-3-Clause, with SIPSorceryMedia.Abstractions 8.0.10 and SIPSorceryMedia.Encoders 8.0.7. The license
+files of all three were checked in the upstream git history at the release commits; the 8.0.x and
+earlier NuGet packages carry no license file, only the `BSD-3-Clause` expression.
+
+`eng/sipsorcery/upstream.json` (schema 2) lists every PeerOnQ change with its hashes, the upstream
+advisories that affect 8.0.14 and the patch that fixes each of them. Those fixes were written from
+the published advisory descriptions only; no code from the restricted releases was used. The builder
+accepts only the reviewed change list compiled into `eng/PeerOnQ.DependencyBuilder`, applies the
+patches byte for byte, embeds the changed sources in the PDB and packs the upstream `LICENSE.md` as
+the package license. `scripts/security/test-sipsorcery-upstream-advisories.ps1` still queries the
+original SIPSorcery identity and fails on any high/critical advisory that the manifest does not map
+to a reviewed fix.
+
+8.0.14 uses the original Bouncy Castle TLS API through Portable.BouncyCastle 1.9.0; moving it to
+BouncyCastle.Cryptography 2.x would mean rewriting the DTLS layer (80 compile errors when tried).
+Portable.BouncyCastle has no advisory registered under its own package ID, but it is the same code
+base as BouncyCastle 1.8.x/1.9.x, which GitHub lists as affected by CVE-2024-29857, CVE-2024-30171 and
+CVE-2024-30172 (moderate; fixed in BouncyCastle.Cryptography 2.3.1). Treat it as affected. Reaching
+the DTLS handshake requires a peer that passed authenticated signaling and the session's ICE checks.
+
+`vpxmd.dll` is no longer the prebuilt binary from SIPSorceryMedia.Encoders. CI builds it for win-x64
+and win-arm64 from libvpx v1.17.0 (commit `6df3ec34557879fff673706f4a1d9fbd0f3a6f0e`, archive SHA-256
+`1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a`) with the pinned NASM 3.02 and the
+flags recorded in `eng/libvpx/libvpx.json`; `eng/libvpx/PeerOnQ.Libvpx.targets` removes the package
+DLL, ships the source-built one with libvpx's LICENSE and PATENTS, and fails the build when the DLL is
+missing or does not match its checksums. libvpx 1.17 changed the encoder ABI (23 to 39, configuration
+struct 384 to 504 bytes); `Vp8ScreenEncoder` supports both. Local x64 builds are byte-reproducible
+(four clean builds produced `eee185134bb2df24e85f0da56aaed06331113d89ae2ada8507134f04516c033e`).
 
 ## 2026-10-18 source remediation
 

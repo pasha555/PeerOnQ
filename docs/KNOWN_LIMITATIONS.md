@@ -6,6 +6,11 @@ are listed in the [release notes](../src/PeerOnQ.Infrastructure.Deployment/RELEA
 
 ## Current capability and release boundaries
 
+- The WebRTC stack is SIPSorcery 8.0.14 (the last release without the upstream use restriction)
+  with PeerOnQ patches. Its DTLS code needs Portable.BouncyCastle 1.9.0, which is no longer maintained
+  and shares the Bouncy Castle code base affected by CVE-2024-29857, CVE-2024-30171 and
+  CVE-2024-30172 (moderate). Only a peer that passed authenticated signaling and the session's ICE
+  checks reaches the DTLS handshake. Replacing it requires a new DTLS layer.
 - 4K streaming was deferred on 2026-10-18. Current streaming is capped at a 1080-pixel short edge with
   preserved aspect ratio/no upscaling; the picker offers Automatic/1080p and old higher preferences
   normalize to 1080p. Canonical 0.9.77 is a private unsigned candidate; public binary publication
