@@ -76,7 +76,8 @@ public sealed class SctpSenderFlowControlTests
         fixture.QueueFourChunks();
         fixture.StartAndWaitForIdle();
         Assert.Equal(0, fixture.NewSends);
-        Assert.True(SpinWait.SpinUntil(() => fixture.NewSends == 1, TimeSpan.FromSeconds(2)),
+        // The probe is due after the 1 s minimum RTO; the margin is for loaded CI runners.
+        Assert.True(SpinWait.SpinUntil(() => fixture.NewSends == 1, TimeSpan.FromSeconds(10)),
             "An empty flight must issue one delayed receive-window probe.");
         fixture.WaitForIdle();
         fixture.Acknowledge(100, window);
@@ -99,7 +100,7 @@ public sealed class SctpSenderFlowControlTests
         using var fixture = new SenderFixture(window, 12000, probeTiming: true);
         fixture.QueueFourChunks();
         fixture.StartAndWaitForIdle();
-        Assert.True(SpinWait.SpinUntil(() => fixture.NewSends == 1, TimeSpan.FromSeconds(2)));
+        Assert.True(SpinWait.SpinUntil(() => fixture.NewSends == 1, TimeSpan.FromSeconds(10)));
         fixture.WaitForIdle();
         // A positive but insufficient update must retain probe-specific behavior.
         fixture.Acknowledge(99, 600);

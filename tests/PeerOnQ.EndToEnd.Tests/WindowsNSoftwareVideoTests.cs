@@ -138,9 +138,12 @@ public sealed class WindowsNSoftwareVideoTests(Xunit.Abstractions.ITestOutputHel
     [Fact]
     public void A_warp_device_creation_is_traced_to_direct3d_and_reported_once()
     {
-        if (SoftwareRendererProbe.IsWarpLoaded) return; // WARP cannot be unloaded once another test created it.
         ModuleLoadTrace? captured = null;
         using var tracer = ModuleLoadTracer.Start(SoftwareRendererProbe.WarpModule, trace => Volatile.Write(ref captured, trace));
+        // WARP cannot be unloaded once another test created it. On a machine without a GPU
+        // (CI runners) the Basic Render Driver is d3d10warp.dll too, so hardware-device tests in
+        // other collections load it concurrently; checking after Start closes that window.
+        if (SoftwareRendererProbe.IsWarpLoaded) return;
         Vortice.Direct3D11.D3D11.D3D11CreateDevice(
             null,
             Vortice.Direct3D.DriverType.Warp,
@@ -153,6 +156,9 @@ public sealed class WindowsNSoftwareVideoTests(Xunit.Abstractions.ITestOutputHel
             while (Volatile.Read(ref captured) is null && DateTime.UtcNow < deadline) Thread.Sleep(20);
             var trace = Assert.IsType<ModuleLoadTrace>(Volatile.Read(ref captured));
             output.WriteLine($"native callers: {trace.NativeCallers}");
+            if (trace.ManagedThreadId != Environment.CurrentManagedThreadId
+                && !trace.ManagedStack.Contains(nameof(A_warp_device_creation_is_traced_to_direct3d_and_reported_once), StringComparison.Ordinal))
+                return; // Another test's device loaded WARP between Start and this creation.
             Assert.Contains("d3d11.dll", trace.NativeCallers, StringComparison.OrdinalIgnoreCase);
             Assert.Contains(nameof(A_warp_device_creation_is_traced_to_direct3d_and_reported_once), trace.ManagedStack,
                 StringComparison.Ordinal);
