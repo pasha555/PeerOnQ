@@ -6,6 +6,16 @@ All notable changes to PeerOnQ are listed here. The format follows
 together. Detailed notes for each release, including upgrade steps, are in the
 [release notes](src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md).
 
+## 0.9.90 - 2026-10-25
+
+### Fixed
+
+- Upgrading the Windows client from 0.9.88 to 0.9.89 left `SIPSorcery.dll` and
+  `SIPSorceryMedia.Abstractions.dll` missing, so sharing failed and the session ended with
+  `not_session_participant`. The installer now always replaces both files together with the
+  application. Fresh 0.9.89 installs were not affected; an affected 0.9.89 installation is repaired
+  by installing 0.9.90 (or by Repair in Installed apps).
+
 ## 0.9.89 - 2026-10-25
 
 ### Changed

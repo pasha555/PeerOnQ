@@ -1,3 +1,20 @@
+# PeerOnQ 0.9.90 - Windows installer upgrade fix
+
+This synchronized server/client release replaces 0.9.89. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.90 and the
+Android/Apple bundle codes advance to 9090. Signaling messages, the server and the website are
+unchanged; the server bundle only embeds the new Windows installers.
+
+## Fixed in 0.9.90
+
+- Windows installer: 0.9.89 lowered the file versions of `SIPSorcery.dll` (10.0.17 to 8.0.14) and
+  `SIPSorceryMedia.Abstractions.dll` (10.0.17 to 8.0.10). On an upgrade from 0.9.88, Windows
+  Installer costing kept the higher-versioned old files and RemoveExistingProducts then deleted
+  them, so neither assembly was installed. Starting or accepting a session failed with
+  FileNotFoundException, and the session's ICE request was rejected with `not_session_participant`.
+  Both files are now companion files of `PeerOnQ.exe` and are always installed with it. Installing
+  0.9.90 over an affected 0.9.89 restores them.
+
 # PeerOnQ 0.9.89 - license-clean WebRTC stack, source-built libvpx, TURN over TLS
 
 This synchronized server/client release replaces 0.9.88. Directory.Build.props is the sole
