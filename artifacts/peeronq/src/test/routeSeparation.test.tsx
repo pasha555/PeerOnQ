@@ -407,6 +407,8 @@ describe("route surface separation", () => {
     expect(screen.getByText("Unsigned controlled pilot")).toBeVisible();
     expect(screen.getByText("Digital signature: Not signed.")).toBeVisible();
     expect(screen.getByText("Version 0.5.1")).toBeInTheDocument();
+    expect(screen.getByText(/code-signed through SignPath\.io with a certificate by SignPath Foundation/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Code signing policy →" })).toHaveAttribute("href", "/code-signing");
   });
 
   it("links a website patch to the canonical server client without claiming its version or signature", () => {

@@ -356,6 +356,11 @@ export function DownloadsPage({ secondaryAction }: { secondaryAction?: ReactNode
           </div>
         </details>
       )}
+      <p className="text-sm leading-6 text-muted-foreground">
+        Windows installers are code-signed through SignPath.io with a certificate by SignPath Foundation (free code
+        signing for open source). Until the application is accepted, installers are published unsigned.{" "}
+        <Link href="/code-signing" className="font-medium text-primary hover:underline">Code signing policy →</Link>
+      </p>
       <p id="client-download-status" className="text-sm leading-6 text-muted-foreground" role="status" aria-live="polite">
         {download ? device.architectureRecommended
           ? "Recommended from your browser's 64-bit signature. Native architecture could not be verified; if this is an ARM64 device, choose ARM64 above."

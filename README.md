@@ -16,7 +16,7 @@ Open-source remote desktop with native clients and a self-hosted control plane.<
 [![React 19](https://img.shields.io/badge/React-19-149eca.svg)](artifacts/peeronq)
 [![Status: public pilot](https://img.shields.io/badge/status-public%20pilot-f0ad4e.svg)](docs/KNOWN_LIMITATIONS.md)
 
-[Website](https://peeronq.com) · [Security model](docs/SECURITY.md) · [Documentation](#documentation) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Screenshots](#screenshots)
+[Website](https://peeronq.com) · [Releases](https://github.com/pasha555/PeerOnQ/releases) · [Security policy](SECURITY.md) · [Code signing policy](CODE_SIGNING_POLICY.md) · [Documentation](#documentation) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Screenshots](#screenshots)
 
 </div>
 
@@ -285,6 +285,10 @@ pull request, and follow the [Code of conduct](CODE_OF_CONDUCT.md).
 [SECURITY.md](SECURITY.md), not in public issues.
 
 ## Code signing
+
+Windows installers are code-signed through SignPath.io with a certificate by SignPath Foundation (free
+code signing for open source). Until the application is accepted, installers are published unsigned.
+[Code signing policy →](CODE_SIGNING_POLICY.md)
 
 Windows release installers are built by GitHub Actions from a tagged commit
 ([release-windows.yml](.github/workflows/release-windows.yml)) and signed through SignPath: free code
