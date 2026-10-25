@@ -1128,7 +1128,8 @@ public class SessionCoordinatorTests
         var sessionId = await h.Coordinator.RequestViewOnlySessionAsync(Peer);
         h.Signaling.RaisePermission(sessionId, PermissionDecision.Decline);
 
-        Assert.True(await UntilAsync(() => h.Coordinator.ActiveSessions.Count == 0));
+        // The session leaves ActiveSessions before its audit entry is recorded.
+        Assert.True(await UntilAsync(() => h.Coordinator.ActiveSessions.Count == 0 && h.Audit.Entries.Count > 0));
         var entry = Assert.Single(h.Audit.Entries);
         Assert.Equal(SessionEndReason.PermissionDeclined, entry.EndReason);
     }
