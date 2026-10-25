@@ -43,7 +43,7 @@ public sealed class Vp8EncoderThreadingTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Setters_and_picture_requests_never_wait_for_a_stuck_native_call_and_the_encoder_is_replaced()
+    public async Task Setters_and_picture_requests_never_wait_for_a_stuck_native_call_and_the_encoder_is_replaced()
     {
         using var release = new ManualResetEventSlim(false);
         using var entered = new ManualResetEventSlim(false);
@@ -83,8 +83,7 @@ public sealed class Vp8EncoderThreadingTests(ITestOutputHelper output)
             Assert.StartsWith("busy in vpx_codec_encode", busy.State, StringComparison.Ordinal);
 
             // The caller gives up after the stall timeout instead of hanging with the native call.
-            Assert.True(stalled.Wait(TimeSpan.FromSeconds(10)), "The stalled encode did not return.");
-            Assert.Empty(stalled.Result);
+            Assert.Empty(await CompletesWithin(stalled, "The stalled encode did not return."));
             Assert.Equal(1, encoder.AbandonedEncoders);
             Assert.Contains(logger.Messages, message => message.Contains("vpx_codec_encode did not return", StringComparison.Ordinal)
                                                         && message.Contains("8 libvpx thread(s)", StringComparison.Ordinal));
@@ -111,7 +110,7 @@ public sealed class Vp8EncoderThreadingTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Dispose_returns_promptly_while_a_native_call_is_stuck()
+    public async Task Dispose_returns_promptly_while_a_native_call_is_stuck()
     {
         using var release = new ManualResetEventSlim(false);
         using var entered = new ManualResetEventSlim(false);
@@ -143,7 +142,7 @@ public sealed class Vp8EncoderThreadingTests(ITestOutputHelper output)
         encoder.ForceKeyFrame();
 
         release.Set();
-        Assert.True(stuck.Wait(TimeSpan.FromSeconds(10)));
+        await CompletesWithin(stuck, "The stuck encode did not return after its native call was released.");
     }
 
     [Fact]
@@ -168,7 +167,7 @@ public sealed class Vp8EncoderThreadingTests(ITestOutputHelper output)
     [Theory]
     [InlineData(4)]
     [InlineData(16)]
-    public void Rapid_rate_changes_and_picture_requests_from_other_threads_never_stall_the_encoder(int processors)
+    public async Task Rapid_rate_changes_and_picture_requests_from_other_threads_never_stall_the_encoder(int processors)
     {
         var seconds = int.TryParse(Environment.GetEnvironmentVariable("PEERONQ_VP8_STRESS_SECONDS"), out var configured)
             ? Math.Max(1, configured)
@@ -211,7 +210,7 @@ public sealed class Vp8EncoderThreadingTests(ITestOutputHelper output)
                 decodedImages += decoder.DecodeVideo(encodedFrame, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8).Count();
         }
 
-        Task.WaitAll(changers, TimeSpan.FromSeconds(10));
+        await CompletesWithin(Task.WhenAll(changers), "The rate-change threads did not finish.");
         var diagnostics = encoder.GetDiagnostics();
         output.WriteLine($"processors={processors} threads={diagnostics.Threads} encoded={encoded} decoded={decodedImages} " +
                          $"p50={diagnostics.EncodeP50Ms:0.0}ms p95={diagnostics.EncodeP95Ms:0.0}ms reconfigurations={encoder.ReconfigurationCount}");
@@ -230,6 +229,24 @@ public sealed class Vp8EncoderThreadingTests(ITestOutputHelper output)
             frame[(y * width) + x] = (((x / 8) + (y / 8) + phase) & 1) == 0 ? (byte)235 : (byte)16;
         Array.Fill(frame, (byte)128, width * height, frame.Length - (width * height));
         return frame;
+    }
+
+    private static async Task<T> CompletesWithin<T>(Task<T> task, string failure)
+    {
+        await CompletesWithin((Task)task, failure);
+        return await task;
+    }
+
+    private static async Task CompletesWithin(Task task, string failure)
+    {
+        try
+        {
+            await task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException(failure);
+        }
     }
 
     private static void AssertKeyFrame(byte[] frame)

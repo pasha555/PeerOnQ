@@ -471,7 +471,7 @@ public sealed class TurnIssuanceAndResumeFlowTests
     }
 
     [Fact]
-    public void Resume_refusals_name_their_reason_for_the_server_log()
+    public async Task Resume_refusals_name_their_reason_for_the_server_log()
     {
         var time = new ManualSignalingTime(DateTimeOffset.Parse("2026-10-24T17:18:49Z"));
         var registry = new SessionRegistry(
@@ -483,7 +483,7 @@ public sealed class TurnIssuanceAndResumeFlowTests
         var sessionId = SessionId.New().ToString();
         Assert.True(registry.TryCreate(sessionId, viewer, sharer, "view-only", out var session));
         registry.BindOwner(sessionId, viewer, "old-connection");
-        Assert.True(registry.TryAcceptScopeAsync(sessionId, "view-only", 1).AsTask().Result);
+        Assert.True(await registry.TryAcceptScopeAsync(sessionId, "view-only", 1));
 
         string Explain(string? token) => SessionResumeDiagnostics.Explain(
             session, viewer, token, "new-connection", SignalingProtocol.CurrentVersion, time.GetUtcNow()).Reason;
