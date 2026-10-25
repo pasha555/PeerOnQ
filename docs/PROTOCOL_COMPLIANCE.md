@@ -8,9 +8,10 @@ conformance certification.
 
 | Component | Pinned/current version | Role |
 | --- | --- | --- |
-| PeerOnQ.SIPSorcery | `10.0.17.6`, official upstream `10.0.17` | Seven maintained wakeup/acknowledgement/flow-control/UDP-admission/RTCP-transit patches; native-app notices retained; ICE/SDP/DTLS/RTP/SCTP framing unchanged |
-| SIPSorceryMedia.Abstractions | `10.0.17` | media contracts |
-| SIPSorceryMedia.Encoders | `10.0.4` | VP8 decode integration |
+| PeerOnQ.SIPSorcery | `8.0.14.1`, official upstream `8.0.14` (last BSD-3-Clause release) | 23 maintained patches (flow control, receive admission, malformed-input bounds, DTLS handshake thread, SRTP/SRTCP replay and rollover, TURN over TLS) and one added file, listed in `eng/sipsorcery/upstream.json`; ICE/SDP/DTLS/RTP/SCTP framing unchanged |
+| SIPSorceryMedia.Abstractions | `8.0.10` | media contracts |
+| SIPSorceryMedia.Encoders | `8.0.7`, with `vpxmd.dll` from libvpx `1.17.0` built from source | VP8 decode integration |
+| Portable.BouncyCastle | `1.9.0` | DTLS in SIPSorcery 8.0.14 (unmaintained; see KNOWN_LIMITATIONS) |
 | Bouncy Castle | `2.7.0` | X25519 and Ed25519 classical hybrid components |
 | coturn | `4.15.0-r0`, digest-pinned in deployment | STUN/TURN UDP, TCP, TLS and DTLS |
 | .NET | `global.json`: SDK `10.0.402`, `latestPatch`; server runtime `10.0.13` | WSS client/server, TLS and cancellation |

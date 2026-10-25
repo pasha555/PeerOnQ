@@ -294,16 +294,16 @@ Windows release installers are built by GitHub Actions from a tagged commit
 ([release-windows.yml](.github/workflows/release-windows.yml)) and signed through SignPath: free code
 signing provided by SignPath.io, certificate by SignPath Foundation. Release signing requires manual
 approval. The [code signing policy](CODE_SIGNING_POLICY.md) lists what is signed, the team roles and
-what the app sends over the network. The signing program application is pending until the
-SIPSorcery license restriction described in [docs/signing/APPLY.md](docs/signing/APPLY.md) is
-resolved. Local and test builds are unsigned.
+what the app sends over the network. The signing program application is pending
+([checklist](docs/signing/APPLY.md)); until then, tag builds are published as unsigned
+pre-releases with SHA-256 checksums. Local and test builds are unsigned.
 
 ## License
 
 PeerOnQ is released under the [MIT License](LICENSE). Third-party components keep their own
-licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Some bundled dependencies carry
-additional terms, in particular the SIPSorcery license's geographic use restriction, which is
-documented there.
+licenses, all OSI-approved; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The WebRTC stack
+is a maintained derivative of SIPSorcery 8.0.14, the last release published under plain
+BSD-3-Clause, and libvpx is built from source.
 
 ## Screenshots
 
