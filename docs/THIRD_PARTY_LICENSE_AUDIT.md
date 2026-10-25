@@ -83,6 +83,13 @@ claiming that commercial redistribution is categorically prohibited or automatic
 Current [maintainer guidance](https://docs.firegiant.com/wix/osmf/) supplements rather than replaces
 the exact 6.0.1 agreement. This review supplies evidence, not qualified legal approval.
 
+Release owner decision (2026-10-25): PeerOnQ is a non-revenue open-source project. It sells no
+licenses or subscriptions, and the installers are distributed free of charge, so its use
+of the official WiX 6.0.1 binaries is not revenue-generating use and the Open Source Maintenance
+Fee does not apply. The WiX UI extension contributes only installer dialog resources to the MSI; it
+adds no executable code to the installed application. If PeerOnQ ever becomes revenue-generating,
+the fee must be paid or the WiX binaries rebuilt from their MS-RL source before the next release.
+
 ## Native libvpx provenance
 
 The Encoders archive contains `build/x64/vpxmd.dll` and `build/x86/vpxmd.dll`, but no separate
