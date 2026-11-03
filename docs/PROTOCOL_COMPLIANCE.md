@@ -14,7 +14,7 @@ conformance certification.
 | Portable.BouncyCastle | `1.9.0` | DTLS in SIPSorcery 8.0.14 (unmaintained; see KNOWN_LIMITATIONS) |
 | Bouncy Castle | `2.7.0` | X25519 and Ed25519 classical hybrid components |
 | coturn | `4.15.0-r0`, digest-pinned in deployment | STUN/TURN UDP, TCP, TLS and DTLS |
-| .NET | `global.json`: SDK `10.0.402`, `latestPatch`; server runtime `10.0.13` | WSS client/server, TLS and cancellation |
+| .NET | `global.json`: SDK `10.0.402`, exact (`rollForward: disable`); server runtime `10.0.13` | WSS client/server, TLS and cancellation |
 | Nginx | `1.28.3-alpine` | TLS termination and WebSocket upgrade proxy |
 
 ## Standards and recorded evidence
