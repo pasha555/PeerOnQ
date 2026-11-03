@@ -318,8 +318,7 @@ public sealed class HardwareVideoIntegrationTests(ITestOutputHelper output)
                 }
                 output.WriteLine($"Actual MFT {width}x{height} requestedFps={fps}; targetKbps={bitrate}; "
                     + $"nativeTime100ns={timestamp}; nativeDuration100ns={duration}; encodedBytes={encoded.Length}; "
-                    + $"initialisations={encoder.InitialisationCount}; dynamicChanges={encoder.DynamicFrameRateChanges}; "
-                    + $"dynamicFallbacks={encoder.DynamicFrameRateFallbacks}");
+                    + $"initialisations={encoder.InitialisationCount}");
                 output.WriteLine(HardwareVideoBitrateDiagnostics.Describe(encoder, encoded));
                 output.WriteLine($"Exact native baseline raw/removed/filteredBytes={original.Length}/{original.Length - filtered.Length}/{filtered.Length}; "
                     + $"publicEncoderRaw/removed/outputBytes={encoder.LastNativeEncodedBytes}/{encoder.LastFillerBytesRemoved}/{encoder.LastEncodedOutputBytes}");
@@ -336,10 +335,9 @@ public sealed class HardwareVideoIntegrationTests(ITestOutputHelper output)
         Assert.Equal(12, rawComparisons);
         Assert.Equal(7, filteredRecoveries);
         Assert.True(removedFrames > 0, "No actual driver filler was removed; raw-versus-filtered equality would be vacuous.");
-        Assert.Equal(3, encoder.DynamicFrameRateChanges + encoder.DynamicFrameRateFallbacks);
-        // Only initial open + two size transitions reconstruct on a driver that accepts
-        // the matched rate changes. Rejections retain the explicit reconstruction path.
-        Assert.Equal(3 + encoder.DynamicFrameRateFallbacks, encoder.InitialisationCount);
+        // Every rate, bitrate or size change recreates the MFT: dynamic rate-control changes are not
+        // honoured by every driver (HardwareVideoRateControlTests).
+        Assert.Equal(recoveries, encoder.InitialisationCount);
         Assert.Equal(3, encoder.Nv12ScratchAllocations);
         output.WriteLine($"Actual encoder={encoder.Name}; dynamicSupport={encoder.DynamicFormatChangeSupported}; "
             + $"decoded=12/12; freshRecovery={recoveries}/7; currentTypesMatched=12/12; "
@@ -392,7 +390,8 @@ public sealed class HardwareVideoIntegrationTests(ITestOutputHelper output)
         await using var capture = new SyntheticVideoCapture();
         await using var sharer = WebRtcMediaSession.CreateSharer(sessionId, capture, MediaProfile.For(QualityProfile.Quality),
             encoderSelector: new VideoEncoderSelector(() => HardwareEncoderProbe.Supports(HardwareVideoCodec.H264), () => true),
-            hardwareH264EncoderFactory: () => new MediaFoundationH264Encoder());
+            // The production factory: quality changes switch to a prepared MFT.
+            hardwareH264EncoderFactory: MediaFoundationCodecFactories.HardwareH264Encoder()!);
         await using var viewer = WebRtcMediaSession.CreateViewer(sessionId,
             h264Decoder: new MediaFoundationH264Decoder());
         var secret = RandomNumberGenerator.GetBytes(64);

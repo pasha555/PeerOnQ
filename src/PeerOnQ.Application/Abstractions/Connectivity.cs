@@ -149,6 +149,13 @@ public enum RemoteInputEventKind
     PointerWheel = 2,
     Key = 3,
     Text = 4,
+
+    /// <summary>
+    /// A request for the remote device's secure-attention sequence (Ctrl+Alt+Del). It carries no
+    /// coordinates or key; the sharer honours it only through its secure-desktop service, and a
+    /// synthesized Ctrl+Alt+Del key combination stays rejected.
+    /// </summary>
+    SecureAttention = 5,
 }
 
 public enum RemotePointerButton
@@ -189,6 +196,7 @@ public sealed record RemoteInputEvent
             HasValidPosition() && WheelDelta is >= -1200 and <= 1200 and not 0,
         RemoteInputEventKind.Key => VirtualKey is > 0 and <= 254,
         RemoteInputEventKind.Text => IsValidText(Text),
+        RemoteInputEventKind.SecureAttention => true,
         _ => false,
     };
 

@@ -27,6 +27,8 @@ public partial class App : Microsoft.UI.Xaml.Application
         // while the app runs; background collection still reclaims memory without pausing the
         // capture, decode, render and input threads for a full blocking collection.
         System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
+        // A sharer's window sits in the background; a power-throttled process encoded at 32 fps.
+        _ = PeerOnQ.Platform.Windows.ProcessPowerThrottling.OptOut();
         InitializeComponent();
         UnhandledException += (_, args) => RecordCrash(args.Exception, "winui_unhandled");
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>

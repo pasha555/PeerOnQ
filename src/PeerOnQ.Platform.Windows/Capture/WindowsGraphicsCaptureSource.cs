@@ -47,8 +47,11 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
     /// <summary>A failure streak must also last this long, so one bad burst cannot end a session.</summary>
     internal static readonly TimeSpan FrameFailureGracePeriod = TimeSpan.FromSeconds(2);
 
-    /// <summary>Capture restarts attempted per session before reporting a stopped capture.</summary>
+    /// <summary>Lost-graphics-device restarts attempted per session before reporting a stopped capture.</summary>
     internal const int MaximumDeviceRecoveries = 3;
+
+    /// <summary>Longest wait between frame-failure restart attempts (e.g. while the screen is locked).</summary>
+    internal const int MaximumRecoveryBackoffMs = 5000;
 
     private readonly ILogger _log = logger ?? NullLogger<WindowsGraphicsCaptureSource>.Instance;
     private readonly Lock _gate = new();
@@ -58,6 +61,7 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
     private int _consecutiveFrameFailures;
     private long _firstFrameFailureTimestamp;
     private int _deviceRecoveries;
+    private int _frameRecoveries;
     private int _recoveryInProgress;
     private CancellationTokenSource? _recoveryCancellation;
 
@@ -524,7 +528,11 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
             SequenceNumber = Interlocked.Increment(ref _sequence),
             BufferOwnershipCanTransfer = true,
         });
+        // A frame reached the encoder: the capture is healthy again, so clear the failure streak and
+        // the restart budgets. A later lock/unlock then gets its full recovery allowance afresh.
         Volatile.Write(ref _consecutiveFrameFailures, 0);
+        Volatile.Write(ref _deviceRecoveries, 0);
+        Volatile.Write(ref _frameRecoveries, 0);
     }
 
     /// <summary>
@@ -632,8 +640,15 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
     {
         if (Interlocked.Exchange(ref _recoveryInProgress, 1) != 0) return;
         var request = _activeRequest;
-        var attempt = countAttempt ? Interlocked.Increment(ref _deviceRecoveries) : Volatile.Read(ref _deviceRecoveries);
-        if (request is null || attempt > MaximumDeviceRecoveries || _disposed == 1)
+        // A lost graphics device that keeps failing is a real fault and gives up after a few tries.
+        // A frame-failure streak is usually the screen switching to the locked/secure desktop, where
+        // capture simply cannot read pixels; that keeps retrying with a capped backoff so the session
+        // survives an arbitrarily long lock and resumes by itself once the desktop returns (unlock).
+        var deviceLost = reason == CaptureStoppedReason.DeviceLost;
+        var attempt = deviceLost
+            ? (countAttempt ? Interlocked.Increment(ref _deviceRecoveries) : Volatile.Read(ref _deviceRecoveries))
+            : (countAttempt ? Interlocked.Increment(ref _frameRecoveries) : Volatile.Read(ref _frameRecoveries));
+        if (request is null || (deviceLost && attempt > MaximumDeviceRecoveries) || _disposed == 1)
         {
             IsCapturing = false;
             Volatile.Write(ref _recoveryInProgress, 0);
@@ -650,8 +665,10 @@ public sealed partial class WindowsGraphicsCaptureSource(ILogger<WindowsGraphics
         {
             try
             {
-                // Give the driver (or the display layout) a moment to settle first.
-                await Task.Delay(TimeSpan.FromMilliseconds(250 * Math.Max(1, attempt)), token);
+                // Give the driver (or the display layout) a moment to settle first; the wait grows
+                // with the attempt but is capped so a long lock keeps retrying at a steady cadence.
+                var backoffMs = Math.Min(250 * Math.Max(1, attempt), MaximumRecoveryBackoffMs);
+                await Task.Delay(TimeSpan.FromMilliseconds(backoffMs), token);
                 await StartCore(request, preserveAdaptiveState: true, token);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)

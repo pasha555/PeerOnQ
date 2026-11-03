@@ -77,11 +77,14 @@ public sealed partial class WebRtcMediaSession
         };
     }
 
-    /// <summary>Sharer: a new capture source starts from the start level, not an inherited low one.</summary>
+    /// <summary>
+    /// Sharer: a new capture source starts from the start level, not an inherited low one,
+    /// unless the network path set the current level.
+    /// </summary>
     public void RestartQuality()
     {
         if (Role != SessionRole.Sharer || Adaptive is not { } adaptive) return;
-        adaptive.Reset();
+        adaptive.RestartForNewSource();
         RequestEncoderKeyFrame();
     }
 

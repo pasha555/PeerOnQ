@@ -31,6 +31,29 @@
     </StandardDirectory>
     <StandardDirectory Id="DesktopFolder" />
     <StandardDirectory Id="StartupFolder" />
+    <StandardDirectory Id="System64Folder" />
+
+    <!-- Windows N editions ship without Media Foundation (no mfplat.dll), so both roles fell back
+         to software VP8. On a client edition without it, setup adds Microsoft's Media Feature Pack
+         capability through the in-box DISM, licensed by Windows; hardware H.264 is then available
+         after the next Windows restart. A failure (offline, WSUS, older build) never fails setup:
+         PeerOnQ keeps its software video. scripts/windows/test-phase5-installer.ps1 allows exactly
+         this custom action. -->
+    <Property Id="MEDIAFOUNDATIONPRESENT">
+      <DirectorySearch Id="MediaFoundationSystemFolder" Path="[System64Folder]" Depth="0">
+        <FileSearch Id="MediaFoundationPlatform" Name="mfplat.dll" />
+      </DirectorySearch>
+    </Property>
+    <CustomAction Id="AddMediaFeaturePack" Directory="System64Folder"
+                  ExeCommand="&quot;[System64Folder]Dism.exe&quot; /Online /Add-Capability /CapabilityName:Media.MediaFeaturePack~~~~0.0.1.0 /NoRestart /Quiet"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="AddMediaFeaturePack" Before="InstallFinalize"
+              Condition="NOT MEDIAFOUNDATIONPRESENT AND MsiNTProductType = 1 AND NOT (REMOVE~=&quot;ALL&quot;)" />
+    </InstallExecuteSequence>
+    <UI>
+      <ProgressText Action="AddMediaFeaturePack" Message="Adding Windows media components for hardware video" />
+    </UI>
 
     <ComponentGroup Id="PublishedFiles" Directory="INSTALLFOLDER">
       <Files Include="!(bindpath.Publish)\**">
@@ -56,9 +79,12 @@
       <File Id="SessionBrokerExecutable" Source="!(bindpath.Publish)\SessionBroker\PeerOnQ.SessionBroker.exe" KeyPath="yes" />
       <RegistryValue Root="HKLM" Key="Software\PeerOnQ\SessionBroker" Name="Enabled" Type="integer" Value="1" />
       <RegistryValue Root="HKLM" Key="Software\PeerOnQ\SessionBroker" Name="HostExecutablePath" Type="string" Value="[INSTALLFOLDER]PeerOnQ.exe" />
+      <!-- Lets the LocalSystem broker raise Ctrl+Alt+Del (SendSAS) for a Full-Control viewer. Scoped
+           to services only; it never bypasses sign-in. Removed with the optional broker feature. -->
+      <RegistryValue Root="HKLM" Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" Name="SoftwareSASGeneration" Type="integer" Value="1" />
       <ServiceInstall Id="InstallSessionBroker" Name="PeerOnQ.SessionBroker" DisplayName="PeerOnQ session broker"
-                      Description="Registers signed-in PeerOnQ hosts. Remote access remains in the visible user session; no pre-login or UAC desktop access."
-                      Type="ownProcess" Start="auto" ErrorControl="normal" Account="NT AUTHORITY\LocalService" Vital="yes" />
+                      Description="Registers signed-in PeerOnQ hosts and, for a Full-Control viewer, raises Ctrl+Alt+Del at the sign-in/lock screen. Runs as LocalSystem; never bypasses sign-in."
+                      Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Vital="yes" />
       <ServiceControl Id="ControlSessionBroker" Name="PeerOnQ.SessionBroker" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
     </Component>
 
@@ -126,7 +152,7 @@
         <ComponentRef Id="StartupShortcut" />
       </Feature>
       <Feature Id="SessionBrokerFeature" Title="Windows session broker and sign-in startup"
-               Description="Optional LocalService broker with visible app startup at sign-in. Requires a signed-in user; no logged-out, UAC or secure-desktop remote access."
+               Description="Optional LocalSystem broker with visible app startup at sign-in. Adds remote Ctrl+Alt+Del at the sign-in/lock screen for a Full-Control viewer; the person still signs in with their own password or PIN."
                Level="2" AllowAdvertise="no">
         <ComponentGroupRef Id="SessionBrokerFiles" />
         <ComponentRef Id="SessionBrokerService" />

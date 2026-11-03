@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Win32;
 using PeerOnQ.Application.Abstractions;
 using PeerOnQ.Platform.Windows.Rendering;
 
@@ -16,6 +17,13 @@ public sealed partial class ViewerWindow
 {
     private D3D11CompositionVideoPresenter? _gpuPresenter;
     private bool _gpuSurfaceVisible;
+
+    // null = automatic (the adapter-count heuristic below), true = always GPU, false = always bitmap.
+    // A person can override the heuristic from the "..." menu; the choice persists per user.
+    private bool? _rendererPreference;
+    private bool _rendererPreferenceLoaded;
+    private const string RendererPreferenceKey = @"Software\PeerOnQ\Viewer";
+    private const string RendererPreferenceValue = "Renderer";
 
     /// <summary>The element whose bounds hold the remote frame (UI thread only).</summary>
     private FrameworkElement ActiveRemoteSurface =>
@@ -47,19 +55,25 @@ public sealed partial class ViewerWindow
         // i5-5300U viewer, 1080p30 rendering could not keep up and drove the sharer's quality
         // down. Hybrid/multi-GPU machines keep the bitmap until verified there (a blank viewer is
         // worse than a slow one). PEERONQ_VIEWER_RENDERER=gpu|bitmap overrides the choice.
+        EnsureRendererPreferenceLoaded();
         var setting = Environment.GetEnvironmentVariable("PEERONQ_VIEWER_RENDERER");
-        var forced = string.Equals(setting, "gpu", StringComparison.OrdinalIgnoreCase);
+        // A saved preference wins; otherwise the environment variable; otherwise the heuristic.
+        var forceGpu = _rendererPreference == true
+            || (_rendererPreference is null && string.Equals(setting, "gpu", StringComparison.OrdinalIgnoreCase));
+        var forceBitmap = _rendererPreference == false
+            || (_rendererPreference is null && string.Equals(setting, "bitmap", StringComparison.OrdinalIgnoreCase));
         var (hardwareAdapters, defaultAdapter, defaultIsSoftware) = D3D11CompositionVideoPresenter.DescribeAdapters();
         SoftwareRendererProbe.ReportIfLoaded(_log, "the viewer window opened");
-        var reason = string.Equals(setting, "bitmap", StringComparison.OrdinalIgnoreCase) ? "PEERONQ_VIEWER_RENDERER=bitmap"
+        var reason = forceBitmap ? "the viewer renderer is set to bitmap"
             : !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) ? "Windows older than 10 2004"
-            : forced ? null
+            : forceGpu ? null
             : defaultIsSoftware ? $"no hardware graphics adapter (default adapter: {defaultAdapter})"
             : hardwareAdapters != 1 ? $"{hardwareAdapters} hardware graphics adapters (hybrid or multi-GPU)"
             : null;
         if (reason is not null)
         {
             _log.LogInformation("Viewer {SessionId} presents with a bitmap: {Reason}", _sessionId, reason);
+            SyncGpuRendererButton();
             return;
         }
 
@@ -68,6 +82,7 @@ public sealed partial class ViewerWindow
         if (presenter is null)
         {
             _log.LogInformation("Viewer {SessionId} presents with a bitmap: no Direct3D 11 swap chain", _sessionId);
+            SyncGpuRendererButton();
             return;
         }
 
@@ -79,6 +94,7 @@ public sealed partial class ViewerWindow
         {
             presenter.Dispose();
             _log.LogWarning(ex, "Viewer {SessionId} could not attach its swap chain; using a bitmap", _sessionId);
+            SyncGpuRendererButton();
             return;
         }
 
@@ -86,8 +102,73 @@ public sealed partial class ViewerWindow
         _gpuSurfaceVisible = true;
         RemoteSwapChainPanel.Visibility = Visibility.Visible;
         RemoteImage.Visibility = Visibility.Collapsed;
+        SyncGpuRendererButton();
         _log.LogInformation("Viewer {SessionId} presents through a Direct3D 11 swap chain on {Adapter} ({Reason})",
-            _sessionId, defaultAdapter, forced ? "PEERONQ_VIEWER_RENDERER=gpu" : "single hardware adapter");
+            _sessionId, defaultAdapter, forceGpu ? "forced on" : "single hardware adapter");
+    }
+
+    /// <summary>
+    /// Turns GPU presentation on or off at the person's request and remembers the choice. On most
+    /// laptops two graphics chips make the heuristic keep the bitmap path, which the UI thread
+    /// cannot drive at 60 fps and which upscales with blur; forcing the GPU swap chain fixes both,
+    /// and any device or interop failure still falls back to the bitmap automatically.
+    /// </summary>
+    private void OnToggleGpuRenderer(object sender, RoutedEventArgs e)
+    {
+        var wantGpu = GpuRendererButton.IsChecked == true;
+        _rendererPreference = wantGpu;
+        _rendererPreferenceLoaded = true;
+        SaveRendererPreference(wantGpu);
+
+        ShutdownGpuPresentation();
+        if (wantGpu)
+            InitializeGpuPresentation();
+        else
+            SyncGpuRendererButton();
+
+        if (wantGpu && !_gpuSurfaceVisible)
+            ConnectionText.Text = "GPU rendering is unavailable on this computer; using the standard renderer.";
+    }
+
+    /// <summary>Reflects the live renderer on the toggle without re-entering its Click handler.</summary>
+    private void SyncGpuRendererButton()
+    {
+        if (GpuRendererButton.IsChecked != _gpuSurfaceVisible)
+            GpuRendererButton.IsChecked = _gpuSurfaceVisible;
+    }
+
+    private void EnsureRendererPreferenceLoaded()
+    {
+        if (_rendererPreferenceLoaded) return;
+        _rendererPreferenceLoaded = true;
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RendererPreferenceKey);
+            _rendererPreference = (key?.GetValue(RendererPreferenceValue) as string) switch
+            {
+                "gpu" => true,
+                "bitmap" => false,
+                _ => null,
+            };
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "Viewer {SessionId} could not read the renderer preference", _sessionId);
+            _rendererPreference = null;
+        }
+    }
+
+    private void SaveRendererPreference(bool gpu)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(RendererPreferenceKey);
+            key?.SetValue(RendererPreferenceValue, gpu ? "gpu" : "bitmap", RegistryValueKind.String);
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "Viewer {SessionId} could not save the renderer preference", _sessionId);
+        }
     }
 
     /// <summary>Called on the media thread. False means the bitmap path must draw this frame.</summary>
@@ -203,5 +284,6 @@ public sealed partial class ViewerWindow
         if (_closed) return;
         RemoteSwapChainPanel.Visibility = Visibility.Collapsed;
         RemoteImage.Visibility = Visibility.Visible;
+        SyncGpuRendererButton();
     }
 }

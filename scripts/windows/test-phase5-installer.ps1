@@ -233,8 +233,8 @@ try {
     $serviceInstall = @(Read-Rows $database 'SELECT `Name`,`ServiceType`,`StartType`,`StartName`,`Component_` FROM `ServiceInstall`')
     if ($serviceInstall.Count -ne 1 -or $serviceInstall[0][0] -ne 'PeerOnQ.SessionBroker' -or
         $serviceInstall[0][1] -ne '16' -or $serviceInstall[0][2] -ne '2' -or
-        $serviceInstall[0][3] -ne 'NT AUTHORITY\LocalService' -or $serviceInstall[0][4] -ne 'SessionBrokerService') {
-        throw 'Only the non-interactive LocalService own-process session broker may be installed.'
+        $serviceInstall[0][3] -ne 'LocalSystem' -or $serviceInstall[0][4] -ne 'SessionBrokerService') {
+        throw 'Only the LocalSystem own-process session broker (secure-attention capable) may be installed.'
     }
     $serviceControl = @(Read-Rows $database 'SELECT `Name`,`Event`,`Wait`,`Component_` FROM `ServiceControl`')
     if ($serviceControl.Count -ne 1 -or $serviceControl[0][0] -ne 'PeerOnQ.SessionBroker' -or
@@ -249,7 +249,23 @@ try {
     if ($brokerDirectory.Count -ne 1 -or $brokerDirectory[0][0] -ne 'ProgramFiles6432Folder') {
         throw 'The service payload must remain under protected Program Files, independent of custom application directories.'
     }
-    if ($tables -contains 'CustomAction') { throw 'Unexpected installer custom actions are not allowed.' }
+    # Exactly one reviewed custom action: Windows N gets Microsoft's Media Feature Pack through the
+    # in-box DISM (deferred, LocalSystem, failure ignored). Any other custom action stays forbidden.
+    if ($tables -contains 'CustomAction') {
+        $customActions = @(Read-Rows $database 'SELECT `Action`,`Type`,`Source`,`Target` FROM `CustomAction`')
+        $mediaPackCommand = '"[System64Folder]Dism.exe" /Online /Add-Capability /CapabilityName:Media.MediaFeaturePack~~~~0.0.1.0 /NoRestart /Quiet'
+        if ($customActions.Count -ne 1 -or $customActions[0][0] -ne 'AddMediaFeaturePack' -or
+            $customActions[0][1] -ne '3170' -or $customActions[0][2] -ne 'System64Folder' -or
+            $customActions[0][3] -ne $mediaPackCommand) {
+            throw 'Unexpected installer custom actions are not allowed.'
+        }
+        $mediaPackSequence = @(Read-Rows $database `
+            "SELECT ``Condition`` FROM ``InstallExecuteSequence`` WHERE ``Action``='AddMediaFeaturePack'")
+        if ($mediaPackSequence.Count -ne 1 -or
+            $mediaPackSequence[0][0] -ne 'NOT MEDIAFOUNDATIONPRESENT AND MsiNTProductType = 1 AND NOT (REMOVE~="ALL")') {
+            throw 'The Media Feature Pack action must run only on client editions without Media Foundation.'
+        }
+    }
 
     $startupFeature = @(Read-Rows $database `
         "SELECT ``Feature_`` FROM ``FeatureComponents`` WHERE ``Component_``='StartupShortcut'")

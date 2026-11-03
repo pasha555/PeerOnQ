@@ -79,8 +79,10 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private long _lastDrops;
     private bool _adaptWindowPrimed;
     private long _lastEncoded;
+    private RtcpNetworkFeedback.Reception? _lastJudgedNetworkReport;
     private long _remoteVideoSsrc;
     private int _targetBitrateKbps;
+    private int _directLanPath;
     private int _transferPriorityMode = (int)TransferPriorityMode.Balanced;
     private int _videoFrameTelemetryNegotiated;
     private int _inputAcknowledgementNegotiated;
@@ -103,6 +105,10 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private int _lastSourceHeight;
     private int _ultraHdSourceActive;
     private int _softwareResolutionFloor;
+    private bool _softwareLimitedSharer;
+    // Encode loop only: the still desktop it may re-encode, see StaticRefinement.
+    private readonly StaticRefinement _refinement = new();
+    private (CapturedFrame Frame, byte[] Input)? _refinementFrame;
     private readonly Lock _ultraHdGate = new();
     private readonly Lock _qualityApplyGate = new();
     private int _captureRefreshQueued;
@@ -247,8 +253,12 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     private static partial void LogFrameRatePlan(ILogger logger, SessionId sessionId, int fps, int highMotionFps, int kbps);
 
     [LoggerMessage(1455, LogLevel.Information,
-        "Session {SessionId}: software VP8 on a {Processors}-thread CPU; frame rate limited to {Fps} fps")]
-    private static partial void LogSoftwareFrameRateLimit(ILogger logger, SessionId sessionId, int processors, int fps);
+        "Session {SessionId}: software VP8 on a {Processors}-thread CPU; {Fps} fps kept, desktops above {Pixels} pixels captured at half scale")]
+    private static partial void LogSoftwareFrameRateLimit(ILogger logger, SessionId sessionId, int processors, int fps, int pixels);
+
+    [LoggerMessage(1456, LogLevel.Information,
+        "Session {SessionId}: direct LAN path {Lan}; video bitrate ceiling {Kbps} kbps")]
+    private static partial void LogLanBitrateCeiling(ILogger logger, SessionId sessionId, bool lan, int kbps);
 
     [LoggerMessage(1001, LogLevel.Information, "Session {SessionId} media state {State}")]
     private static partial void LogMediaStateChanged(
@@ -369,13 +379,16 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     {
         Phase1SessionScope.EnsureInteractiveMediaPermissions(permissions);
         var hardwareSelected = (encoderSelector ?? new VideoEncoderSelector(() => false)).Select().IsHardware;
-        if (!hardwareSelected && Environment.ProcessorCount <= Vp8ScreenEncoder.SingleThreadedProcessorLimit)
+        var softwareLimited = !hardwareSelected && Environment.ProcessorCount <= Vp8ScreenEncoder.SingleThreadedProcessorLimit;
+        if (softwareLimited)
         {
-            // Software VP8 on a 2C/4T laptop (LNK-363) encodes about 30 fps at 1080p; starting at
-            // 60 would only fill the queue and step down a few seconds later.
+            // Software VP8 on a 2C/4T laptop (LNK-363) encodes about 30 fps at 1080p. The 60 fps
+            // minimum stays; a desktop larger than SoftwareSixtyFpsMaximumPixels is captured at
+            // half scale instead (a quarter of the pixels), see UpdateUltraHdState.
             var limited = profile.ForSoftwareLimitedSharer();
             if (limited != profile)
-                LogSoftwareFrameRateLimit(logger ?? NullLogger.Instance, sessionId, Environment.ProcessorCount, limited.TargetFps);
+                LogSoftwareFrameRateLimit(logger ?? NullLogger.Instance, sessionId, Environment.ProcessorCount,
+                    limited.TargetFps, SoftwareSixtyFpsMaximumPixels);
             profile = limited;
         }
         var peerConfiguration = configuration ?? DefaultConfiguration;
@@ -406,21 +419,24 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             logger ?? NullLogger.Instance,
             hardwareH264EncoderFactory: hardwareSelected ? hardwareH264EncoderFactory : null);
 
+        session._softwareLimitedSharer = softwareLimited;
         session.Encoder = session._hardwareEncoding!.Selection;
         LogEncoderSelected(session._log, sessionId, session.Encoder);
         LogFrameRatePlan(session._log, sessionId, profile.TargetFps, profile.HighMotionFps, profile.MaxBitrateKbps);
 
         // Every interactive profile supplies a maximum, not a promise to congest the link.
         // Keep the selected profile while its measured loss, jitter, RTT, or local queue pressure
-        // is healthy; otherwise step down frame rate before resolution so current control input
-        // reaches the peer instead of waiting behind stale video.
+        // is healthy; otherwise step down bitrate (and resolution where allowed) so current control
+        // input reaches the peer instead of waiting behind stale video. The frame rate stays at
+        // MediaProfile.MinimumFps or above.
         session.Adaptive = new AdaptiveQualityController(
             profile.TargetFps,
             profile.MaxBitrateKbps,
             policy: session._connectionPolicy,
             allowResolutionDownscale: profile.Quality != QualityProfile.Quality
                 && profile.Resolution is not (CaptureResolution.Automatic or CaptureResolution.Native or CaptureResolution.P2160),
-            highMotionFps: profile.HighMotionFps);
+            highMotionFps: profile.HighMotionFps,
+            minimumFps: MediaProfile.MinimumFps);
         session.Adaptive.LevelChanged += session.OnQualityLevelChanged;
 
         if (capture is not null && permissions.HasFlag(SessionPermission.ViewScreen))
@@ -534,6 +550,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 PublishOrQueueAuxiliaryIceCandidate(
                     DataLane.Input,
                     (candidate.candidate, candidate.sdpMid, candidate.sdpMLineIndex));
+                MapRouterPort(candidate.candidate, mapped => PublishOrQueueAuxiliaryIceCandidate(
+                    DataLane.Input, (mapped, candidate.sdpMid, candidate.sdpMLineIndex)));
             };
         }
         if (_bulkPeer is not null)
@@ -545,6 +563,8 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 PublishOrQueueAuxiliaryIceCandidate(
                     DataLane.Bulk,
                     (candidate.candidate, candidate.sdpMid, candidate.sdpMLineIndex));
+                MapRouterPort(candidate.candidate, mapped => PublishOrQueueAuxiliaryIceCandidate(
+                    DataLane.Bulk, (mapped, candidate.sdpMid, candidate.sdpMLineIndex)));
             };
         }
 
@@ -552,10 +572,13 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         {
             if (candidate is null || !AdvertiseLocalCandidate(candidate.candidate)) return;
 
+            CountLocalCandidate(candidate.candidate);
             LocalIceCandidate?.Invoke(this, (
                 candidate.candidate,
                 candidate.sdpMid,
                 candidate.sdpMLineIndex));
+            MapRouterPort(candidate.candidate, mapped =>
+                LocalIceCandidate?.Invoke(this, (mapped, candidate.sdpMid, candidate.sdpMLineIndex)));
         };
 
         _peer.onconnectionstatechange += state =>
@@ -579,6 +602,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             {
                 Volatile.Write(ref _mediaConnectedTimestamp, Stopwatch.GetTimestamp());
                 LogSelectedCandidatePair();
+                LogCandidateMix();
             }
             LogMediaStateChanged(_log, SessionId, mapped);
             StateChanged?.Invoke(this, mapped);
@@ -1106,10 +1130,11 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             previous = _lastAppliedQualityLevel;
             _lastAppliedQualityLevel = level;
             _rateLimiter.SetTargetFps(level.TargetFps);
-            Volatile.Write(ref _targetBitrateKbps, Math.Clamp(level.MaxBitrateKbps, 100, 50_000));
-            _videoPacer?.SetTargetBitrateKbps(Math.Clamp(level.MaxBitrateKbps, 100, 50_000));
+            var kbps = Math.Clamp(EffectiveBitrateKbps(level), 100, 50_000);
+            Volatile.Write(ref _targetBitrateKbps, kbps);
+            _videoPacer?.SetTargetBitrateKbps(kbps);
             _encoder?.SetTargetFps(level.TargetFps);
-            _encoder?.SetTargetKbps(level.MaxBitrateKbps);
+            _encoder?.SetTargetKbps(kbps);
 
             if (_capture is IAdaptiveCaptureSource adaptive)
             {
@@ -1127,8 +1152,48 @@ public sealed partial class WebRtcMediaSession : IMediaSession
     }
 
     /// <summary>
+    /// On a direct LAN path the link is not what limits the picture: a 10 Mbps 1080p60 stream
+    /// leaves moving text and the periodic key frame visibly soft. Automatic, Performance and
+    /// Quality then get this many times each rung's bitrate, up to <see cref="MaximumLanBitrateKbps"/>;
+    /// loss still steps the rungs down. The lower-bandwidth profiles keep the owner's choice.
+    /// </summary>
+    internal const int LanBitrateMultiplier = 2;
+
+    internal const int MaximumLanBitrateKbps = 20_000;
+
+    private int EffectiveBitrateKbps(QualityLevel level) =>
+        LanBitrate(level.MaxBitrateKbps, Volatile.Read(ref _directLanPath) != 0, _profile.Quality);
+
+    internal static int LanBitrate(int levelKbps, bool directLan, QualityProfile quality) =>
+        directLan && quality is QualityProfile.Automatic or QualityProfile.Performance or QualityProfile.Quality
+            ? Math.Max(levelKbps, Math.Min(levelKbps * LanBitrateMultiplier, MaximumLanBitrateKbps))
+            : levelKbps;
+
+    /// <summary>
+    /// Re-applies the level when the selected ICE path moves onto or off a direct LAN. Every VP8
+    /// rate change forces a key frame, so the encode loop also checks before its first frame (the
+    /// encoder then starts at the LAN rate) and an unknown path during an ICE restart changes nothing.
+    /// </summary>
+    private void UpdateDirectLanBitrate(AdaptiveQualityController adaptive)
+    {
+        var path = GetSelectedPath();
+        if (path == ConnectionPath.UnknownNegotiating) return;
+        var lan = path == ConnectionPath.DirectLan ? 1 : 0;
+        if (Interlocked.Exchange(ref _directLanPath, lan) == lan) return;
+        OnQualityLevelChanged(this, adaptive.Current);
+        LogLanBitrateCeiling(_log, SessionId, lan != 0, EffectiveBitrateKbps(adaptive.Current));
+    }
+
+    /// <summary>
+    /// Largest desktop a software-limited sharer encodes at full scale: VP8 on a 2C/4T CPU managed
+    /// about 30 fps at 1080p, so 60 fps needs about half its pixels (1366x768 still fits).
+    /// </summary>
+    internal const int SoftwareSixtyFpsMaximumPixels = 1_200_000;
+
+    /// <summary>
     /// Software VP8 cannot keep a 4K desktop interactive, so a 4K-class source is captured at the
-    /// standard tier until hardware H.264 is actually available for this peer.
+    /// standard tier until hardware H.264 is actually available for this peer. A software-limited
+    /// sharer also halves a desktop above <see cref="SoftwareSixtyFpsMaximumPixels"/> to keep 60 fps.
     /// </summary>
     private int EffectiveDownscaleFactor(QualityLevel level) =>
         Volatile.Read(ref _softwareResolutionFloor) != 0
@@ -1161,7 +1226,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             var ultraHdSource = CaptureResolutionPolicy.AllowsUltraHd(_profile.Resolution)
                                 && CaptureResolutionPolicy.IsUltraHdSource(sourceWidth, sourceHeight);
             var hardware = UltraHdEncodingAvailable;
-            var floor = ultraHdSource && !hardware ? 1 : 0;
+            var floor = !hardware && (ultraHdSource
+                                      || _softwareLimitedSharer && (long)sourceWidth * sourceHeight > SoftwareSixtyFpsMaximumPixels)
+                ? 1 : 0;
             var floorChanged = Interlocked.Exchange(ref _softwareResolutionFloor, floor) != floor;
             var useUltraHdLadder = ultraHdSource && hardware;
             Volatile.Write(ref _ultraHdSourceActive, useUltraHdLadder ? 1 : 0);
@@ -1215,10 +1282,13 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                     continue;
                 }
 
+                UpdateDirectLanBitrate(adaptive);
                 var drops = _queue.Dropped;
                 var snapshot = _statistics.Snapshot();
                 var encoded = snapshot.FramesEncoded;
                 var network = _networkFeedback.GetFresh();
+                var networkIsNew = network is not null && !ReferenceEquals(network, _lastJudgedNetworkReport);
+                _lastJudgedNetworkReport = network;
                 var loss = network?.PacketLossFraction ?? 0;
                 var rtt = GetIceRttMs();
                 _networkFeedback.ObserveRtt(rtt);
@@ -1228,6 +1298,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 var sample = new QualitySample
                 {
                     NetworkFeedbackAvailable = network is not null,
+                    NetworkFeedbackIsNew = networkIsNew,
                     PacketLossFraction = loss,
                     QueueDrops = Math.Max(0, drops - _lastDrops),
                     FramesEncoded = Math.Max(0, encoded - _lastEncoded),
@@ -1343,46 +1414,92 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             try
             {
                 var protector = Volatile.Read(ref _trafficProtector);
-                if (protector is null
-                    || !TryDequeueFrameForEncoding(
+                CapturedFrame frame;
+                byte[] input;
+                if (protector is not null
+                    && TryDequeueFrameForEncoding(
                         _queue,
                         State,
                         protector.IsEstablished,
-                        out var frame))
+                        out var dequeued))
                 {
-                    // Before the encrypted transport is ready, preserve the initial frame and
-                    // recheck periodically: a change-driven capture source may stay still. Once
-                    // ready, wait for a producer signal instead of adding a frame-period delay.
-                    if (protector is null
-                        || State != MediaConnectionState.Connected
-                        || !protector.IsEstablished)
+                    frame = dequeued;
+                    if (MemoryMarshal.TryGetArray(frame.I420, out ArraySegment<byte> segment)
+                        && segment.Offset == 0
+                        && segment.Array is { } owned
+                        && segment.Count == owned.Length)
                     {
-                        await Task.Delay(interval, cancellationToken);
+                        input = owned;
                     }
                     else
                     {
-                        await _encodeWake.WaitAsync(cancellationToken);
+                        input = frame.I420.ToArray();
                     }
+
+                    // Both supported layouts start with the full-resolution luma plane.
+                    if (frame.Format is CapturedPixelFormat.I420 or CapturedPixelFormat.Nv12)
+                    {
+                        _refinement.Observe(frame.Width, frame.Height, input, _rateLimiter.TargetFps,
+                            Volatile.Read(ref _targetBitrateKbps));
+                        _refinementFrame = (frame, input);
+                    }
+                    else
+                    {
+                        _refinement.Reset();
+                        _refinementFrame = null;
+                    }
+                }
+                else if (protector is null
+                         || State != MediaConnectionState.Connected
+                         || !protector.IsEstablished)
+                {
+                    // Before the encrypted transport is ready, preserve the initial frame and
+                    // recheck periodically: a change-driven capture source may stay still.
+                    await Task.Delay(interval, cancellationToken);
                     continue;
                 }
-
-                byte[] input;
-                if (MemoryMarshal.TryGetArray(frame.I420, out ArraySegment<byte> segment)
-                    && segment.Offset == 0
-                    && segment.Array is { } owned
-                    && segment.Count == owned.Length)
+                else if (_refinementFrame is { } still && _refinement.Remaining > 0)
                 {
-                    input = owned;
+                    // The desktop stopped changing: give a new frame one frame period, then
+                    // re-encode the still one so the encoder refines it (StaticRefinement).
+                    var period = TimeSpan.FromSeconds(1.0 / Math.Max(1, _rateLimiter.TargetFps));
+                    if (await _encodeWake.WaitAsync(period, cancellationToken) || !_refinement.TryTake())
+                        continue;
+                    // The same pixels are the screen as of now: a stale capture time would read
+                    // as frame age at the viewer and lower the quality level.
+                    frame = new CapturedFrame
+                    {
+                        SourceWidth = still.Frame.SourceWidth,
+                        SourceHeight = still.Frame.SourceHeight,
+                        RequestedWidth = still.Frame.RequestedWidth,
+                        RequestedHeight = still.Frame.RequestedHeight,
+                        Width = still.Frame.Width,
+                        Height = still.Frame.Height,
+                        I420 = still.Input,
+                        Format = still.Frame.Format,
+                        Timestamp = still.Frame.Timestamp,
+                        SequenceNumber = still.Frame.SequenceNumber,
+                        BufferOwnershipCanTransfer = true,
+                        PipelineEnteredTimestamp = Stopwatch.GetTimestamp(),
+                        CaptureTimestampUnixMicroseconds = GetUnixMicroseconds(DateTimeOffset.UtcNow),
+                    };
+                    input = still.Input;
                 }
                 else
                 {
-                    input = frame.I420.ToArray();
+                    // Once ready, wait for a producer signal instead of adding a frame-period delay.
+                    await _encodeWake.WaitAsync(cancellationToken);
+                    continue;
                 }
 
+                if (Volatile.Read(ref _firstFrameEncoded) == 0 && Adaptive is { } firstLevel)
+                    UpdateDirectLanBitrate(firstLevel);
                 var (codec, encoded) = EncodeVideoFrame(frame.Width, frame.Height, input, frame.Format);
                 NoteEncodeAttempted();
                 // Negotiation or a hardware fallback may have changed what 4K this peer can get.
                 UpdateUltraHdState(frame.SourceWidth, frame.SourceHeight);
+                if (_refinementFrame is not null && StaticRefinement.IsKeyFrame(codec, encoded))
+                    _refinement.KeyFrameEncoded(_rateLimiter.TargetFps, Volatile.Read(ref _targetBitrateKbps));
 
                 if (encoded is { Length: > 0 })
                 {
@@ -1436,6 +1553,9 @@ public sealed partial class WebRtcMediaSession : IMediaSession
                 await Task.Delay(interval, CancellationToken.None);
             }
         }
+
+        _refinementFrame = null;
+        _refinement.Reset();
     }
 
     internal static bool TryDequeueFrameForEncoding(
@@ -1701,6 +1821,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
             _ => _peer,
         };
         if (peer is null) return Task.CompletedTask;
+        if (lane == DataLane.Primary) CountRemoteCandidate(candidate);
         var routedMid = lane switch
         {
             DataLane.Input => sdpMid![InputIceMidPrefix.Length..],
@@ -2527,6 +2648,7 @@ public sealed partial class WebRtcMediaSession : IMediaSession
         Volatile.Write(ref _peerCloseProgress, "releasing TURN connections");
         if (Interlocked.Exchange(ref _closed, 1) == 0)
         {
+            ReleaseRouterPortMappings();
             var releasedTurnConnections = ReleaseTurnConnections(_peer, _inputPeer, _bulkPeer, _audioPeer);
             if (releasedTurnConnections > 0) LogTurnConnectionsReleased(_log, SessionId, releasedTurnConnections);
             ReportTurnConnectionsAfterClose();
@@ -2623,7 +2745,8 @@ public sealed class WebRtcMediaEngine(
     Func<IH264VideoDecoder?>? h264DecoderFactory = null,
     RemotePixelFormat viewerPixelFormat = RemotePixelFormat.Bgr24,
     Func<IVoiceCaptureSource?>? voiceCaptureFactory = null,
-    Func<IVoicePlaybackSink?>? voicePlaybackFactory = null) : IMediaEngine
+    Func<IVoicePlaybackSink?>? voicePlaybackFactory = null,
+    bool routerPortMapping = false) : IMediaEngine
 {
     private readonly ILogger _log = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<WebRtcMediaEngine>();
 
@@ -2636,12 +2759,24 @@ public sealed class WebRtcMediaEngine(
     private readonly Func<SessionId, IEncodedVideoFrameSink?> _viewerVideoSinkFactory =
         viewerVideoSinkFactory ?? (_ => null);
 
-    /// <summary>Gives every session the platform voice devices; they open only on local opt-in.</summary>
+    /// <summary>
+    /// Gives every session the platform voice devices (they open only on local opt-in) and, when
+    /// the app enables it, router port mapping for its ICE sockets before candidates are gathered.
+    /// </summary>
     private WebRtcMediaSession WithVoice(WebRtcMediaSession session)
     {
         session.ConfigureVoiceDevices(voiceCaptureFactory, voicePlaybackFactory);
+        if (_routerPortMapper is { } mapper)
+        {
+            mapper.Prewarm(); // Cached; refreshes an expired discovery while ICE is being set up.
+            session.EnableRouterPortMapping(mapper);
+        }
         return session;
     }
+
+    // Discovery starts with the engine, so the first session's mapping costs one router request.
+    private readonly Nat.RouterPortMapper? _routerPortMapper =
+        routerPortMapping ? Nat.RouterPortMapper.Shared.Prewarmed() : null;
 
     public Task<IMediaSession> CreateSharerSessionAsync(
         SessionId sessionId, IScreenCaptureSource capture, MediaProfile profile, CancellationToken cancellationToken = default) =>

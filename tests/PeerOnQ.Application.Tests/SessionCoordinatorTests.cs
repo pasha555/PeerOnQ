@@ -1556,7 +1556,7 @@ public class SessionCoordinatorTests
         Assert.Equal(QualityProfile.Quality, h.Media.SharerProfile!.Quality);
         Assert.Equal(expectedResolution, h.Capture.LastRequest!.Resolution);
         Assert.Equal(expectedResolution, h.Media.SharerProfile.Resolution);
-        Assert.Equal(30, h.Capture.LastRequest.MaxFramesPerSecond);
+        Assert.Equal(MediaProfile.MinimumFps, h.Capture.LastRequest.MaxFramesPerSecond);
         Assert.Equal(12_000, h.Media.SharerProfile.MaxBitrateKbps);
     }
 

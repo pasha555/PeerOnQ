@@ -246,6 +246,15 @@ public sealed class RemoteInputSession : IAsyncDisposable
             IsExtendedKey = isExtendedKey,
         }, cancellationToken);
 
+    /// <summary>
+    /// Requests the remote device's secure-attention sequence (Ctrl+Alt+Del) over the authorized
+    /// input lane. The owner must have granted Full Control. The sharer only fulfils it through its
+    /// secure-desktop service; without it the request is accepted but has no effect, and a
+    /// synthesized Ctrl+Alt+Del key combination is always rejected (WindowsInputController).
+    /// </summary>
+    public Task SendSecureAttentionAsync(CancellationToken cancellationToken = default) =>
+        SendInputAsync(new RemoteInputEvent { Kind = RemoteInputEventKind.SecureAttention }, cancellationToken);
+
     public Task SendTextAsync(string text, CancellationToken cancellationToken = default)
     {
         if (!_unicodeInputEnabled)

@@ -1,3 +1,223 @@
+# PeerOnQ 0.9.96 - sharp picture: no bitrate collapse, more bitrate on a LAN
+
+This synchronized server/client release replaces 0.9.95. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.96 and the
+Android/Apple bundle codes advance to 9096. Signaling, the server and the website are unchanged; the
+server bundle only embeds the new Windows installers. Only the Windows client changed. Update both
+Windows clients to 0.9.96: the bitrate fixes are on the shared (remote) side, the scaler on the viewer.
+
+## Fixed in 0.9.96
+
+- Encoder backpressure no longer lowers only the bitrate. Since 0.9.92 every rung keeps the 60 fps
+  minimum, and Automatic never halves the resolution, so `encoder_backpressure` (queue drops >= 20%)
+  walked a CPU-bound software VP8 sharer from 10 to 2 Mbps within four seconds and blurred all text
+  without relieving the encoder. `AdaptiveQualityController` now moves on encoder backpressure only to
+  the first rung with fewer frames or pixels (`FirstRelievingRung`) and otherwise holds the level, so
+  the bounded queue drops frames at full quality. Packet loss, RTT and bandwidth still step the
+  bitrate down.
+- Direct LAN bitrate ceiling: on a `DirectLan` ICE path the sharer applies `LanBitrateMultiplier` (2)
+  to each rung's bitrate up to `MaximumLanBitrateKbps` (20 Mbps) for Automatic, Performance and
+  Quality (never below the rung). It is applied before the first encoded frame, so the encoder starts
+  at the LAN rate (every VP8 rate change forces a key frame), and re-applied when the selected path
+  changes (log 1456); an unknown path during an ICE restart changes nothing. Office,
+  Balanced and Low bandwidth keep the owner's choice; relay and internet paths are unchanged.
+- CPU-only sharers (software VP8): `Vp8ScreenEncoder` now sets `VP8E_SET_STATIC_THRESHOLD` = 1
+  (encode breakout for blocks that predict exactly, as WebRTC does) and `VP8E_SET_TOKEN_PARTITIONS` =
+  2 (four partitions: parallel packing, and parallel decoding at the viewer). Measured on 1080p text
+  scroll/typing at 20 Mbps: one thread 12.4 -> 10.7 and 12.1 -> 10.0 ms per frame, four threads
+  6.7 -> 6.3 and 5.8 -> 5.5 ms, luma PSNR unchanged. Thresholds of 100-300 were faster but lost up to
+  1.7 dB and were not taken. The encoder was already on libvpx's fastest real-time preset
+  (cpu-used 16), so this is close to the ceiling of VP8 tuning; a slow CPU still limits the frame rate.
+
+## Changed in 0.9.96
+
+- GPU viewer scaling: `D3D11CompositionVideoPresenter` sizes the swap chain to the viewport in
+  physical pixels and scales with the Direct3D 11 video processor (`D3D11BgraScaler`, auto-processing
+  off) into whole-pixel rectangles; a Fit frame within 2% above 1:1 is shown 1:1. Measured on an AMD
+  RX 5600 XT, one-pixel strokes downscaled 1920 -> 1766 kept 190 vs 186 (bilinear) darkness of 255:
+  the filter itself is only slightly sharper; alignment and the 1:1 snap are the real gain. Without a
+  usable video processor the frame-sized swap chain and composition transform remain.
+- The "Send Ctrl+Alt+Del" tooltip states that the sign-in screen appears on the remote device only;
+  showing and typing on the Windows secure desktop is still to come.
+
+Not verified on two devices: the backpressure and LAN changes were exercised by unit tests and the
+existing loopback suite, not a field session. Text in a window smaller than the remote screen is
+still resampled; Fullscreen on a same-resolution monitor is pixel-for-pixel.
+
+# PeerOnQ 0.9.95 - survive the remote lock / sign-in screen (no more frozen session)
+
+This synchronized server/client release replaces 0.9.94. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.95 and the
+Android/Apple bundle codes advance to 9095. Signaling, the server and the website are unchanged; the
+server bundle only embeds the new Windows installers. Only the Windows client changed. Update both
+Windows clients to 0.9.95 (the fix is on the shared/remote side).
+
+## Fixed in 0.9.95
+
+- The capture pipeline no longer gives up permanently when the remote screen cannot be read. On the
+  Windows lock / sign-in (secure) desktop the sharer cannot capture pixels, which produced a frame-
+  failure streak; the recovery path allowed only `MaximumDeviceRecoveries` (3) restarts per session
+  and then raised `CaptureStopped`, which the coordinator turned into a `MediaLost` session end while
+  the peer connection stayed up - the viewer showed "connected" but was frozen and could not control,
+  and unlocking the remote did not bring it back. Frame-failure recoveries now retry indefinitely with
+  a capped backoff (`MaximumRecoveryBackoffMs` = 5 s) instead of a fixed count, and both the device-
+  recovery and frame-recovery budgets reset after any frame reaches the encoder. A locked remote
+  therefore keeps being retried and resumes on its own when it is unlocked. A repeatedly lost graphics
+  device (TDR, driver update, adapter change) still gives up after the bounded device-recovery attempts.
+
+Not verified: this was built but not run on two devices across a real lock/unlock cycle; confirm in
+the field. What this does NOT do yet: show the lock / sign-in screen itself (that is the Windows
+secure desktop, which a per-user capture cannot read) - seeing and typing on it is the separate
+secure-desktop capture work still to come.
+
+# PeerOnQ 0.9.94 - viewer GPU rendering switch (smoother, sharper)
+
+This synchronized server/client release replaces 0.9.93. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.94 and the
+Android/Apple bundle codes advance to 9094. Signaling messages, the server and the website are
+unchanged; the server bundle only embeds the new Windows installers. Only the Windows client
+changed (the viewer); the optional session broker is unchanged from 0.9.93. Update both Windows
+clients to 0.9.94.
+
+## Added in 0.9.94
+
+- The viewer can now be switched to GPU rendering from the "..." menu ("GPU rendering"). The viewer
+  already had a Direct3D 11 composition swap-chain presenter, but it stayed off on machines with
+  more than one hardware graphics adapter (typical laptops with an integrated plus a discrete GPU),
+  where the viewer fell back to the WriteableBitmap path. That path runs on the UI thread, so it
+  could not sustain 60 fps and upscaled the remote screen with visible blur. The switch forces the
+  swap-chain presenter regardless of the adapter count; the choice is saved per user under
+  `HKCU\Software\PeerOnQ\Viewer`. The environment variable `PEERONQ_VIEWER_RENDERER=gpu|bitmap`
+  still works and a saved preference takes precedence over it.
+- Any Direct3D device loss or interop failure still returns the viewer to the standard renderer
+  automatically, and the switch reflects the renderer actually in use.
+- The in-session status line ends with `GPU` or `CPU` to show the active renderer at a glance.
+
+## Changed in 0.9.94
+
+- No server, signaling or protocol change. The default renderer heuristic is unchanged (single
+  hardware adapter uses the swap chain); the new switch is an explicit per-user override.
+
+Not verified: the swap-chain presenter forced on over a second graphics adapter, and the resulting
+frame-rate and sharpness gain, were not run on the two test devices; confirm in the field. If the
+remote screen is still soft when still after switching to GPU, that points to the sharer's encoded
+resolution or bitrate rather than the viewer, which the status line's dimensions and "Copy
+connection details" now make visible.
+
+# PeerOnQ 0.9.93 - remote Ctrl+Alt+Del at the sign-in / lock screen
+
+This synchronized server/client release replaces 0.9.92. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.93 and the
+Android/Apple bundle codes advance to 9093. Signaling messages, the server and the website are
+unchanged; the server bundle only embeds the new Windows installers. The Windows client and the
+optional session broker changed (see below); update both Windows clients to 0.9.93.
+
+## Added in 0.9.93
+
+- Remote secure attention (Ctrl+Alt+Del): a Full-Control viewer's "..." menu has a "Send
+  Ctrl+Alt+Del" item. It sends a `RemoteInputEventKind.SecureAttention` request over the existing
+  authenticated, Full-Control- and focus-gated input lane. On the host, the request is relayed off
+  the input thread to the LocalSystem session broker, which raises the secure-attention screen with
+  `SendSAS`. This reaches the Windows sign-in and lock screen (and UAC), which a per-user process
+  cannot. It never bypasses sign-in: the person still enters that device's password or PIN.
+- A synthesized Ctrl+Alt+Del *key* combination stays rejected by the input controller, as before;
+  only the dedicated secure-attention request (through the broker) raises the screen.
+
+## Changed in 0.9.93
+
+- The optional Windows session broker now runs as **LocalSystem** (was LocalService) and the
+  installer enables the `SoftwareSASGeneration` policy for services (value 1). Both are required for
+  `SendSAS` to raise Ctrl+Alt+Del from a service. The broker still only tracks interactive-host
+  leases and now accepts one extra connectionless operation (secure attention), authorized only when
+  the caller is the installed PeerOnQ host in the active session holding a live lease. The policy
+  value and the service are removed when the optional broker feature is uninstalled.
+
+What this does NOT include yet: seeing the sign-in/lock screen if the normal capture does not show
+it, and typing the password into it. Those need the broker to also capture the secure desktop and
+inject input there; they are the next step. So on a device where capture already shows the lock
+screen, a Full-Control viewer can raise Ctrl+Alt+Del remotely; completing the sign-in from the
+viewer (typing the password on the secure desktop) is not in this release.
+
+Not verified: this was built but not run on two devices across a real locked session. Raising the
+secure screen, and whether the normal video capture shows it, must be confirmed in the field.
+
+# PeerOnQ 0.9.92 - 60 fps minimum, power-throttling fix, sharper still desktops
+
+This synchronized server/client release replaces 0.9.91. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.92 and the
+Android/Apple bundle codes advance to 9092. Signaling messages, the server and the website are
+unchanged; the server bundle only embeds the new Windows installers. The Windows client behavior
+changed (see below); update both Windows clients to 0.9.92.
+
+## Fixed in 0.9.92
+
+- Frame rate: Windows 11 power-throttles a background process (EcoQoS) and then ignores its
+  timer-resolution requests. The sharer's PeerOnQ window is usually in the background, and the
+  throttled AMD hardware H.264 MFT returned each frame after about 28-31 ms, so sessions stayed near
+  32 fps. The app now opts out of power throttling at startup (execution speed and, on Windows 11,
+  timer resolution). Measured on an RX 5600 XT: 1080p 7.7 ms, 1440p 11.7 ms, 4K about 20 ms per frame
+  (throttled 1080p: 27.9 ms).
+
+## Changed in 0.9.92
+
+- 60 fps minimum: Balanced, Quality, Office and Low bandwidth now run at 60 fps like Automatic and
+  Performance, and Automatic stays at 60 fps for a slower viewer display. Every adaptive rung keeps
+  60 fps; congestion lowers the bitrate and, where the profile allows it, the capture scale. The 4K
+  rung also targets 60 fps; an encoder that cannot sustain 4K60 (the RX 5600 XT reaches about 48 fps)
+  falls back to the half-scale 1080p60 rung through local backpressure.
+- Software-limited sharers (no hardware encoder, at most 4 CPU threads) keep 60 fps and capture a
+  desktop larger than 1.2 megapixels at half scale (0.9.91 and earlier lowered the rate to 30 fps).
+
+## Added in 0.9.92
+
+- Static refinement: when no new frame arrives for one frame period, the encode loop re-encodes the
+  last frame so the encoder spends the idle link on the remaining detail. The window is the time
+  20 Mbit takes at the current bitrate, between 2 and 4 s; it ends before the encoders' 5 s
+  safety-net key frame, so a still desktop stops encoding. Dense 1080p text at 60 fps improved from
+  19 to 53 dB at 5 Mbps and from 15 to 27 dB at 2 Mbps. A caret-sized change does not restart the
+  window; a resize or a key frame does. Refinement frames carry a fresh capture time.
+
+Not verified in the field yet: a two-device session at 60 fps on these builds, and frame rates on
+NVIDIA and Intel encoders. Not in this release: control of the Windows lock screen and UAC prompts
+(secure desktop); it needs a separate SYSTEM-level component and is planned as its own release.
+
+# PeerOnQ 0.9.91 - video rate control, router port mapping, Windows N media components
+
+This synchronized server/client release replaces 0.9.90. Directory.Build.props is the sole
+product-version source; Windows, Portable Support, Linux, Android and Apple derive 0.9.91 and the
+Android/Apple bundle codes advance to 9091. Signaling messages, the server and the website are
+unchanged; the server bundle only embeds the new Windows installers. The Windows client behavior
+changed (see below); update both Windows clients to 0.9.91.
+
+## Changed in 0.9.91
+
+- Hardware H.264 rate control: the Media Foundation encoder (measured on AMD) ignored bitrate and
+  frame-rate changes mid-stream and sent 1.26-2.91x its target, so the sharer exceeded the link and
+  the adaptive controller saw packet loss. Any target change now uses a freshly created encoder
+  (0.74-1.03x target). The new encoder is prepared on the thread pool and switched in at its key
+  frame, so a quality change no longer stalls capture for 150-230 ms.
+- Adaptive quality: a repeated RTCP receiver report no longer counts as new packet loss, so one loss
+  episode moves one level instead of several. A display switch keeps a level that the network set;
+  other restarts still begin at the base level.
+- Router port mapping: on a private IPv4 host candidate the client asks the default gateway (NAT-PMP,
+  then UPnP IGD) to forward that UDP port for a 1-hour lease, renews it at half the lease and deletes
+  it when the session closes. The mapped address is sent as an extra server-reflexive candidate on the
+  same lane. Only the gateway is contacted (HTTP on the gateway address, no proxy, no redirects,
+  bounded replies); ICE, DTLS and PNQE authentication are unchanged. A router whose own external
+  address is private or CGNAT, or that only grants permanent mappings, gets no mapping.
+- Diagnostics: client logs show the mapped port (event 1425), why no mapping was made (1427) and the
+  ICE candidate mix behind the selected path (1426).
+- Windows N/KN: when `mfplat.dll` is missing on a client edition, setup runs
+  `Dism.exe /Online /Add-Capability /CapabilityName:Media.MediaFeaturePack~~~~0.0.1.0` as LocalSystem
+  (failure is ignored and does not roll back the install). Hardware video starts after the next
+  Windows restart; until then PeerOnQ uses software VP8 as before. The installer check allows exactly
+  this one custom action, command and condition.
+
+Not verified in the field yet: a two-device session using a router-mapped port, the Media Feature
+Pack action on a real Windows N machine, and rate control on NVIDIA and Intel encoders. Port mapping
+cannot help when the router is itself behind another NAT (double NAT or CGNAT); such sessions still
+use TURN unless the other side is reachable.
+
 # PeerOnQ 0.9.90 - Windows installer upgrade fix
 
 This synchronized server/client release replaces 0.9.89. Directory.Build.props is the sole

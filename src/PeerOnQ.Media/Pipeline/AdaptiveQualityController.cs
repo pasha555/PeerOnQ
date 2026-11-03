@@ -26,6 +26,13 @@ public readonly record struct QualitySample()
     public required long FramesEncoded { get; init; }
 
     public bool NetworkFeedbackAvailable { get; init; } = true;
+
+    /// <summary>
+    /// False when loss and jitter come from the receiver report a previous evaluation already
+    /// judged: reports arrive about every five seconds, evaluations every second.
+    /// </summary>
+    public bool NetworkFeedbackIsNew { get; init; } = true;
+
     public double RttMs { get; init; }
     public double BaselineRttMs { get; init; }
     public double JitterMs { get; init; }
@@ -100,6 +107,10 @@ public sealed class AdaptiveQualityController
         reason is "viewer_frame_age" or "viewer_render_latency" or "viewer_render_backpressure"
             or "viewer_input_latency" or "high_jitter";
 
+    // The path, not the captured source, caused these; a display switch does not change the path.
+    private static bool IsNetworkReason(string reason) =>
+        reason is "packet_loss" or "high_rtt" or "insufficient_bandwidth";
+
     /// <summary>A 4K attempt that degrades sooner than this doubles the next 4K retry dwell.</summary>
     public static readonly TimeSpan UltraHdFailureWindow = TimeSpan.FromSeconds(30);
 
@@ -129,6 +140,7 @@ public sealed class AdaptiveQualityController
     private DateTimeOffset? _lastSoftDegrade;
     private TimeSpan _upgradeDwell = SoftDegradeDwell;
     private bool _softHold;
+    private bool _networkLimited;
     private DateTimeOffset? _ultraHdEnteredAt;
     private TimeSpan _ultraHdRetryDwell = MinimumResolutionDwell;
 
@@ -138,12 +150,18 @@ public sealed class AdaptiveQualityController
         TimeProvider? timeProvider = null,
         IConnectionPolicyProvider? policy = null,
         bool allowResolutionDownscale = true,
-        int highMotionFps = 0)
+        int highMotionFps = 0,
+        int minimumFps = 1)
     {
         _time = timeProvider ?? TimeProvider.System;
         _policy = policy ?? new ConnectionPolicyProvider();
         var top = Math.Clamp(maxFps, 1, 120);
         var highMotion = Math.Clamp(highMotionFps, 0, 120);
+        // No rung runs below the floor (60 fps in production, see MediaProfile.MinimumFps): its
+        // rungs then differ only in bitrate and, where allowed, scale. A floor above the profile
+        // rate keeps every rung at the profile rate.
+        var floor = Math.Clamp(minimumFps, 1, top);
+        int Rate(int fps) => Math.Max(floor, fps);
 
         // An optional high-motion rung sits above the profile's frame rate. It is earned, never
         // assumed: the session starts at the profile rate, only climbs to it after healthy
@@ -160,10 +178,10 @@ public sealed class AdaptiveQualityController
         QualityLevel[] standard =
         [
             new QualityLevel(h, top, 1, Math.Max(250, maxBitrateKbps)),
-            new QualityLevel(h + 1, Math.Max(1, top * 2 / 3), 1, Math.Max(250, maxBitrateKbps * 3 / 4)),
-            new QualityLevel(h + 2, Math.Max(1, top / 2), 1, Math.Max(250, maxBitrateKbps / 2)),
-            new QualityLevel(h + 3, Math.Max(1, top / 2), firstResolutionDownscale, Math.Max(250, maxBitrateKbps / 3)),
-            new QualityLevel(h + 4, Math.Max(1, top / 3), finalResolutionDownscale, Math.Max(250, maxBitrateKbps / 5)),
+            new QualityLevel(h + 1, Rate(Math.Max(1, top * 2 / 3)), 1, Math.Max(250, maxBitrateKbps * 3 / 4)),
+            new QualityLevel(h + 2, Rate(Math.Max(1, top / 2)), 1, Math.Max(250, maxBitrateKbps / 2)),
+            new QualityLevel(h + 3, Rate(Math.Max(1, top / 2)), firstResolutionDownscale, Math.Max(250, maxBitrateKbps / 3)),
+            new QualityLevel(h + 4, Rate(Math.Max(1, top / 3)), finalResolutionDownscale, Math.Max(250, maxBitrateKbps / 5)),
         ];
         _standardLadder = h == 0
             ? standard
@@ -171,15 +189,16 @@ public sealed class AdaptiveQualityController
 
         // A 4K source gives up pixels before motion: 1080p at the full frame rate stays fluid,
         // whereas 4K at a third of the frame rate looks frozen. Rung 1 is the standard tier.
-        // 4K itself stays at 30 fps (the hardware encoders' sustainable rate); below it the
-        // standard tier runs at the profile rate.
+        // 4K itself runs at 30 fps (the hardware encoders' sustainable rate) unless the floor is
+        // higher; a 4K rung the encoder cannot sustain then drops to the half-scale rung through
+        // local backpressure. Below it the standard tier runs at the profile rate.
         _ultraHdLadder =
         [
-            new QualityLevel(0, Math.Min(top, UltraHdMaximumFps), 1, UltraHdBitrateKbps(maxBitrateKbps)),
+            new QualityLevel(0, Rate(Math.Min(top, UltraHdMaximumFps)), 1, UltraHdBitrateKbps(maxBitrateKbps)),
             new QualityLevel(1, top, 2, Math.Max(250, maxBitrateKbps)),
-            new QualityLevel(2, Math.Max(1, top * 2 / 3), 2, Math.Max(250, maxBitrateKbps * 3 / 4)),
-            new QualityLevel(3, Math.Max(1, top / 2), 2, Math.Max(250, maxBitrateKbps / 2)),
-            new QualityLevel(4, Math.Max(1, top / 3), 2, Math.Max(250, maxBitrateKbps / 3)),
+            new QualityLevel(2, Rate(Math.Max(1, top * 2 / 3)), 2, Math.Max(250, maxBitrateKbps * 3 / 4)),
+            new QualityLevel(3, Rate(Math.Max(1, top / 2)), 2, Math.Max(250, maxBitrateKbps / 2)),
+            new QualityLevel(4, Rate(Math.Max(1, top / 3)), 2, Math.Max(250, maxBitrateKbps / 3)),
         ];
 
         _ladder = _standardLadder;
@@ -359,7 +378,21 @@ public sealed class AdaptiveQualityController
                     if (!soft)
                     {
                         _softHold = false;
-                        changed = TryMoveTo(next);
+                        // One receiver report is one loss observation. Re-reading it every second
+                        // stepped L1 -> L5 in four seconds on a single report (0.9.90 relay log);
+                        // hold until the next report shows how the lower rung fares.
+                        // A CPU-bound encoder is not relieved by a lower bitrate: under the 60 fps
+                        // floor a bitrate-only rung just blurs text (0.9.92-0.9.95 fell to 2 Mbps
+                        // within seconds on a software VP8 sharer). Encoder backpressure moves to
+                        // the first rung with fewer frames or pixels, or holds the level and lets
+                        // the bounded queue drop frames at full quality.
+                        var target = LastDecision.ReasonCode == "encoder_backpressure" ? FirstRelievingRung() : next;
+                        if (target is { } rung
+                            && (LastDecision.ReasonCode != "packet_loss" || sample.NetworkFeedbackIsNew))
+                        {
+                            changed = TryMoveTo(rung);
+                            if (changed is not null && IsNetworkReason(LastDecision.ReasonCode)) _networkLimited = true;
+                        }
                     }
                     else if (_softPoorStreak >= SoftEvaluationsToDegrade
                              && (_lastLevelChange is not { } last || now - last >= SoftDegradeDwell)
@@ -397,6 +430,7 @@ public sealed class AdaptiveQualityController
                     changed = TryMoveTo(_ladder[_current.Index - 1]);
                     _healthyStreak = changed is null ? HealthyEvaluationsToRecover : 0;
                     if (changed is not null) _lastUpgrade = now;
+                    if (_current.Index <= BaseIndex) _networkLimited = false;
                 }
             }
             else
@@ -413,6 +447,18 @@ public sealed class AdaptiveQualityController
         }
 
         return Current;
+    }
+
+    /// <summary>The first lower rung that encodes fewer frames or pixels, or null when only bitrate is left.</summary>
+    private QualityLevel? FirstRelievingRung()
+    {
+        for (var index = _current.Index + 1; index < _ladder.Length; index++)
+        {
+            var rung = _ladder[index];
+            if (rung.TargetFps < _current.TargetFps || rung.DownscaleFactor > _current.DownscaleFactor)
+                return rung;
+        }
+        return null;
     }
 
     private QualityLevel? TryMoveTo(QualityLevel next)
@@ -471,24 +517,53 @@ public sealed class AdaptiveQualityController
     /// <summary>Forces a level, e.g. when the user picks a fixed quality in the UI.</summary>
     public void Reset()
     {
+        lock (_gate) ResetLocked();
+        LevelChanged?.Invoke(this, Current);
+    }
+
+    /// <summary>
+    /// A new capture source starts from the start level, so it does not inherit a rung the old
+    /// source's encoder or viewer cost caused. A rung the network path set is kept: the path did
+    /// not change, and on 0.9.90 every display switch on a lossy relay restarted at 10 Mbps.
+    /// </summary>
+    public void RestartForNewSource()
+    {
         lock (_gate)
         {
-            _healthyStreak = 0;
-            _receiverStallStreak = 0;
-            _softPoorStreak = 0;
-            // The previous decision described the old source; do not log it against the new one.
-            LastDecision = new ConnectionPolicyDecision(
-                ConnectionHealth.Unknown, ConnectionPolicyAction.Hold, CaptureRestartReason);
-            var start = _ladder[BaseIndex];
-            _lastLevelChange = _time.GetUtcNow();
-            _softHold = false;
-            _upgradeDwell = SoftDegradeDwell;
-            if (_current.DownscaleFactor != start.DownscaleFactor)
-                _lastResolutionChange = _time.GetUtcNow();
-            Current = start;
-            if (ReferenceEquals(_ladder, _ultraHdLadder)) _ultraHdEnteredAt = _time.GetUtcNow();
+            if (_networkLimited && _current.Index > BaseIndex)
+            {
+                _healthyStreak = 0;
+                _receiverStallStreak = 0;
+                _softPoorStreak = 0;
+                LastDecision = new ConnectionPolicyDecision(
+                    ConnectionHealth.Unknown, ConnectionPolicyAction.Hold, CaptureRestartReason);
+            }
+            else
+            {
+                ResetLocked();
+            }
         }
 
+        // Re-applied even when unchanged: the new capture source needs the level's rate and scale.
         LevelChanged?.Invoke(this, Current);
+    }
+
+    private void ResetLocked()
+    {
+        _healthyStreak = 0;
+        _receiverStallStreak = 0;
+        _softPoorStreak = 0;
+        _networkLimited = false;
+        // The previous decision described the old source; do not log it against the new one.
+        LastDecision = new ConnectionPolicyDecision(
+            ConnectionHealth.Unknown, ConnectionPolicyAction.Hold, CaptureRestartReason);
+        var start = _ladder[BaseIndex];
+        _lastLevelChange = _time.GetUtcNow();
+        _softHold = false;
+        _upgradeDwell = SoftDegradeDwell;
+        if (_current.DownscaleFactor != start.DownscaleFactor)
+            _lastResolutionChange = _time.GetUtcNow();
+        Current = start;
+        if (ReferenceEquals(_ladder, _ultraHdLadder)) _ultraHdEnteredAt = _time.GetUtcNow();
     }
 }

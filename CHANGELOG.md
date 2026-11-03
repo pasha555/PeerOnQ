@@ -6,6 +6,109 @@ All notable changes to PeerOnQ are listed here. The format follows
 together. Detailed notes for each release, including upgrade steps, are in the
 [release notes](src/PeerOnQ.Infrastructure.Deployment/RELEASE_NOTES.md).
 
+## 0.9.96 - 2026-10-28
+
+### Fixed
+
+- The remote picture no longer turns blurry while you work. When the remote computer could not
+  encode every frame at 60 fps (software video on a laptop), adaptive quality lowered the bitrate
+  again and again - down to about 2 Mbps within seconds - which blurred all text without making the
+  encoder any faster. It now keeps the full-quality picture and lets the encoder skip frames it cannot
+  finish; a lower bitrate is used only for network problems (packet loss), where it actually helps.
+- On the same local network (direct LAN connection) the picture gets twice the bitrate, up to
+  20 Mbps, so moving text and the periodic refresh frame stay sharp. Internet and relay sessions are
+  unchanged, and network loss still lowers the bitrate.
+- Computers without a hardware video encoder (CPU-only video) encode each frame about 15% faster on
+  small CPUs (one encoder thread) and about 5% faster on larger ones, with identical picture quality:
+  unchanged parts of the desktop are skipped cheaply and the video data is split so it can be packed
+  and decoded on several threads.
+
+### Changed
+
+- GPU rendering in the viewer now scales the remote screen on the graphics card's video scaler into a
+  pixel-aligned picture, and shows it pixel-for-pixel when the window is within 2% of the remote size.
+  For the sharpest text when both screens have the same resolution, use Fullscreen (1:1).
+- The "Send Ctrl+Alt+Del" tooltip now says plainly that the Windows sign-in screen it opens appears on
+  the remote device only: PeerOnQ cannot show it or type on it yet.
+
+## 0.9.95 - 2026-10-28
+
+### Fixed
+
+- The remote screen no longer freezes for good when the remote computer is locked. Previously, while
+  the remote was on the Windows lock / sign-in screen the sharer could not read the screen, used up a
+  small fixed number of capture restarts, and then stopped for the rest of the session - so after you
+  unlocked the remote the viewer stayed connected but frozen with no control. Capture now keeps
+  retrying at a steady pace for as long as the screen is unreadable and resumes by itself once the
+  remote is unlocked; a genuinely lost graphics device still gives up as before.
+
+## 0.9.94 - 2026-10-28
+
+### Added
+
+- Viewer "..." menu now has a "GPU rendering" switch. On most laptops two graphics chips make the
+  viewer fall back to the standard (CPU) renderer, which cannot keep up at 60 fps and upscales the
+  picture with blur; turning GPU rendering on draws the remote screen on the graphics card instead,
+  for a smoother frame rate and sharper scaling. The choice is remembered per user, and any graphics
+  failure still falls back to the standard renderer automatically.
+- The session status line now ends with "GPU" or "CPU" so you can see which renderer is active.
+
+## 0.9.93 - 2026-10-27
+
+### Added
+
+- Remote Ctrl+Alt+Del: with Full Control, the viewer "..." menu has a "Send Ctrl+Alt+Del" item that
+  raises the sign-in / lock screen on the remote device, so you can reach it over the session. It
+  needs the optional Windows session-broker feature installed on that device, and you still sign in
+  with that device's own password or PIN — it never bypasses sign-in.
+
+### Changed
+
+- The optional Windows session broker now runs as LocalSystem (was LocalService) and enables the
+  Windows "software Secure Attention Sequence" policy for services, so it can raise Ctrl+Alt+Del for
+  a Full-Control viewer. It is still an optional feature and is removed cleanly on uninstall.
+
+## 0.9.92 - 2026-10-27
+
+### Fixed
+
+- Sessions stayed near 30 fps. Windows power-throttles a background process, and the sharer's
+  PeerOnQ window is usually in the background; the throttled hardware H.264 encoder took about
+  30 ms per frame. PeerOnQ now opts out of power throttling, and the same encoder takes about 8 ms
+  per 1080p frame and 12 ms per 1440p frame.
+
+### Changed
+
+- 60 fps minimum: every quality profile runs at 60 fps, and adaptive quality lowers the bitrate (and
+  the resolution where the profile allows it) instead of the frame rate. A sharer without a hardware
+  encoder on a small CPU keeps 60 fps by capturing a large desktop at half scale.
+
+### Added
+
+- Sharper still desktops: when the screen stops changing, the last frame is re-encoded for 2 to 4
+  seconds (longer on a slower link) so text becomes crisp after scrolling.
+
+## 0.9.91 - 2026-10-27
+
+### Changed
+
+- Hardware H.264 now holds its bitrate target. Some Windows encoders ignored a bitrate or frame-rate
+  change mid-stream and sent up to three times the target, which caused the packet loss behind low
+  picture quality. A quality change now starts a fresh encoder, prepared in the background and switched
+  in at a key frame, so the picture does not stall.
+- Adaptive quality steps down one level per network loss report instead of several, and a display
+  switch keeps a level that the network set instead of starting high again.
+- Peer-to-peer: when the router supports UPnP IGD or NAT-PMP, the Windows client asks it to forward the
+  session's UDP ports for an hour (renewed while the session runs, removed when it ends) and offers that
+  address to the peer. Sessions with a peer behind a strict NAT can then connect directly instead of
+  through the relay. Routers behind another NAT or carrier-grade NAT are detected and skipped.
+
+### Added
+
+- Windows N and KN: setup adds Microsoft's Media Feature Pack when Media Foundation is missing, so
+  hardware video works after the next restart. Until then, and if Windows cannot install it, PeerOnQ
+  uses software video as before.
+
 ## 0.9.90 - 2026-10-25
 
 ### Fixed

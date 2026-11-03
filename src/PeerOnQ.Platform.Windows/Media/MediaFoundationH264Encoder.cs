@@ -9,7 +9,7 @@ using static PeerOnQ.Platform.Windows.Media.MediaFoundationVideoUtilities;
 namespace PeerOnQ.Platform.Windows.Media;
 
 /// <summary>Hardware MFT only, one outstanding frame, asynchronous events with bounded waits.</summary>
-public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
+public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder, IRetargetableH264Encoder
 {
     /// <summary>Safety-net IDR interval; normal recovery uses explicit keyframe requests.</summary>
     internal const int KeyFrameIntervalSeconds = 5;
@@ -30,8 +30,6 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
     internal double LastFormatConversionMilliseconds { get; private set; }
     internal double LastNativeEncodeMilliseconds { get; private set; }
     internal int InitialisationCount { get; private set; }
-    internal int DynamicFrameRateChanges { get; private set; }
-    internal int DynamicFrameRateFallbacks { get; private set; }
     internal bool DynamicFormatChangeSupported { get; private set; }
     internal long? LastOutputSampleTime { get; private set; }
     internal long? LastOutputSampleDuration { get; private set; }
@@ -78,8 +76,7 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
             else ValidateI420(width, height, frame);
             var conversionBegan = Stopwatch.GetTimestamp();
             var nv12 = nv12Input ? frame : GetNv12Scratch(frame.Length);
-            bitrateKbps = Math.Clamp(bitrateKbps, 100, 50_000);
-            frameRate = Math.Clamp(frameRate, 1, 60);
+            (bitrateKbps, frameRate) = ClampTargets(bitrateKbps, frameRate);
             var duration = 10_000_000L / frameRate;
             long nativeBegan;
             IMFSample sample;
@@ -88,19 +85,14 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
                 if (!nv12Input) I420ToNv12(width, height, frame, nv12);
                 LastFormatConversionMilliseconds = Stopwatch.GetElapsedTime(conversionBegan).TotalMilliseconds;
                 nativeBegan = Stopwatch.GetTimestamp();
-                if (_transform is null || width != _width || height != _height)
+                // Rate control changes only through a fresh MFT. The AMD driver accepts a dynamic
+                // MeanBitRate or frame-rate type change and then emits 1.3-2.9x the new target until
+                // it is recreated (HardwareVideoRateControlTests): the 0.9.90 relay session sent
+                // 5.3 Mbps on its 2 Mbps rung, so lowering the rung never relieved the loss.
+                // A recreated encoder starts with a key frame, as a frame-rate change already did.
+                if (_transform is null || width != _width || height != _height
+                    || frameRate != _frameRate || bitrateKbps != _bitrate)
                     ReinitialisePreservingTimestamp(width, height, bitrateKbps, frameRate);
-                else if (frameRate != _frameRate && !TryChangeFrameRate(width, height, bitrateKbps, frameRate))
-                {
-                    DynamicFrameRateFallbacks++;
-                    ReinitialisePreservingTimestamp(width, height, bitrateKbps, frameRate);
-                }
-                if (_bitrate != bitrateKbps)
-                {
-                    if (!SetCodecValue(_transform!, MeanBitRate, (uint)bitrateKbps * 1000))
-                        ReinitialisePreservingTimestamp(width, height, bitrateKbps, frameRate);
-                    _bitrate = bitrateKbps;
-                }
                 if (forceKeyFrame && !SetCodecValue(_transform!, ForceKeyFrame, 1))
                     ReinitialisePreservingTimestamp(width, height, bitrateKbps, frameRate);
                 WaitForEvent(MediaEventTypes.TransformNeedInput, TimeSpan.FromSeconds(2));
@@ -148,6 +140,29 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
         }
     }
 
+    internal static (int BitrateKbps, int FrameRate) ClampTargets(int bitrateKbps, int frameRate) =>
+        (Math.Clamp(bitrateKbps, 100, 50_000), Math.Clamp(frameRate, 1, 60));
+
+    /// <summary>Creates the MFT for these targets before its first frame, off the encode loop.</summary>
+    void IRetargetableH264Encoder.Prepare(int width, int height, int bitrateKbps, int frameRate)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!CompatibleH264Dimensions(width, height))
+                throw new ArgumentOutOfRangeException(nameof(width), "This source size requires the VP8 fallback.");
+            var (kbps, fps) = ClampTargets(bitrateKbps, frameRate);
+            ReinitialisePreservingTimestamp(width, height, kbps, fps);
+        }
+    }
+
+    /// <summary>Sample time of the next frame; a replacement MFT continues its predecessor's timeline.</summary>
+    long IRetargetableH264Encoder.NextSampleTime
+    {
+        get { lock (_gate) return _timestamp; }
+        set { lock (_gate) _timestamp = value; }
+    }
+
     private byte[] GetNv12Scratch(int length)
     {
         if (_nv12Scratch is null || _nv12Scratch.Length != length)
@@ -168,43 +183,6 @@ public sealed class MediaFoundationH264Encoder : IHardwareH264Encoder
             using var input = _transform.GetInputCurrentType(0);
             return Matches(output, H264, width, height, frameRate) && Matches(input, Nv12, width, height, frameRate);
         }
-    }
-
-    private bool TryChangeFrameRate(int width, int height, int bitrate, int frameRate)
-    {
-        try
-        {
-            using var attributes = _transform!.Attributes;
-            if (MFGetAttributeUInt32(attributes, TransformAttributeKeys.MftSupportDynamicFormatChange, 0) == 0)
-                return false;
-            using var output = VideoType(H264, width, height, frameRate);
-            output.Set(MediaTypeAttributeKeys.AvgBitrate, (uint)bitrate * 1000);
-            output.Set(MediaTypeAttributeKeys.Mpeg2Profile, 77u);
-            using var input = VideoType(Nv12, width, height, frameRate);
-            input.Set(MediaTypeAttributeKeys.DefaultStride, (uint)width);
-            // Encoders require a matching output type first. Test input against the accepted
-            // new output, and reconstruct if either this or any subsequent step is rejected.
-            _transform.SetOutputType(0, output, 1);
-            _transform.SetOutputType(0, output, 0);
-            _transform.SetInputType(0, input, 1);
-            _transform.SetInputType(0, input, 0);
-            if (!SetCodecValue(_transform, MeanBitRate, (uint)bitrate * 1000)
-                || !SetCodecValue(_transform, ForceKeyFrame, 1))
-                return false;
-            using var currentOutput = _transform.GetOutputCurrentType(0);
-            using var currentInput = _transform.GetInputCurrentType(0);
-            if (!Matches(currentOutput, H264, width, height, frameRate)
-                || !Matches(currentInput, Nv12, width, height, frameRate))
-                return false;
-            _sequenceHeader = currentOutput.GetBlobSize(MediaTypeAttributeKeys.MpegSequenceHeader, out var size).Success
-                && size > 0 && size <= 64 * 1024
-                ? currentOutput.GetBlob(MediaTypeAttributeKeys.MpegSequenceHeader) : [];
-            _frameRate = frameRate;
-            _bitrate = bitrate;
-            DynamicFrameRateChanges++;
-            return true;
-        }
-        catch (Exception) { return false; }
     }
 
     private static bool Matches(IMFMediaType type, Guid subtype, int width, int height, int frameRate) =>

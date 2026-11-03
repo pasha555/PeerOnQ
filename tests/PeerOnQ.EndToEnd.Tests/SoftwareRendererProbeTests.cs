@@ -7,6 +7,12 @@ using Xunit;
 namespace PeerOnQ.EndToEnd.Tests;
 
 // The probe keeps process-wide state; its tests and the load-trace tests must not interleave.
+// They also run alone: a loader notification enters managed code under the loader lock, so a
+// GC another test starts meanwhile deadlocked the parallel run (hang dump: the GC thread and a
+// traced NativeLibrary.Load), and a module another test loaded first failed the trace after 10 s.
+[CollectionDefinition(SoftwareRendererProbeTests.CollectionName, DisableParallelization = true)]
+public sealed class SoftwareRendererProbeCollection;
+
 [Collection(CollectionName)]
 public sealed class SoftwareRendererProbeTests
 {

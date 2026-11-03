@@ -322,7 +322,10 @@ public sealed class AppServices : IAsyncDisposable, IRegistrationProofProvider
                 viewerPixelFormat: RemotePixelFormat.Bgra32,
                 // Voice devices open only after the local user enables voice for a session.
                 voiceCaptureFactory: () => new WindowsVoiceCapture(),
-                voicePlaybackFactory: () => new WindowsVoicePlayback()),
+                voicePlaybackFactory: () => new WindowsVoicePlayback(),
+                // UPnP/NAT-PMP forwards a leased public port to each ICE socket, so a peer behind
+                // a symmetric NAT can still connect directly instead of through TURN.
+                routerPortMapping: true),
             prompt,
             blockedDevices,
             sessionAudit,

@@ -90,8 +90,17 @@
                         </MenuFlyout>
                     </AppBarButton.Flyout>
                 </AppBarButton>
+                <AppBarToggleButton x:Name="GpuRendererButton" Icon="Video" Label="GPU rendering"
+                                    Click="OnToggleGpuRenderer"
+                                    AutomationProperties.Name="Use GPU rendering for the remote screen"
+                                    ToolTipService.ToolTip="Draws the remote screen on the GPU: smoother frame rate and sharper scaling, especially on laptops with two graphics chips. Turn it off if the remote screen goes blank on this computer." />
                 <AppBarButton Icon="Copy" Label="Copy connection details" Click="OnCopyDiagnostics"
                               AutomationProperties.HelpText="Copies sanitized technical session details for troubleshooting. This does not affect the connection." />
+                <AppBarSeparator x:Name="SecureAttentionSeparator" Visibility="Collapsed" />
+                <AppBarButton x:Name="SecureAttentionButton" Icon="Keyboard" Label="Send Ctrl+Alt+Del"
+                              Visibility="Collapsed" Click="OnSendSecureAttention"
+                              AutomationProperties.Name="Send Ctrl+Alt+Del to the remote device"
+                              ToolTipService.ToolTip="Sends Ctrl+Alt+Del to the remote device (needs the PeerOnQ session-broker service there). The Windows sign-in screen it opens appears on the remote device itself: PeerOnQ cannot show it or type on it yet, so the picture stays black until someone signs in there." />
             </CommandBar.SecondaryCommands>
         </CommandBar>
 

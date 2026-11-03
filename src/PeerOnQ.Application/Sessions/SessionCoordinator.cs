@@ -1137,6 +1137,7 @@ public sealed class SessionCoordinator : IAsyncDisposable
             _log.LogInformation("Switching shared display to {Display}", target.DisplayName);
             await adaptive.SwitchTargetAsync(target);
             // A new display is probed from the start level; it must not inherit the old one's 10 fps.
+            // A level the lossy network path set is kept: the path did not change with the display.
             runtime.Media?.RestartQuality();
             PreferredCaptureTarget = target;
 

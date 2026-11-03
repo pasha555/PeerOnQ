@@ -38,6 +38,21 @@ public sealed class SessionLeaseRegistry(string expectedExecutable)
         }
     }
 
+    /// <summary>
+    /// True when <paramref name="peer"/> is an allowed interactive host whose session currently
+    /// holds a live lease. A fresh, unregistered connection uses this to send a one-shot command
+    /// (secure attention) without taking a second lease the active host already holds.
+    /// </summary>
+    public bool HasActiveLease(SessionPeer peer, DateTimeOffset now)
+    {
+        if (!IsAllowed(peer)) return false;
+        lock (_sync)
+        {
+            return _leases.TryGetValue(peer.SessionId, out var current)
+                   && current.Peer == peer && current.Expires > now;
+        }
+    }
+
     public void Remove(uint sessionId, Guid lease)
     {
         lock (_sync)

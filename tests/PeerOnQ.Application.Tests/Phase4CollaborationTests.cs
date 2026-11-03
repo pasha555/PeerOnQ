@@ -1200,6 +1200,51 @@ public sealed partial class Phase4CollaborationTests
     }
 
     [Fact]
+    public void A_secure_attention_command_is_valid_and_round_trips_through_the_codec()
+    {
+        var input = new RemoteInputEvent { Kind = RemoteInputEventKind.SecureAttention };
+        Assert.True(input.IsValid());
+
+        var frame = CollaborationProtocolCodec.Encode(new RemoteInputCommand
+        {
+            InputVersion = RemoteInputSession.CurrentInputProtocolVersion,
+            SessionId = Guid.NewGuid(),
+            PermissionGeneration = 1,
+            SessionGeneration = 1,
+            FocusGeneration = 1,
+            Sequence = 1,
+            Input = input,
+        });
+        Assert.True(CollaborationProtocolCodec.TryDecode(frame, out var message, out var error), error);
+        var decoded = Assert.IsType<RemoteInputCommand>(message);
+        Assert.Equal(RemoteInputEventKind.SecureAttention, decoded.Input.Kind);
+    }
+
+    [Fact]
+    public async Task Secure_attention_requires_full_control_and_reaches_the_sink_as_a_dedicated_command()
+    {
+        var sessionId = SessionId.New();
+        var (viewerTransport, sharerTransport) = InMemoryTransport.CreatePair(SessionPermission.ControlInput);
+        var sink = new FakeRemoteInputSink();
+        sink.RestoreApprovedScope(SessionPermission.ControlInput);
+        await using var viewer = new RemoteInputSession(sessionId, SessionRole.Viewer, viewerTransport);
+        await using var sharer = new RemoteInputSession(sessionId, SessionRole.Sharer, sharerTransport, sink);
+
+        // Full Control not taken yet: refused locally like any other input.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => viewer.SendSecureAttentionAsync());
+
+        await viewer.SetLocalCaptureEnabledAsync(true);
+        await viewer.SendSecureAttentionAsync();
+
+        var injected = Assert.Single(sink.Inputs);
+        Assert.Equal(RemoteInputEventKind.SecureAttention, injected.Kind);
+
+        // Pausing control stops it, as with all input.
+        await viewer.SetLocalCaptureEnabledAsync(false);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => viewer.SendSecureAttentionAsync());
+    }
+
+    [Fact]
     public async Task Unicode_text_uses_the_authorized_input_lane_without_keyboard_layout_substitution()
     {
         var id = SessionId.New();

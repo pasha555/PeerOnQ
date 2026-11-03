@@ -183,11 +183,13 @@ public class AdaptiveQualityControllerTests
         // 0.9.85 logged every display switch as "quality L1 (viewer_frame_age ...)", which read as
         // L1 -> L1 changes one second apart. Only a real change may use the change message.
         var log = new CapturingLogger();
+        // Balanced may halve the resolution, so encoder backpressure has a rung that relieves it.
         await using var sharer = WebRtcMediaSession.CreateSharer(
-            SessionId.New(), capture: null, MediaProfile.For(QualityProfile.Quality), log);
+            SessionId.New(), capture: null, MediaProfile.For(QualityProfile.Balanced), log);
         var adaptive = sharer.Adaptive!;
 
-        adaptive.Evaluate(Lossy(0.20));
+        // Local encoder backpressure belongs to the old source; a network level is kept (below).
+        adaptive.Evaluate(Backpressured(drops: 20, encoded: 60));
         sharer.RestartQuality();
         sharer.RestartQuality();
         sharer.RestartQuality();
@@ -196,10 +198,77 @@ public class AdaptiveQualityControllerTests
                                               && !m.Contains("re-applied", StringComparison.Ordinal)).ToList();
         var reapplied = log.Messages.Where(m => m.Contains("re-applied", StringComparison.Ordinal)).ToList();
         Assert.Equal(2, changes.Count);
-        Assert.Contains("packet_loss", changes[0], StringComparison.Ordinal);
+        Assert.Contains("encoder_backpressure", changes[0], StringComparison.Ordinal);
         Assert.Contains(AdaptiveQualityController.CaptureRestartReason, changes[1], StringComparison.Ordinal);
         Assert.Equal(2, reapplied.Count);
         Assert.All(reapplied, m => Assert.Contains(AdaptiveQualityController.CaptureRestartReason, m, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_display_switch_on_a_lossy_path_keeps_the_level_the_network_set()
+    {
+        // 0.9.90 relay field log: every display switch restarted at L1 (10 Mbps), and the loss it
+        // caused stepped the session back to L5 within seconds, a dozen times in seven minutes.
+        var log = new CapturingLogger();
+        await using var sharer = WebRtcMediaSession.CreateSharer(
+            SessionId.New(), capture: null, MediaProfile.For(QualityProfile.Quality), log);
+        var adaptive = sharer.Adaptive!;
+        adaptive.Evaluate(Lossy(0.20));
+        var degraded = adaptive.Current;
+        Assert.NotEqual(adaptive.Ladder[0], degraded);
+
+        sharer.RestartQuality();
+
+        Assert.Equal(degraded, adaptive.Current);
+        Assert.Equal(AdaptiveQualityController.CaptureRestartReason, adaptive.LastDecision.ReasonCode);
+        Assert.Contains(log.Messages, m => m.Contains("re-applied", StringComparison.Ordinal)
+                                           && m.Contains(AdaptiveQualityController.CaptureRestartReason, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_network_level_survives_a_new_source_until_the_path_recovers_to_the_start_level()
+    {
+        var controller = new AdaptiveQualityController(maxFps: 60, maxBitrateKbps: 10_000);
+        controller.Evaluate(Lossy(0.20));
+        controller.Evaluate(Lossy(0.20));
+        Assert.Equal(2, controller.Current.Index);
+
+        controller.RestartForNewSource();
+        Assert.Equal(2, controller.Current.Index);
+
+        for (var i = 0; i < AdaptiveQualityController.HealthyEvaluationsToRecover * 2; i++)
+            controller.Evaluate(Healthy);
+        Assert.Equal(0, controller.Current.Index);
+
+        // A recovered path no longer pins the level, and local backpressure never did.
+        controller.Evaluate(Backpressured(drops: 20, encoded: 60));
+        Assert.Equal(1, controller.Current.Index);
+        controller.RestartForNewSource();
+        Assert.Equal(0, controller.Current.Index);
+    }
+
+    [Fact]
+    public void One_lossy_receiver_report_lowers_one_rung_until_the_next_report_arrives()
+    {
+        // Receiver reports are about five seconds apart and evaluations one second apart. On
+        // 0.9.90 one 14% report was judged four times: L1 -> L5 in four seconds.
+        var controller = new AdaptiveQualityController(maxFps: 60, maxBitrateKbps: 10_000);
+        var report = Lossy(0.14);
+
+        controller.Evaluate(report);
+        for (var i = 0; i < 4; i++)
+            controller.Evaluate(report with { NetworkFeedbackIsNew = false });
+
+        Assert.Equal(1, controller.Current.Index);
+        Assert.Equal("packet_loss", controller.LastDecision.ReasonCode);
+
+        // The next report is still lossy: one more rung.
+        controller.Evaluate(report);
+        Assert.Equal(2, controller.Current.Index);
+
+        // Other hard signals are measured every evaluation and still act at once.
+        controller.Evaluate(Backpressured(drops: 20, encoded: 60) with { NetworkFeedbackIsNew = false });
+        Assert.Equal(3, controller.Current.Index);
     }
 
     private sealed class CapturingLogger : ILogger
@@ -264,14 +333,15 @@ public class AdaptiveQualityControllerTests
     [InlineData(QualityProfile.Quality, CaptureResolution.P2160)]
     [InlineData(QualityProfile.Balanced, CaptureResolution.P2160)]
     [InlineData(QualityProfile.Performance, CaptureResolution.Native)]
-    public async Task Source_detail_choices_keep_pixels_while_latency_qos_can_reduce_fps_and_bitrate(
+    public async Task Source_detail_choices_keep_pixels_and_60_fps_while_latency_qos_reduces_bitrate(
         QualityProfile quality, CaptureResolution resolution)
     {
         var profile = MediaProfile.For(quality) with { Resolution = resolution };
         await using var session = WebRtcMediaSession.CreateSharer(SessionId.New(), capture: null, profile);
         var ladder = Assert.IsType<AdaptiveQualityController>(session.Adaptive).Ladder;
         Assert.All(ladder, level => Assert.Equal(1, level.DownscaleFactor));
-        Assert.True(ladder[^1].TargetFps < profile.TargetFps);
+        // The owner's minimum: congestion costs bits, never frames below 60 fps.
+        Assert.All(ladder, level => Assert.True(level.TargetFps >= MediaProfile.MinimumFps, level.ToString()));
         Assert.True(ladder[^1].MaxBitrateKbps < profile.MaxBitrateKbps);
     }
 
@@ -363,12 +433,12 @@ public class AdaptiveQualityControllerTests
     [Theory]
     [InlineData(null, 60, 0)]
     [InlineData(60, 60, 0)]
-    [InlineData(59, 59, 0)]
+    [InlineData(59, 60, 0)]
     [InlineData(75, 60, 75)]
     [InlineData(120, 60, 120)]
     [InlineData(144, 60, 120)]
     [InlineData(240, 60, 120)]
-    [InlineData(30, 30, 0)]
+    [InlineData(30, 60, 0)]
     public void Automatic_frame_rates_follow_the_viewer_display(int? viewerHz, int expectedFps, int expectedHighMotion)
     {
         var profile = MediaProfile.For(QualityProfile.Automatic).ForViewerDisplay(viewerHz);
@@ -378,14 +448,53 @@ public class AdaptiveQualityControllerTests
     }
 
     [Fact]
-    public void A_software_limited_sharer_keeps_the_0_9_87_rate_and_ceiling()
+    public void A_software_limited_sharer_keeps_60_fps_and_the_0_9_87_ceiling()
     {
         var limited = MediaProfile.For(QualityProfile.Automatic).ForViewerDisplay(144).ForSoftwareLimitedSharer();
-        Assert.Equal((30, 0, 6000), (limited.TargetFps, limited.HighMotionFps, limited.MaxBitrateKbps));
+        Assert.Equal((60, 0, 6000), (limited.TargetFps, limited.HighMotionFps, limited.MaxBitrateKbps));
     }
 
     [Fact]
-    public void The_native_4k_rung_stays_at_30_fps_when_the_profile_runs_at_60()
+    public void Every_built_in_profile_runs_at_the_60_fps_minimum()
+    {
+        foreach (var quality in Enum.GetValues<QualityProfile>())
+            Assert.True(MediaProfile.For(quality).TargetFps >= MediaProfile.MinimumFps, quality.ToString());
+    }
+
+    [Theory]
+    [InlineData(60, 10_000, false)]
+    [InlineData(60, 10_000, true)]
+    [InlineData(60, 1_200, true)]
+    public void A_frame_rate_floor_keeps_every_rung_at_60_fps_and_lowers_bitrate_instead(
+        int fps, int kbps, bool downscale)
+    {
+        var controller = new AdaptiveQualityController(fps, kbps, allowResolutionDownscale: downscale,
+            highMotionFps: 120, minimumFps: MediaProfile.MinimumFps);
+        Assert.All(controller.Ladder, level => Assert.True(level.TargetFps >= 60, level.ToString()));
+        Assert.Equal(120, controller.Ladder[0].TargetFps);
+        // Bitrate still falls rung by rung, so congestion has somewhere to go.
+        for (var index = 2; index < controller.Ladder.Count; index++)
+            Assert.True(controller.Ladder[index].MaxBitrateKbps <= controller.Ladder[index - 1].MaxBitrateKbps);
+        Assert.True(controller.Ladder[^1].MaxBitrateKbps < controller.Ladder[1].MaxBitrateKbps);
+
+        controller.SetUltraHdSource(true);
+        Assert.All(controller.Ladder, level => Assert.True(level.TargetFps >= 60, level.ToString()));
+    }
+
+    [Fact]
+    public void Repeated_packet_loss_walks_down_bitrate_at_60_fps()
+    {
+        var controller = new AdaptiveQualityController(60, 10_000, minimumFps: MediaProfile.MinimumFps);
+        var lossy = new QualitySample { PacketLossFraction = 0.2, QueueDrops = 0, FramesEncoded = 60 };
+        for (var report = 0; report < 8; report++)
+            controller.Evaluate(lossy);
+        Assert.Equal(controller.Ladder.Count - 1, controller.Current.Index);
+        Assert.Equal(60, controller.Current.TargetFps);
+        Assert.True(controller.Current.MaxBitrateKbps < 10_000);
+    }
+
+    [Fact]
+    public void Without_a_floor_the_native_4k_rung_stays_at_30_fps_when_the_profile_runs_at_60()
     {
         var controller = new AdaptiveQualityController(60, MediaProfile.AutomaticBitrateKbps, highMotionFps: 120);
         controller.SetUltraHdSource(true);
@@ -713,6 +822,53 @@ public class AdaptiveQualityControllerTests
         var level = controller.Evaluate(Backpressured(drops: 20, encoded: 60));
 
         Assert.Equal(1, level.Index);
+    }
+
+    [Fact]
+    public void Encoder_backpressure_never_lowers_only_the_bitrate_under_the_sixty_fps_floor()
+    {
+        // 0.9.95 field session (software VP8, 1080p60): every rung of Automatic keeps 60 fps and
+        // full scale, so backpressure walked 10 -> 2 Mbps in four seconds and blurred all text
+        // without making the CPU-bound encoder any faster.
+        var controller = new AdaptiveQualityController(
+            maxFps: 60, maxBitrateKbps: 10_000, allowResolutionDownscale: false, minimumFps: 60);
+
+        for (var i = 0; i < 10; i++)
+            controller.Evaluate(Backpressured(drops: 30, encoded: 30));
+
+        Assert.Equal(0, controller.Current.Index);
+        Assert.Equal(10_000, controller.Current.MaxBitrateKbps);
+        Assert.Equal("encoder_backpressure", controller.LastDecision.ReasonCode);
+
+        // The network still lowers the bitrate: loss is what a lower bitrate fixes.
+        controller.Evaluate(Lossy(0.20));
+        Assert.Equal(1, controller.Current.Index);
+    }
+
+    [Theory]
+    [InlineData(10_000, true, QualityProfile.Automatic, 20_000)]
+    [InlineData(7_500, true, QualityProfile.Automatic, 15_000)]
+    [InlineData(12_000, true, QualityProfile.Quality, 20_000)]
+    [InlineData(30_000, true, QualityProfile.Automatic, 30_000)]
+    [InlineData(10_000, false, QualityProfile.Automatic, 10_000)]
+    [InlineData(1_200, true, QualityProfile.LowBandwidth, 1_200)]
+    [InlineData(4_500, true, QualityProfile.Office, 4_500)]
+    public void A_direct_lan_path_raises_the_bitrate_ceiling_but_never_lowers_a_rung(
+        int levelKbps, bool directLan, QualityProfile quality, int expected)
+    {
+        Assert.Equal(expected, WebRtcMediaSession.LanBitrate(levelKbps, directLan, quality));
+    }
+
+    [Fact]
+    public void Encoder_backpressure_skips_bitrate_only_rungs_to_the_first_smaller_picture()
+    {
+        var controller = new AdaptiveQualityController(
+            maxFps: 60, maxBitrateKbps: 5000, allowResolutionDownscale: true, minimumFps: 60);
+
+        var level = controller.Evaluate(Backpressured(drops: 30, encoded: 30));
+
+        Assert.Equal(2, level.DownscaleFactor);
+        Assert.Equal(controller.Ladder.First(rung => rung.DownscaleFactor == 2).Index, level.Index);
     }
 
     [Fact]

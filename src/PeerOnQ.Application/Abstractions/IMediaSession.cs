@@ -295,7 +295,10 @@ public interface IMediaSession : IAsyncDisposable
     /// </summary>
     void RequestKeyFrame() { }
 
-    /// <summary>Sharer: after a display switch, start again from the start quality level.</summary>
+    /// <summary>
+    /// Sharer: after a display switch, start again from the start quality level unless the
+    /// network path limited the current one.
+    /// </summary>
     void RestartQuality() { }
 
     bool IsBulkDataLaneNegotiated => false;
@@ -451,14 +454,19 @@ public sealed record MediaProfile
     /// <summary>Automatic's normal frame rate (0.9.88; was 30).</summary>
     public const int AutomaticFps = 60;
 
+    /// <summary>
+    /// The frame rate every profile and adaptive rung keeps (owner requirement): congestion
+    /// lowers bitrate, and resolution where a profile allows it, never the rate below this.
+    /// </summary>
+    public const int MinimumFps = 60;
+
     /// <summary>The highest frame rate a healthy hardware-encoded session may earn.</summary>
     public const int MaximumHighMotionFps = 120;
 
     /// <summary>Automatic's standard-tier ceiling at <see cref="AutomaticFps"/> (was 6 Mbps at 30 fps).</summary>
     public const int AutomaticBitrateKbps = 10_000;
 
-    /// <summary>The 0.9.87 Automatic rate and ceiling, kept for sharers that cannot encode 60 fps.</summary>
-    public const int SoftwareLimitedFps = 30;
+    /// <summary>The 0.9.87 Automatic ceiling, kept for sharers that cannot encode 1080p60.</summary>
     public const int SoftwareLimitedBitrateKbps = 6000;
 
     public static MediaProfile For(QualityProfile quality) => quality switch
@@ -485,28 +493,28 @@ public sealed record MediaProfile
         QualityProfile.Balanced => new MediaProfile
         {
             Quality = quality,
-            TargetFps = 30,
+            TargetFps = MinimumFps,
             Resolution = CaptureResolution.P1080,
             MaxBitrateKbps = 5000,
         },
         QualityProfile.Quality => new MediaProfile
         {
             Quality = quality,
-            TargetFps = 30,
+            TargetFps = MinimumFps,
             Resolution = CaptureResolution.P1080,
             MaxBitrateKbps = 12_000,
         },
         QualityProfile.Office => new MediaProfile
         {
             Quality = quality,
-            TargetFps = 30,
+            TargetFps = MinimumFps,
             Resolution = CaptureResolution.P1080,
             MaxBitrateKbps = 4500,
         },
         QualityProfile.LowBandwidth => new MediaProfile
         {
             Quality = quality,
-            TargetFps = 15,
+            TargetFps = MinimumFps,
             Resolution = CaptureResolution.P1080,
             MaxBitrateKbps = 1200,
         },
@@ -514,16 +522,16 @@ public sealed record MediaProfile
     };
 
     /// <summary>
-    /// Fits Automatic's frame rates to the viewer's displays: the normal rate is 60 fps (lower
-    /// only for a slower display) and the earned high-motion rate is the viewer's highest display
-    /// rate, at most 120 fps. A viewer that sent no rate (older clients) is treated as 60 Hz.
+    /// Fits Automatic's frame rates to the viewer's displays: the normal rate is 60 fps, also for a
+    /// slower display (the 60 fps minimum), and the earned high-motion rate is the viewer's highest
+    /// display rate, at most 120 fps. A viewer that sent no rate (older clients) is treated as 60 Hz.
     /// Other profiles keep their fixed rates.
     /// </summary>
     public MediaProfile ForViewerDisplay(int? viewerMaxFps)
     {
         if (Quality != QualityProfile.Automatic) return this;
         var display = viewerMaxFps is >= 1 ? viewerMaxFps.Value : AutomaticFps;
-        var normal = Math.Clamp(display, 24, AutomaticFps);
+        var normal = Math.Max(AutomaticFps, MinimumFps);
         var highMotion = Math.Min(display, MaximumHighMotionFps);
         return this with
         {
@@ -532,13 +540,16 @@ public sealed record MediaProfile
         };
     }
 
-    /// <summary>A sharer without a hardware encoder on a small CPU cannot encode 60 fps in VP8.</summary>
+    /// <summary>
+    /// A sharer without a hardware encoder on a small CPU cannot encode 1080p60 in VP8. It keeps the
+    /// 60 fps minimum without the high-motion rung; the media session captures a large desktop at
+    /// half scale instead (0.9.91 and earlier lowered the rate to 30 fps).
+    /// </summary>
     public MediaProfile ForSoftwareLimitedSharer() =>
         Quality != QualityProfile.Automatic
             ? this
             : this with
             {
-                TargetFps = Math.Min(TargetFps, SoftwareLimitedFps),
                 HighMotionFps = 0,
                 MaxBitrateKbps = Math.Min(MaxBitrateKbps, SoftwareLimitedBitrateKbps),
             };

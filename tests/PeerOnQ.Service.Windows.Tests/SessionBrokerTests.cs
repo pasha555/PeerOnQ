@@ -61,6 +61,35 @@ public sealed class SessionBrokerTests
         Assert.False(WindowsSessionBrokerProtocol.TryReadRequest(valid, out _));
         Assert.False(WindowsSessionBrokerProtocol.IsAccepted(WindowsSessionBrokerProtocol.Response(false)));
         Assert.True(WindowsSessionBrokerProtocol.IsAccepted(WindowsSessionBrokerProtocol.Response(true)));
+
+        // Secure attention is operation 4 and parses; 5 and above do not.
+        Assert.True(WindowsSessionBrokerProtocol.TryReadRequest(
+            WindowsSessionBrokerProtocol.Request(SessionBrokerOperation.SecureAttention), out var sas));
+        Assert.Equal(SessionBrokerOperation.SecureAttention, sas);
+        var beyond = WindowsSessionBrokerProtocol.Request(SessionBrokerOperation.SecureAttention);
+        beyond[4] = 5;
+        Assert.False(WindowsSessionBrokerProtocol.TryReadRequest(beyond, out _));
+    }
+
+    [Fact]
+    public void SecureAttentionIsAuthorizedOnlyForAnAllowedHostWithALiveLease()
+    {
+        var registry = new SessionLeaseRegistry(HostPath);
+        var now = DateTimeOffset.UtcNow;
+
+        // No lease yet: declined.
+        Assert.False(registry.HasActiveLease(Peer, now));
+
+        registry.Register(Peer, now);
+        Assert.True(registry.HasActiveLease(Peer, now));
+
+        // A different process in the same session is a different peer identity.
+        Assert.False(registry.HasActiveLease(Peer with { ProcessId = 99 }, now));
+        // A non-interactive or wrong-executable caller is never allowed.
+        Assert.False(registry.HasActiveLease(Peer with { UserSid = "S-1-5-18" }, now));
+        Assert.False(registry.HasActiveLease(Peer with { ExecutablePath = @"C:\Users\x\fake.exe" }, now));
+        // The lease expires.
+        Assert.False(registry.HasActiveLease(Peer, now.AddSeconds(WindowsSessionBrokerProtocol.LeaseSeconds + 1)));
     }
 
     [Fact]

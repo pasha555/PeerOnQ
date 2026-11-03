@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.Versioning;
+using Vortice;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -40,6 +41,11 @@ public readonly record struct VideoPresentationLayout(
 /// compositor applies, so no CPU scaling pass and no UI-thread frame work remain. A copy of the
 /// last frame stays on the GPU so a resize or scale-mode change re-presents without a new frame.
 /// Any failure is reported to the caller, which falls back to the bitmap path.
+///
+/// Since 0.9.96 the swap chain is the viewport's size in physical pixels and the GPU video
+/// processor scales the frame into pixel-aligned rectangles (<see cref="D3D11BgraScaler"/>): the
+/// compositor's own sampling smeared one-pixel text whenever the viewport was not the remote
+/// size. Without a usable video processor the frame-sized swap chain and transform remain.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class D3D11CompositionVideoPresenter : IDisposable
@@ -54,6 +60,8 @@ public sealed class D3D11CompositionVideoPresenter : IDisposable
     private readonly IDXGISwapChain2 _swapChain2;
     private ID3D11Texture2D? _frame;
     private VideoPresentationLayout? _layout;
+    private D3D11BgraScaler? _scaler;
+    private int _bufferWidth = 16, _bufferHeight = 16;
     private bool _disposed;
 
     private D3D11CompositionVideoPresenter(
@@ -63,6 +71,13 @@ public sealed class D3D11CompositionVideoPresenter : IDisposable
         _context = context;
         _swapChain = swapChain;
         _swapChain2 = swapChain2;
+        _scaler = D3D11BgraScaler.TryCreate(device, context);
+    }
+
+    /// <summary>True while frames are scaled by the GPU video processor rather than the compositor.</summary>
+    public bool UsesVideoProcessorScaling
+    {
+        get { lock (_gate) return _scaler is not null; }
     }
 
     /// <summary>The IDXGISwapChain1 to hand to ISwapChainPanelNative.SetSwapChain.</summary>
@@ -171,8 +186,6 @@ public sealed class D3D11CompositionVideoPresenter : IDisposable
             {
                 _frame?.Dispose();
                 _frame = null;
-                _swapChain.ResizeBuffers(BufferCount, (uint)width, (uint)height, PixelFormat, SwapChainFlags.None)
-                    .CheckError();
                 _frame = _device.CreateTexture2D(new Texture2DDescription
                 {
                     Width = (uint)width,
@@ -182,7 +195,8 @@ public sealed class D3D11CompositionVideoPresenter : IDisposable
                     Format = PixelFormat,
                     SampleDescription = new SampleDescription(1, 0),
                     Usage = ResourceUsage.Default,
-                    BindFlags = BindFlags.ShaderResource,
+                    // The video processor reads it through an input view.
+                    BindFlags = BindFlags.ShaderResource | BindFlags.RenderTarget,
                 });
                 Width = width;
                 Height = height;
@@ -206,12 +220,100 @@ public sealed class D3D11CompositionVideoPresenter : IDisposable
 
     private void PresentLocked()
     {
-        using (var backBuffer = _swapChain.GetBuffer<ID3D11Texture2D>(0))
-            _context.CopyResource(backBuffer, _frame!);
-        if (_layout is { } layout)
-            _swapChain2.MatrixTransform = ComputeTransform(Width, Height, layout);
+        if (!TryPresentScaledLocked())
+        {
+            ResizeBuffersLocked(Width, Height);
+            using (var backBuffer = _swapChain.GetBuffer<ID3D11Texture2D>(0))
+                _context.CopyResource(backBuffer, _frame!);
+            if (_layout is { } layout)
+                _swapChain2.MatrixTransform = ComputeTransform(Width, Height, layout);
+        }
         _swapChain.Present(0, PresentFlags.None).CheckError();
         FramesPresented++;
+    }
+
+    /// <summary>
+    /// Scales the frame on the GPU into a viewport-sized buffer the compositor shows 1:1. False
+    /// (frame-sized buffer and transform instead) before the layout is known or without a video
+    /// processor; a processor failure disables it for the presenter's lifetime.
+    /// </summary>
+    private bool TryPresentScaledLocked()
+    {
+        if (_scaler is not { } scaler || _layout is not { } layout) return false;
+        var (bufferWidth, bufferHeight) = PhysicalViewport(layout);
+        if (bufferWidth <= 0 || bufferHeight <= 0) return false;
+        try
+        {
+            ResizeBuffersLocked(bufferWidth, bufferHeight);
+            var (source, destination) = ComputeScaledRects(Width, Height, bufferWidth, bufferHeight, layout.Mode);
+            using (var backBuffer = _swapChain.GetBuffer<ID3D11Texture2D>(0))
+                scaler.Scale(_frame!, Width, Height, backBuffer, bufferWidth, bufferHeight, source, destination);
+            // One buffer pixel per display pixel: undo the panel's DPI scale.
+            _swapChain2.MatrixTransform = Matrix3x2.CreateScale(
+                1f / Math.Max(0.01f, layout.CompositionScaleX), 1f / Math.Max(0.01f, layout.CompositionScaleY));
+            return true;
+        }
+        catch (Exception)
+        {
+            _scaler = null;
+            scaler.Dispose();
+            return false;
+        }
+    }
+
+    private void ResizeBuffersLocked(int width, int height)
+    {
+        if (width == _bufferWidth && height == _bufferHeight) return;
+        _swapChain.ResizeBuffers(BufferCount, (uint)width, (uint)height, PixelFormat, SwapChainFlags.None).CheckError();
+        _bufferWidth = width;
+        _bufferHeight = height;
+    }
+
+    /// <summary>The panel's size in physical pixels (DIPs times the composition scale).</summary>
+    internal static (int Width, int Height) PhysicalViewport(VideoPresentationLayout layout) =>
+        ((int)Math.Clamp(Math.Round(layout.ViewportWidth * layout.CompositionScaleX), 0, 16_384),
+         (int)Math.Clamp(Math.Round(layout.ViewportHeight * layout.CompositionScaleY), 0, 16_384));
+
+    /// <summary>
+    /// Source and destination rectangles, in whole pixels, that place a frame in a buffer exactly
+    /// like the matching XAML Stretch. A frame that fits at 1:1 with less than 2% to spare is
+    /// shown 1:1 rather than resampled for that sliver.
+    /// </summary>
+    public static (RawRect Source, RawRect Destination) ComputeScaledRects(
+        int width, int height, int bufferWidth, int bufferHeight, VideoPresentationScaleMode mode)
+    {
+        var full = new RawRect(0, 0, width, height);
+        switch (mode)
+        {
+            case VideoPresentationScaleMode.Stretch:
+                return (full, new RawRect(0, 0, bufferWidth, bufferHeight));
+            case VideoPresentationScaleMode.ActualSize:
+            {
+                var visibleWidth = Math.Min(width, bufferWidth);
+                var visibleHeight = Math.Min(height, bufferHeight);
+                return (new RawRect(0, 0, visibleWidth, visibleHeight), new RawRect(0, 0, visibleWidth, visibleHeight));
+            }
+            case VideoPresentationScaleMode.Fill:
+            {
+                var scale = Math.Max((double)bufferWidth / width, (double)bufferHeight / height);
+                var visibleWidth = Math.Clamp((int)Math.Round(bufferWidth / scale), 1, width);
+                var visibleHeight = Math.Clamp((int)Math.Round(bufferHeight / scale), 1, height);
+                var left = (width - visibleWidth) / 2;
+                var top = (height - visibleHeight) / 2;
+                return (new RawRect(left, top, left + visibleWidth, top + visibleHeight),
+                        new RawRect(0, 0, bufferWidth, bufferHeight));
+            }
+            default:
+            {
+                var scale = Math.Min((double)bufferWidth / width, (double)bufferHeight / height);
+                if (scale is >= 1 and < 1.02) scale = 1;
+                var targetWidth = Math.Clamp((int)Math.Round(width * scale), 1, bufferWidth);
+                var targetHeight = Math.Clamp((int)Math.Round(height * scale), 1, bufferHeight);
+                var left = (bufferWidth - targetWidth) / 2;
+                var top = (bufferHeight - targetHeight) / 2;
+                return (full, new RawRect(left, top, left + targetWidth, top + targetHeight));
+            }
+        }
     }
 
     /// <summary>Maps swap chain pixels to panel DIPs exactly like the matching XAML Stretch.</summary>
@@ -281,6 +383,8 @@ public sealed class D3D11CompositionVideoPresenter : IDisposable
         {
             if (_disposed) return;
             _disposed = true;
+            _scaler?.Dispose();
+            _scaler = null;
             _frame?.Dispose();
             _frame = null;
             _swapChain2.Dispose();

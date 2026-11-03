@@ -60,6 +60,15 @@ public sealed class SessionBrokerWorker(SessionLeaseRegistry leases) : Backgroun
                 if (!WindowsSessionBrokerProtocol.TryReadRequest(packet, out var operation)) return;
                 var current = BrokerNative.GetPeer(pipe);
                 var accepted = false;
+                if (operation == SessionBrokerOperation.SecureAttention)
+                {
+                    // One-shot and connectionless: a live lease for this exact interactive host
+                    // authorizes raising Ctrl+Alt+Del on the console. SendSAS only shows the secure
+                    // screen; it grants nothing. The connection then closes.
+                    accepted = leases.HasActiveLease(current, DateTimeOffset.UtcNow) && ServiceSecureAttention.Generate();
+                    await pipe.WriteAsync(WindowsSessionBrokerProtocol.Response(accepted), deadline.Token);
+                    return;
+                }
                 if (!registered && operation == SessionBrokerOperation.Register)
                 {
                     peer = current;

@@ -18,7 +18,7 @@ public static class MediaFoundationAvailability
 {
     /// <summary>Shown on the dashboard instead of an install request: the product works without the pack.</summary>
     public const string SoftwareVideoNotice =
-        "Windows N: hardware video is not available on this edition, so PeerOnQ uses software video. Sessions work as usual.";
+        "Windows N: PeerOnQ setup adds the Windows media components; hardware video starts after the next Windows restart. Until then PeerOnQ uses software video. Sessions work as usual.";
 
     private static readonly Lazy<Status> Current = new(() => Evaluate(TryLoad, File.Exists));
 
@@ -69,7 +69,7 @@ public static class MediaFoundationCodecFactories
         H264Decoder(MediaFoundationAvailability.IsH264DecoderPresent, created);
 
     internal static Func<IHardwareH264Encoder?>? HardwareH264Encoder(bool platformPresent) =>
-        platformPresent ? () => new MediaFoundationH264Encoder() : null;
+        platformPresent ? () => new PreparedTargetH264Encoder() : null;
 
     internal static Func<IH264VideoDecoder?>? H264Decoder(bool decoderPresent, Action? created) =>
         decoderPresent

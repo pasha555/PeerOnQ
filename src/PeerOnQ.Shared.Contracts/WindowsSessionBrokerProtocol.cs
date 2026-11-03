@@ -24,7 +24,7 @@ public static class WindowsSessionBrokerProtocol
     {
         operation = default;
         if (packet.Length != PacketSize || !packet[..4].SequenceEqual("PQS1"u8) ||
-            packet[5] != 0 || packet[6] != 0 || packet[7] != 0 || packet[4] is < 1 or > 3)
+            packet[5] != 0 || packet[6] != 0 || packet[7] != 0 || packet[4] is < 1 or > 4)
             return false;
         operation = (SessionBrokerOperation)packet[4];
         return true;
@@ -49,5 +49,13 @@ public enum SessionBrokerOperation : byte
 {
     Register = 1,
     Heartbeat = 2,
-    Unregister = 3
+    Unregister = 3,
+
+    /// <summary>
+    /// Asks the LocalSystem broker to raise the secure-attention sequence (Ctrl+Alt+Del) on the
+    /// active console session. It carries no credentials and never bypasses sign-in; the person
+    /// still enters their own password or PIN on the secure screen. The broker honours it only
+    /// while the caller's session holds a live interactive-host lease.
+    /// </summary>
+    SecureAttention = 4
 }

@@ -36,6 +36,15 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
     // frames. The libvpx default (0) spends far too much CPU on motion search and starves capture.
     private const int RealtimeCpuUsed = 16;
     private const int DesktopScreenContentMode = 1;
+    // A CPU-only sharer (no hardware encoder) lives on these two (0.9.96). Encode breakout: a block
+    // that predicts exactly from its reference is coded as a skip without a residual search, as in
+    // WebRTC; most of a desktop is unchanged between frames. Four token partitions
+    // (VP8_FOUR_TOKENPARTITION) let libvpx pack the bitstream on several threads and the viewer's
+    // decoder use threads too. 1080p text scroll/typing at 20 Mbps, one thread: 12.4 -> 10.7 ms and
+    // 12.1 -> 10.0 ms per frame, luma PSNR unchanged (54.2 / 52.3 dB). Higher thresholds were
+    // faster but lost up to 1.7 dB, so the residual of a refining still frame keeps being coded.
+    internal const int StaticThreshold = 1;
+    internal const int TokenPartitions = 2;
     private const int MaximumVp8Dimension = 16_383;
     // One 8K I420 frame is about 47.5 MiB; bound the pinned frame and native working set.
     private const int MaximumI420FrameBytes = 64 * 1024 * 1024;
@@ -687,6 +696,18 @@ internal sealed partial class Vp8ScreenEncoder : IDisposable
                         (int)Vp8eEncControlId.VP8E_SET_MAX_INTRA_BITRATE_PCT,
                         MaximumIntraBitratePercent),
                     "bound the VP8 key-frame size");
+                EnsureSuccess(
+                    VpxCodecControlInt(
+                        candidateContext.__Instance,
+                        (int)Vp8eEncControlId.VP8E_SET_STATIC_THRESHOLD,
+                        StaticThreshold),
+                    "skip the residual search for unchanged desktop blocks");
+                EnsureSuccess(
+                    VpxCodecControlInt(
+                        candidateContext.__Instance,
+                        (int)Vp8eEncControlId.VP8E_SET_TOKEN_PARTITIONS,
+                        TokenPartitions),
+                    "split the VP8 tokens for parallel packing and decoding");
 
                 candidateImage = new VpxImage();
                 _context = candidateContext;

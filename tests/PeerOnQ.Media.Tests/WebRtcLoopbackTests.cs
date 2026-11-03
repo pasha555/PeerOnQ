@@ -1465,6 +1465,48 @@ public partial class WebRtcLoopbackTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A still desktop keeps being re-encoded for the refinement window, so a CBR encoder spends
+    /// the idle link sharpening the frozen frame instead of leaving it at its last moving quality.
+    /// </summary>
+    [Fact]
+    public async Task A_static_desktop_is_re_encoded_to_refine_it_without_a_viewer_request()
+    {
+        var capture = new StaticCaptureSource();
+        await capture.StartAsync(new CaptureRequest
+        {
+            Target = new CaptureTargetInfo(CaptureTargetKind.Display, "static", "Static Display", 320, 240),
+            MaxFramesPerSecond = 30,
+        });
+
+        var sessionId = SessionId.New();
+        await using var sharer = WebRtcMediaSession.CreateSharer(
+            sessionId, capture, MediaProfile.For(QualityProfile.Quality));
+        await using var viewer = WebRtcMediaSession.CreateViewer(sessionId);
+        await using var identities = await TestHybridIdentityPair.CreateAsync();
+        await using var viewerTransport = new MediaCollaborationTransport(
+            viewer, SessionPermission.ViewScreen, identities.Viewer, identities.SharerLegacyFingerprint);
+        await using var sharerTransport = new MediaCollaborationTransport(
+            sharer, SessionPermission.ViewScreen, identities.Sharer, identities.ViewerLegacyFingerprint);
+        sharer.LocalIceCandidate += async (_, c) =>
+            await viewer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+        viewer.LocalIceCandidate += async (_, c) =>
+            await sharer.AddRemoteIceCandidateAsync(c.Candidate, c.SdpMid, c.SdpMLineIndex);
+
+        await sharer.ApplyRemoteAnswerAsync(await viewer.CreateAnswerAsync(await sharer.CreateOfferAsync()));
+        await WaitUntilAsync(() => viewerTransport.IsReady && sharerTransport.IsReady);
+        Assert.True(await UntilAsync(() => sharer.GetStatistics().FramesEncoded > 0, TimeSpan.FromSeconds(20)));
+
+        // Freeze the source: a capture refresh now delivers no new frame, so any further encoded
+        // frame can only be the held one, re-encoded by refinement. The same pixels keep the
+        // refinement window open (no significant change re-arms it, none exhausts it early).
+        capture.Frozen = true;
+        var encoded = sharer.GetStatistics().FramesEncoded;
+        Assert.True(
+            await UntilAsync(() => sharer.GetStatistics().FramesEncoded >= encoded + 5, TimeSpan.FromSeconds(2)),
+            $"a frozen static desktop was not refined: encoded={sharer.GetStatistics().FramesEncoded} (was {encoded})");
+    }
+
+    /// <summary>
     /// A connected viewer that decodes nothing asks for a picture on its own (field freeze in
     /// 0.9.83: five frames, then two minutes of a silent frozen screen).
     /// </summary>

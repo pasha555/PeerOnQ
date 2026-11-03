@@ -58,6 +58,27 @@ public sealed class WindowsSessionBrokerClient(ILogger<WindowsSessionBrokerClien
         catch (Exception exception) when (exception is UnauthorizedAccessException or System.Security.SecurityException or IOException) { return false; }
     }
 
+    /// <summary>
+    /// Asks the installed LocalSystem broker to raise Ctrl+Alt+Del on the console. Returns false
+    /// when the broker is absent, declines, or times out. Synchronous and short; callers run it off
+    /// any latency-sensitive thread.
+    /// </summary>
+    public static bool TryRequestSecureAttention()
+    {
+        try
+        {
+            using var pipe = ConnectVerified();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            return ExchangeAsync(pipe, SessionBrokerOperation.SecureAttention, deadline.Token)
+                .GetAwaiter().GetResult();
+        }
+        catch (Exception exception) when (exception is IOException or Win32Exception
+            or UnauthorizedAccessException or InvalidOperationException or ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
     private static NamedPipeClientStream ConnectVerified()
     {
         var pipePath = @"\\.\pipe\" + WindowsSessionBrokerProtocol.PipeName;

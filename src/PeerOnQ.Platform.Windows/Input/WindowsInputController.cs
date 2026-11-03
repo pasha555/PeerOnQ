@@ -14,10 +14,23 @@ namespace PeerOnQ.Platform.Windows.Input;
 /// control elevated applications or synthesize the secure-attention sequence.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
-public sealed class WindowsInputController(ILogger<WindowsInputController>? logger = null) : IRemoteInputSink
+public sealed class WindowsInputController : IRemoteInputSink
 {
     private readonly Lock _gate = new();
-    private readonly ILogger _log = logger ?? NullLogger<WindowsInputController>.Instance;
+    private readonly ILogger _log;
+    private readonly Func<bool> _generateSecureAttention;
+
+    public WindowsInputController(ILogger<WindowsInputController>? logger = null)
+        : this(logger, WindowsSecureAttention.TryGenerate) { }
+
+    // The secure-attention generator is a seam: tests assert it is reached only with Full Control,
+    // without raising the real Ctrl+Alt+Del screen. The per-user host passes the default, which
+    // reports no generator; the SYSTEM secure-desktop service supplies a working one.
+    internal WindowsInputController(ILogger<WindowsInputController>? logger, Func<bool> generateSecureAttention)
+    {
+        _log = logger ?? NullLogger<WindowsInputController>.Instance;
+        _generateSecureAttention = generateSecureAttention;
+    }
     private readonly HashSet<ushort> _pressedKeys = [];
     private readonly HashSet<char> _pressedUnicode = [];
     private readonly HashSet<RemotePointerButton> _pressedButtons = [];
@@ -80,6 +93,23 @@ public sealed class WindowsInputController(ILogger<WindowsInputController>? logg
                 ReleaseAllCore();
                 _log.LogWarning("Rejected a secure-attention key combination; remote input was disabled");
                 return false;
+            }
+
+            if (input.Kind == RemoteInputEventKind.SecureAttention)
+            {
+                // A real Ctrl+Alt+Del cannot be produced with SendInput (Windows reserves it); it
+                // comes from the secure-attention generator. The request is always accepted so a
+                // device without that generator does not fail-close the authorized input channel.
+                if (_generateSecureAttention())
+                {
+                    _log.LogInformation("A secure-attention request reached the Windows secure-attention generator");
+                }
+                else
+                {
+                    _log.LogWarning(
+                        "A secure-attention request was accepted but no generator is available; the PeerOnQ secure-desktop service is required");
+                }
+                return true;
             }
 
             var commands = new List<NativeInput>(2);

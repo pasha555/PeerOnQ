@@ -22,11 +22,12 @@ public class FrameScalerTests
     {
         var office = MediaProfile.For(QualityProfile.Office);
         Assert.Equal(CaptureResolution.P1080, office.Resolution);
-        Assert.Equal(30, office.TargetFps);
+        Assert.Equal(MediaProfile.MinimumFps, office.TargetFps);
 
+        // Both keep the 60 fps minimum; they differ in the bitrate they spend.
         var lowBandwidth = MediaProfile.For(QualityProfile.LowBandwidth);
         Assert.Equal(CaptureResolution.P1080, lowBandwidth.Resolution);
-        Assert.Equal(15, lowBandwidth.TargetFps);
+        Assert.Equal(MediaProfile.MinimumFps, lowBandwidth.TargetFps);
         Assert.True(lowBandwidth.MaxBitrateKbps < office.MaxBitrateKbps);
     }
 

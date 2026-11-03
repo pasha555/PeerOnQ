@@ -141,6 +141,10 @@ public sealed partial class ViewerWindow : Window
         FileTransferButton.Visibility = _mode == SessionMode.FullControl
             ? Visibility.Visible
             : Visibility.Collapsed;
+        // Ctrl+Alt+Del is a Full Control action; it is only effective on a device running the
+        // PeerOnQ secure-desktop service, which the tooltip makes clear.
+        SecureAttentionButton.Visibility = FileTransferButton.Visibility;
+        SecureAttentionSeparator.Visibility = FileTransferButton.Visibility;
         AttachFileTransfers(fileTransfers);
         if (_remoteInput is not null)
             _remoteInput.ControlPermissionChanged += OnControlPermissionChanged;
@@ -581,7 +585,7 @@ public sealed partial class ViewerWindow : Window
             ? $"render error: {_renderFailure}"
             : stats.VideoStalledSeconds > 0
                 ? $"No new picture for {stats.VideoStalledSeconds:0} s · requesting one from the remote computer"
-                : $"{dimensions} · {measuredFps:0} FPS · {measuredBitrate}";
+                : $"{dimensions} · {measuredFps:0} FPS · {measuredBitrate} · {(_gpuSurfaceVisible ? "GPU" : "CPU")}";
         AutomationProperties.SetItemStatus(ActiveRemoteSurface, QualityText.Text);
         AutomationProperties.SetItemStatus(RemoteInputSurface, QualityText.Text);
         var path = stats.ConnectionPath switch
@@ -657,6 +661,28 @@ public sealed partial class ViewerWindow : Window
         finally
         {
             UpdateFileTransferAvailability();
+        }
+    }
+
+    private async void OnSendSecureAttention(object sender, RoutedEventArgs e)
+    {
+        if (_remoteInput is null) return;
+
+        // Brief disable gives a press confirmation; the host cannot report whether the remote
+        // actually raised its secure screen (that needs its secure-desktop service).
+        SecureAttentionButton.IsEnabled = false;
+        try
+        {
+            await _remoteInput.SendSecureAttentionAsync();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Could not send Ctrl+Alt+Del for session {SessionId}", _sessionId);
+        }
+        finally
+        {
+            if (!_dispatcher.TryEnqueue(() => SecureAttentionButton.IsEnabled = true))
+                SecureAttentionButton.IsEnabled = true;
         }
     }
 
