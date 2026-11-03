@@ -1549,7 +1549,10 @@ public partial class WebRtcLoopbackTests(ITestOutputHelper output)
         Assert.True(
             await UntilAsync(() => Volatile.Read(ref framesReceived) > before, TimeSpan.FromSeconds(10)),
             $"no picture after the stall; refreshes={Volatile.Read(ref capture.Refreshes)}");
-        Assert.True(Volatile.Read(ref capture.Refreshes) > refreshesBefore);
+        // The sharer queues the capture refresh to the thread pool; the key frame can arrive first.
+        Assert.True(
+            await UntilAsync(() => Volatile.Read(ref capture.Refreshes) > refreshesBefore, TimeSpan.FromSeconds(5)),
+            "the picture request never refreshed the capture");
         Assert.True(await UntilAsync(() => viewer.GetStatistics().VideoStalledSeconds == 0, TimeSpan.FromSeconds(3)));
     }
 

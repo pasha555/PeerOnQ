@@ -14,7 +14,9 @@ namespace PeerOnQ.Media.Tests;
 public sealed class RouterPortMappingTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly IPAddress PublicAddress = IPAddress.Parse("93.184.216.34");
-    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromMilliseconds(600);
+    // The fake gateways answer on thread-pool loops; 600 ms let a loaded CI runner miss the SSDP
+    // reply, so no AddPortMapping was ever sent. Tests that expect a reply return as soon as it arrives.
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(3);
 
     [Fact]
     public async Task Nat_pmp_maps_renews_and_deletes_a_leased_port()

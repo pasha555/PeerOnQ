@@ -182,8 +182,12 @@ public sealed class NetworkDoctorProbeTests
             var latency = Probe(report, "latency");
             Assert.Equal(NetworkProbeStatus.Available, dns.Status);
             Assert.True(dns.DurationMs >= resolverDelayMs - 50, $"DNS took {dns.DurationMs} ms");
-            Assert.Equal(NetworkProbeStatus.Available, latency.Status);
-            Assert.True(latency.DurationMs < 250, $"Latency {latency.DurationMs} ms must not include the {resolverDelayMs} ms resolver delay");
+            // A loaded CI runner can take over 100 ms for a loopback connect; the status must still
+            // follow the measured time, and that time must not include the resolver delay.
+            Assert.Equal(
+                latency.DurationMs <= NetworkDoctorService.GoodLatencyMs ? NetworkProbeStatus.Available : NetworkProbeStatus.Degraded,
+                latency.Status);
+            Assert.True(latency.DurationMs < 250,$"Latency {latency.DurationMs} ms must not include the {resolverDelayMs} ms resolver delay");
             Assert.Equal(latency.DurationMs, Probe(report, "signaling").DurationMs);
 
             Assert.Equal(NetworkProbeStatus.Available, Probe(report, "stun").Status);
